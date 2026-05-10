@@ -1,0 +1,87 @@
+# See https://help.github.com/articles/ignoring-files for more about ignoring files.
+
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Testing
+/coverage
+
+# Next.js
+/.next/
+/out/
+
+# Production builds
+/build
+/dist
+
+# Vercel
+.vercel
+
+# Turborepo / Turbopack cache (monorepos or future Turbo usage)
+.turbo
+
+# TypeScript
+*.tsbuildinfo
+
+# ESLint
+.eslintcache
+
+# Environment variables — never commit secrets
+.env
+.env.*
+!.env.example
+
+# Prisma — local SQLite (optional; this project uses PostgreSQL)
+*.db
+*.db-journal
+
+# Supabase CLI — local branching / temp (after `supabase init` or local stack)
+supabase/.branches
+supabase/.temp
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# TLS / keys
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDE
+.cursor/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sentry CLI (if you add Sentry)
+.env.sentry-build-plugin
+.sentryclirc
+
+# Playwright (if you add E2E tests)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Vitest (browser mode / cache, if used)
+.vitest/
+
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+!.env.example

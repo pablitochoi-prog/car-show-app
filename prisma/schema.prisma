@@ -1,0 +1,435 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum PlatformRole {
+  USER
+  ORGANIZER
+  ADMIN
+}
+
+enum EventStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ACTIVE
+  VOTING
+  CLOSED
+  ARCHIVED
+}
+
+enum RegistrationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum RegistrationFeeType {
+  FREE
+  PAID
+  PAID_TIERED
+  DONATION
+}
+
+model User {
+  id          String       @id @default(uuid())
+  email       String       @unique
+  name        String
+  username    String?      @unique
+  firstName   String?
+  lastName    String?
+  phone       String?
+  /// Street address line for profile / contact.
+  street      String?
+  city        String?
+  /// US state postal abbreviation or region label.
+  state       String?
+  zip         String?
+  /// Year of birth for profile (optional).
+  birthYear   Int?
+  avatarUrl   String?
+  platformRole PlatformRole @default(USER)
+  /// Admin-hidden accounts are excluded from public listings.
+  archivedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Supabase Auth user id (links to auth.users)
+  supabaseId  String       @unique
+
+  orgMemberships OrganizationMember[]
+  eventStaffMembers EventStaffMember[]
+  vehicles       Vehicle[]
+  registrations  Registration[]
+
+  @@map("users")
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  logo        String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Short tagline shown on club profiles.
+  motto String?
+  /// Label for where the club usually meets (e.g. building or region).
+  primaryMeetingLocation String?
+  /// Free text, e.g. "First Tuesday monthly".
+  meetingFrequency String?
+  /// Typical meeting start time (24h HH:MM), same storage as event times.
+  meetingTime String?
+  /// Venue / place name for meetings.
+  meetingVenueName String?
+  street   String?
+  city     String?
+  state    String?
+  zip      String?
+  lat      Float?
+  lng      Float?
+
+  contactFirstName String?
+  contactLastName  String?
+  contactEmail     String?
+  contactPhone     String?
+  /// E.g. President, Treasurer — stored as plain text.
+  contactRole      String?
+
+  websiteUrl   String?
+  facebookUrl  String?
+  instagramUrl String?
+  youtubeUrl   String?
+  tikTokUrl    String?
+
+  /// Listing visible / joinable by anyone vs restricted.
+  openToPublic Boolean @default(true)
+  /// Require a site member account to participate or join.
+  requiresMemberAccount Boolean @default(false)
+  yearFounded           Int?
+  /// US state postal code where the club is based (club details; separate from meeting address state).
+  clubState             String?
+  /// Legacy optional timestamp (no longer collected on the car-club form; upcoming events are derived from linked Event rows).
+  lastActivityAt DateTime?
+  /// Owner-archived clubs are hidden from My clubs until restored.
+  archivedAt DateTime?
+
+  members OrganizationMember[]
+  events  Event[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id        String   @id @default(uuid())
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Event {
+  id           String      @id @default(uuid())
+  name              String
+  /// Organizer-facing estimate; optional.
+  estimatedCarCount Int?
+  description  String?
+  venue        String?
+  street       String?
+  city         String?
+  state        String?
+  zip          String?
+  lat          Float?
+  lng          Float?
+  startDate    DateTime
+  endDate      DateTime?
+  startTime    String?
+  endTime      String?
+  isMultiDay   Boolean     @default(false)
+  flyerUrl     String?
+  logoUrl      String?
+  contactName      String?
+  contactFirstName String?
+  contactLastName  String?
+  contactEmail String?
+  contactPhone String?
+  /// Public event page URL (https://…)
+  eventWebsite  String?
+  socialHashtag String?
+  eventType    String      @default("car_show")
+  status       EventStatus @default(DRAFT)
+  listingScheduledAt     DateTime?
+  registrationFeeType    RegistrationFeeType?
+  registrationFeeDollars Int?
+  dailyHours             Json?
+  clonedFromId String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  orgId        String?
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
+  staffMembers      EventStaffMember[]
+  roleDefinitions   EventRoleDefinition[]
+  registrationTiers RegistrationTier[]
+  registrations     Registration[]
+  eventCategories   EventCategory[]
+  eventAwards       EventAward[]
+
+  @@index([status, startDate])
+  @@index([city, state])
+  @@index([orgId])
+  @@map("events")
+}
+
+model RegistrationTier {
+  id          String    @id @default(uuid())
+  name        String
+  priceCents  Int       @default(0)
+  opensAt     DateTime?
+  closesAt    DateTime?
+  memberOnly  Boolean   @default(false)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  registrations Registration[]
+
+  @@index([eventId, sortOrder])
+  @@map("registration_tiers")
+}
+
+model Vehicle {
+  id        String   @id @default(uuid())
+  year      Int
+  make      String
+  model     String
+  trim      String?
+  /// Friendly name for the car (optional).
+  nickname  String?
+  /// Vehicle identification number (optional).
+  vin       String?
+  notes     String?
+  photoUrl  String?
+  /// Admin-hidden vehicles are excluded from public listings.
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  registrationRows RegistrationVehicle[]
+
+  @@index([userId])
+  @@map("vehicles")
+}
+
+model Registration {
+  id        String             @id @default(uuid())
+  status    RegistrationStatus @default(PENDING)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  /// Null for guest registrations.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tierId String
+  tier   RegistrationTier @relation(fields: [tierId], references: [id], onDelete: Restrict)
+
+  /// Guest contact fields (null when userId is present).
+  guestFirstName String?
+  guestLastName  String?
+  guestEmail     String?
+  guestPhone     String?
+  /// Vehicle data for guests stored as JSON array of {year,make,model,trim,notes}.
+  guestVehicles  Json?
+
+  vehicles RegistrationVehicle[]
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+  @@index([eventId, guestEmail])
+  @@map("registrations")
+}
+
+model RegistrationVehicle {
+  id            String @id @default(uuid())
+  displayNumber Int?
+
+  registrationId String
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([registrationId, vehicleId])
+  @@map("registration_vehicles")
+}
+
+/// One membership row per user per event; roles are linked via EventStaffRoleLink.
+model EventStaffMember {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  roleLinks EventStaffRoleLink[]
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@map("event_staff_members")
+}
+
+/// Event-specific role label (built-in defaults use stable slugs; customs use slug = null).
+model EventRoleDefinition {
+  id        String   @id @default(uuid())
+  /// Stable key for default roles: organizer, treasurer, … — null for fully custom labels.
+  slug      String?
+  name      String
+  isDefault Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  staffLinks EventStaffRoleLink[]
+
+  @@unique([eventId, slug])
+  @@unique([eventId, name])
+  @@index([eventId])
+  @@map("event_role_definitions")
+}
+
+model EventStaffRoleLink {
+  staffMemberId String
+  staffMember   EventStaffMember @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+
+  roleId String
+  role   EventRoleDefinition @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([staffMemberId, roleId])
+  @@map("event_staff_role_links")
+}
+
+/// Folder that organises categories (e.g. "By Vehicle Year", "By Type").
+model CategoryGroup {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  categories Category[]
+
+  @@map("category_groups")
+}
+
+/// Master list of registration/judging categories (managed by Site Admin).
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  /// true = shipped default or admin-created; false = event-level custom (not stored here).
+  isSystem  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  groupId   String?
+  group     CategoryGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  eventCategories EventCategory[]
+
+  @@index([groupId])
+  @@map("categories")
+}
+
+/// Categories selected for a specific event, with trophy count.
+model EventCategory {
+  id          String  @id @default(uuid())
+  /// Number of place awards for this category (e.g. 3 → 1st, 2nd, 3rd).
+  trophyCount Int     @default(1)
+  /// When using a custom one-off category not in the master list.
+  customName  String?
+
+  eventId    String
+  event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, categoryId])
+  @@index([eventId])
+  @@map("event_categories")
+}
+
+/// Master list of special awards (managed by Site Admin).
+model SpecialAward {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isSystem  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  eventAwards EventAward[]
+
+  @@map("special_awards")
+}
+
+/// Key-value store for site-wide admin settings (tier templates, staff roles, etc.).
+model GlobalSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("global_settings")
+}
+
+/// Special/custom awards selected for a specific event.
+model EventAward {
+  id         String  @id @default(uuid())
+  /// When using a custom one-off award not in the master list.
+  customName String?
+
+  eventId        String
+  event          Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  specialAwardId String?
+  specialAward   SpecialAward? @relation(fields: [specialAwardId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, specialAwardId])
+  @@index([eventId])
+  @@map("event_awards")
+}
