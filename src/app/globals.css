@@ -173,7 +173,12 @@
     var(--dash-card-paper-height) - 2 * var(--dash-card-print-margin)
   );
   --dash-card-photo-height: 3in;
-  --dash-card-sidebar-width: 3.5in;
+  --dash-card-sidebar-width: 4.03in;
+  --dash-card-sidebar-detail-label-pt: 11.7pt;
+  --dash-card-sidebar-detail-value-pt: 21.6pt;
+  --dash-card-vehicle-id-value-pt: 24pt;
+  --dash-card-header-meta-pt: 12pt;
+  --dash-card-nickname-pt: 13pt;
   --dash-card-sponsor-logo-height: 1.75in;
 }
 
@@ -214,7 +219,7 @@
 
 .dash-card-header-meta,
 .dash-card-header-host {
-  font-size: max(0.875rem, 14pt);
+  font-size: max(0.75rem, var(--dash-card-header-meta-pt));
 }
 
 .dash-card-ymm-band {
@@ -228,7 +233,7 @@
 }
 
 .dash-card-ymm-band .dash-card-nickname-row {
-  font-size: 16pt !important;
+  font-size: var(--dash-card-nickname-pt) !important;
   line-height: 1.15;
   font-style: italic;
   color: #b91c1c;
@@ -237,7 +242,7 @@
 
 .dash-card-body-grid {
   display: grid;
-  grid-template-columns: minmax(11.88rem, 40%) minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-columns: minmax(13.66rem, 46%) minmax(0, 1.15fr) minmax(0, 0.85fr);
   grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     "sidebar photo photo"
@@ -275,7 +280,7 @@
 }
 
 .dash-card-print-page .dash-card-body-grid {
-  grid-template-columns: var(--dash-card-sidebar-width) minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-columns: var(--dash-card-sidebar-width) minmax(0, 1.15fr) minmax(0, 0.85fr);
 }
 
 .dash-card-sponsor-logo {
@@ -293,18 +298,28 @@
   flex-shrink: 0;
 }
 
-.dash-card-print-page .dash-card-col-sidebar .dash-card-vehicle-id-value {
-  font-size: clamp(2rem, 5.5vw, 2.75rem);
-}
-
 .dash-card-print-page .dash-card-sidebar-value {
   font-size: clamp(1.05rem, 2.8vw, 1.35rem);
+}
+
+.dash-card-col-sidebar .dash-card-sidebar-row .dash-card-field-label,
+.dash-card-story-label {
+  font-size: var(--dash-card-sidebar-detail-label-pt);
+  line-height: 1.2;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.05em;
+}
+
+.dash-card-print-page .dash-card-col-sidebar .dash-card-vehicle-id-value {
+  font-size: max(1.125rem, var(--dash-card-vehicle-id-value-pt));
+  font-weight: 700;
 }
 
 .dash-card-print-page .dash-card-col-sidebar .dash-card-class-value,
 .dash-card-print-page .dash-card-col-sidebar .dash-card-owner-name,
 .dash-card-print-page .dash-card-col-sidebar .dash-card-owner-city {
-  font-size: max(1.15rem, 24pt);
+  font-size: max(1.035rem, var(--dash-card-sidebar-detail-value-pt));
   font-weight: 700;
 }
 
@@ -324,11 +339,6 @@
   max-width: none;
   width: 100%;
   height: 100%;
-}
-
-.dash-card-print-page .dash-card-vehicle-id-value {
-  font-size: clamp(0.875rem, 2.2vw, 1rem);
-  line-height: 1.15;
 }
 
 .dash-card-print-page .dash-card-class-value {
@@ -418,7 +428,7 @@
 
   .dash-card-body-grid {
     display: grid !important;
-    grid-template-columns: var(--dash-card-sidebar-width) minmax(0, 1.2fr) minmax(0, 0.8fr) !important;
+    grid-template-columns: var(--dash-card-sidebar-width) minmax(0, 1.15fr) minmax(0, 0.85fr) !important;
     grid-template-rows: auto minmax(0, 1fr) !important;
     grid-template-areas:
       "sidebar photo photo"
@@ -478,28 +488,34 @@
     max-height: none !important;
   }
 
-  .dash-card-col-sidebar .dash-card-vehicle-id-value {
-    font-size: 42pt !important;
-    line-height: 1 !important;
-    letter-spacing: 0.03em !important;
+  .dash-card-col-sidebar .dash-card-sidebar-row .dash-card-field-label {
+    font-size: var(--dash-card-sidebar-detail-label-pt) !important;
+    line-height: 1.2 !important;
   }
 
   .dash-card-sidebar-value {
-    font-size: 20pt !important;
+    font-size: 18pt !important;
     line-height: 1.2 !important;
     font-weight: 700 !important;
+  }
+
+  .dash-card-col-sidebar .dash-card-vehicle-id-value {
+    font-size: var(--dash-card-vehicle-id-value-pt) !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
   }
 
   .dash-card-col-sidebar .dash-card-class-value,
   .dash-card-col-sidebar .dash-card-owner-name,
   .dash-card-col-sidebar .dash-card-owner-city {
-    font-size: 24pt !important;
+    font-size: var(--dash-card-sidebar-detail-value-pt) !important;
     line-height: 1.15 !important;
     font-weight: 700 !important;
   }
 
   .dash-card-story-label {
-    font-size: 13pt !important;
+    font-size: var(--dash-card-sidebar-detail-label-pt) !important;
     line-height: 1.2 !important;
     font-weight: 700 !important;
     color: #64748b !important;
@@ -547,7 +563,7 @@
   }
 
   .dash-card-ymm-band .dash-card-nickname-row {
-    font-size: 16pt !important;
+    font-size: var(--dash-card-nickname-pt) !important;
     line-height: 1.15 !important;
     font-style: italic !important;
     color: #b91c1c !important;
@@ -564,7 +580,7 @@
 
   .dash-card-header-meta,
   .dash-card-header-host {
-    font-size: 14pt !important;
+    font-size: var(--dash-card-header-meta-pt) !important;
     line-height: 1.25 !important;
   }
 

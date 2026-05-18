@@ -113,7 +113,7 @@ function SidebarInfoRow({
         </p>
         <p
           className={cn(
-            "dash-card-sidebar-value dash-card-field-value mt-0.5 text-lg font-bold leading-snug text-[#142047] sm:text-xl",
+            "dash-card-sidebar-value dash-card-field-value mt-0.5 text-base font-bold leading-snug text-[#142047] sm:text-lg",
             valueClassName,
           )}
         >
@@ -132,11 +132,11 @@ function VehicleIdPanel({ publicVehicleId }: { publicVehicleId: string | null })
       </div>
       <div className="px-2 py-2 text-center sm:px-3 sm:py-2.5">
         {publicVehicleId ? (
-          <p className="dash-card-vehicle-id-value font-mono text-4xl font-bold uppercase leading-none text-[#b91c1c] sm:text-5xl">
+          <p className="dash-card-vehicle-id-value dash-card-sidebar-value font-mono text-base font-bold uppercase leading-snug text-[#b91c1c] sm:text-lg">
             {publicVehicleId}
           </p>
         ) : (
-          <p className="dash-card-field-value font-semibold uppercase leading-tight text-[#64748b]">
+          <p className="dash-card-sidebar-value font-semibold uppercase leading-snug text-[#64748b]">
             ID pending
           </p>
         )}
@@ -190,7 +190,7 @@ function VotePanel({
         Vote / judge here
       </div>
       <div className="dash-card-vote-inner flex min-h-0 flex-1 flex-col justify-between gap-2 p-2.5 sm:p-3">
-        <div className="space-y-1.5">
+        <div className="w-full space-y-1.5">
           {voting.vehicleIdForSms ? (
             <p className="dash-card-vote-text text-center text-base leading-snug text-[#334155] sm:text-lg">
               Text{" "}
