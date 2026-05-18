@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
 import { buildPublishedWhere } from "@/lib/events-queries";
+import { getRegisteredEventMapForUser } from "@/lib/user-registered-events";
+import { RegisteredEventBadge } from "@/components/events/registered-event-badge";
+import { CancelRegistrationButton } from "@/components/dashboard/events/cancel-registration-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +20,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EventCardIdentity } from "@/components/events/event-card-identity";
+import { eventBrandingFromEvent } from "@/lib/event-card-branding";
 import { US_STATES } from "@/lib/us-states";
 
 function parseDate(v: string | undefined): Date | undefined {
@@ -61,12 +67,18 @@ export default async function EventsPage({
 
   const hasFilters = !!(city || state || eventType || from || to);
 
+  const viewer = await getCurrentUser();
+  const registeredEventMap = viewer
+    ? await getRegisteredEventMapForUser(viewer.id)
+    : new Map<string, string>();
+
   const events = await prisma.event.findMany({
     where: buildPublishedWhere({ q, city, state, eventType, from, to }),
     orderBy: { startDate: "asc" },
     select: {
       id: true,
       name: true,
+      showNumber: true,
       city: true,
       state: true,
       startDate: true,
@@ -75,7 +87,8 @@ export default async function EventsPage({
       registrationFeeType: true,
       registrationFeeDollars: true,
       status: true,
-      organization: { select: { name: true } },
+      logoUrl: true,
+      organization: { select: { name: true, logo: true } },
     },
   });
 
@@ -240,54 +253,72 @@ export default async function EventsPage({
               day: "numeric",
               year: "numeric",
             });
+            const regId = registeredEventMap.get(ev.id);
+            const branding = eventBrandingFromEvent(ev);
 
             return (
               <li key={ev.id}>
-                <Link href={`/events/${ev.id}`} className="group block">
-                  <Card className="transition-all hover:bg-accent/30 hover:shadow-md group-focus-visible:ring-2 group-focus-visible:ring-ring">
-                    <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                      {/* Left: event info */}
-                      <div className="min-w-0 flex-1 space-y-1.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-base font-semibold group-hover:text-primary">
-                            {ev.name}
-                          </h3>
-                          <Badge variant="secondary">{eventTypeBadge(ev.eventType)}</Badge>
-                          {ev.status === "ACTIVE" && (
-                            <Badge variant="success">Live</Badge>
-                          )}
-                        </div>
+                <Card className="transition-all hover:bg-accent/30 hover:shadow-md">
+                  <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    {/* Left: event info */}
+                    <Link href={`/events/${ev.id}`} className="group min-w-0 flex-1 space-y-2">
+                      <EventCardIdentity
+                        name={ev.name}
+                        showNumber={ev.showNumber}
+                        logoUrl={branding.logoUrl}
+                        orgName={branding.orgName}
+                        orgLogoUrl={branding.orgLogoUrl}
+                        titleClassName="group-hover:text-primary"
+                        badges={
+                          <>
+                            <Badge variant="secondary">
+                              {eventTypeBadge(ev.eventType)}
+                            </Badge>
+                            {regId && <RegisteredEventBadge />}
+                            {ev.status === "ACTIVE" && (
+                              <Badge variant="success">Live</Badge>
+                            )}
+                          </>
+                        }
+                      />
 
-                        <p className="text-sm text-muted-foreground">
-                          {ev.organization?.name ?? "Independent"}
-                        </p>
-
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground sm:ml-[3.75rem]">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="size-3.5" />
+                          {dateStr}
+                          {ev.startTime ? ` · ${ev.startTime}` : ""}
+                        </span>
+                        {location && (
                           <span className="flex items-center gap-1">
-                            <Calendar className="size-3.5" />
-                            {dateStr}
-                            {ev.startTime ? ` · ${ev.startTime}` : ""}
+                            <MapPin className="size-3.5" />
+                            {location}
                           </span>
-                          {location && (
-                            <span className="flex items-center gap-1">
-                              <MapPin className="size-3.5" />
-                              {location}
-                            </span>
-                          )}
-                          <span className="flex items-center gap-1">
-                            <DollarSign className="size-3.5" />
-                            {fee}
-                          </span>
-                        </div>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <DollarSign className="size-3.5" />
+                          {fee}
+                        </span>
                       </div>
+                    </Link>
 
-                      {/* Right: arrow */}
-                      <div className="flex shrink-0 items-center justify-end">
-                        <ChevronRight className="size-5 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
+                    {/* Right: CTAs or arrow */}
+                    <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                      {regId ? (
+                        <>
+                          <Link
+                            href={`/events/${ev.id}`}
+                            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                          >
+                            Add Vehicles
+                          </Link>
+                          <CancelRegistrationButton registrationId={regId} />
+                        </>
+                      ) : (
+                        <ChevronRight className="size-5 text-muted-foreground" />
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               </li>
             );
           })}

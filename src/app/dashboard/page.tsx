@@ -4,6 +4,7 @@ import { isSiteAdmin } from "@/lib/permissions";
 import { Calendar, Car, Trophy, Users, UserCircle, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { DashboardMessagesTile } from "@/components/dashboard/dashboard-messages-tile";
 
 const destinations = [
   {
@@ -66,22 +67,24 @@ export default async function DashboardPage() {
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             )}
           >
-            <div className="flex flex-row items-start gap-3">
-              <Icon
-                className="mt-0.5 h-6 w-6 shrink-0 text-primary"
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1 space-y-2">
-                <h2 className="text-lg font-semibold leading-snug tracking-tight">
-                  {title}
-                </h2>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {description}
-                </p>
+              <div className="flex flex-row items-start gap-3">
+                <Icon
+                  className="mt-0.5 h-6 w-6 shrink-0 text-primary"
+                  aria-hidden
+                />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <h2 className="text-lg font-semibold leading-snug tracking-tight">
+                    {title}
+                  </h2>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {description}
+                  </p>
+                </div>
               </div>
-            </div>
           </Link>
         ))}
+
+        <DashboardMessagesTile />
 
         {isSiteAdmin(user) && (
           <Link

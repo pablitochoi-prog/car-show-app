@@ -8,9 +8,23 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { VehicleRowActions } from "./vehicle-row-actions";
 
-export default async function VehiclesPage() {
+type Props = {
+  searchParams: Promise<{ returnTo?: string }>;
+};
+
+/** Only allow in-app relative paths (e.g. event registration). */
+function safeReturnTo(raw: string | undefined): string | null {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return null;
+  if (!raw.startsWith("/events/")) return null;
+  return raw;
+}
+
+export default async function VehiclesPage({ searchParams }: Props) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  const { returnTo: returnToRaw } = await searchParams;
+  const returnTo = safeReturnTo(returnToRaw);
 
   const vehicles = await prisma.vehicle.findMany({
     where: { userId: user.id },
@@ -27,13 +41,13 @@ export default async function VehiclesPage() {
           </p>
         </div>
         <Link
-          href="/dashboard"
+          href={returnTo ?? "/dashboard"}
           className={cn(
             buttonVariants({ variant: "outline" }),
             "w-full justify-center sm:w-auto"
           )}
         >
-          Back to dashboard
+          {returnTo ? "Back to registration" : "Back to dashboard"}
         </Link>
       </div>
 
@@ -81,7 +95,10 @@ export default async function VehiclesPage() {
       )}
 
       {/* Collapsible Add Vehicle section */}
-      <AddVehicleSection autoOpen={vehicles.length === 0} />
+      <AddVehicleSection
+        autoOpen={vehicles.length === 0 || !!returnTo}
+        returnTo={returnTo}
+      />
     </div>
   );
 }

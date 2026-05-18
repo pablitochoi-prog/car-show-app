@@ -60,6 +60,7 @@ export default async function ViewClubPage({
     select: {
       id: true,
       name: true,
+      showNumber: true,
       venue: true,
       city: true,
       state: true,
@@ -87,6 +88,7 @@ export default async function ViewClubPage({
     return {
       id: e.id,
       name: e.name,
+      showNumber: e.showNumber,
       venue: e.venue,
       city: e.city,
       state: e.state,

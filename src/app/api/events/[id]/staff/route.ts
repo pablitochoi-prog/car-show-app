@@ -10,6 +10,7 @@ import {
   removeStaffMember,
   updateUserStaffContact,
   upsertStaffMemberWithRoles,
+  ensureOnlyOneEventOrganizer,
 } from "@/lib/event-staff";
 import { canAssignEventStaff } from "@/lib/permissions";
 import {
@@ -97,6 +98,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   await upsertStaffMemberWithRoles(eventId, target.id, roleIds);
 
+  const organizerDef = await prisma.eventRoleDefinition.findFirst({
+    where: { eventId, slug: "organizer" },
+    select: { id: true },
+  });
+  if (organizerDef && roleIds.includes(organizerDef.id)) {
+    await ensureOnlyOneEventOrganizer(eventId, target.id);
+  }
+
   const staff = await getEventStaffList(eventId);
   return NextResponse.json(staff, { status: 201 });
 }
@@ -151,6 +160,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   });
 
   await upsertStaffMemberWithRoles(eventId, targetUserId, roleIds);
+
+  const organizerDef = await prisma.eventRoleDefinition.findFirst({
+    where: { eventId, slug: "organizer" },
+    select: { id: true },
+  });
+  if (organizerDef && roleIds.includes(organizerDef.id)) {
+    await ensureOnlyOneEventOrganizer(eventId, targetUserId);
+  }
 
   const staff = await getEventStaffList(eventId);
   return NextResponse.json(staff);

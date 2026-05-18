@@ -38,6 +38,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     select: {
       id: true,
       name: true,
+      showNumber: true,
       startDate: true,
       endDate: true,
       venue: true,

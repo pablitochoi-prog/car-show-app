@@ -15,10 +15,12 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { ImageLightbox, ThumbnailWithEye } from "@/components/ui/image-lightbox";
 import { cn } from "@/lib/utils";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 export type ClubEvent = {
   id: string;
   name: string;
+  showNumber: number;
   venue: string | null;
   city: string | null;
   state: string | null;
@@ -103,7 +105,10 @@ export function ClubEventCard({ event }: { event: ClubEvent }) {
         <div className="flex items-start justify-between gap-2">
           <div>
             <h3 className="text-base font-semibold leading-tight">
-              {event.name}
+              <EventNameWithNumber
+                name={event.name}
+                showNumber={event.showNumber}
+              />
             </h3>
             {event.isPast && (
               <Badge variant="secondary" className="mt-1 text-[10px]">

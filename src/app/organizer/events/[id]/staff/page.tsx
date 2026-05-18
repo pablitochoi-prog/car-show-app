@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser, canManageEventAndLoad } from "@/lib/auth";
 import { getEventStaffList, listEventRoleDefinitions } from "@/lib/event-staff";
 import { EventStaffManager } from "@/components/forms/event-staff-manager";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 export default async function EventStaffPage({
   params,
@@ -35,7 +36,11 @@ export default async function EventStaffPage({
           &larr; Back to event
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
-          Event Staff &mdash; {event.name}
+          Event Staff —{" "}
+          <EventNameWithNumber
+            name={event.name}
+            showNumber={event.showNumber}
+          />
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Add or remove team members and assign event-specific roles. Each role

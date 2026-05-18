@@ -9,24 +9,35 @@ import {
   formatEventWhen,
   formatStatusLabel,
 } from "./format-event-meta";
+import { CancelRegistrationButton } from "./cancel-registration-button";
+import { EventCardIdentity } from "@/components/events/event-card-identity";
+import { RegisteredEventBadge } from "@/components/events/registered-event-badge";
+import { EventListingStatusBadge } from "@/components/events/event-listing-status-badge";
+import type { EventCardBrandingFields } from "@/lib/event-card-branding";
+import type { EventRegistrationSummary } from "@/lib/event-registration-summary";
+import { formatMoney } from "@/components/registration/reg-utils";
 
-export type { StaffRoleBadgeRow };
+export type { StaffRoleBadgeRow, EventCardBrandingFields };
 
 export type ManagingEventRow = {
   eventId: string;
   name: string;
+  showNumber: number;
   startDate: Date;
   startTime: string | null;
   city: string | null;
   state: string | null;
   status: EventStatus;
   roles: StaffRoleBadgeRow[];
-};
+  /** Present when the viewer has the organizer role on this event. */
+  organizerStats?: EventRegistrationSummary | null;
+} & EventCardBrandingFields;
 
 export type ParticipatingEventRow = {
   registrationId: string;
   eventId: string;
   name: string;
+  showNumber: number;
   startDate: Date;
   city: string | null;
   state: string | null;
@@ -34,7 +45,9 @@ export type ParticipatingEventRow = {
   registrationStatus: RegistrationStatus;
   tierName: string;
   vehicleCount: number;
-};
+  paymentLabel: string | null;
+  paymentKind: "complete" | "due" | null;
+} & EventCardBrandingFields;
 
 function registrationBadgeVariant(
   s: RegistrationStatus
@@ -43,6 +56,50 @@ function registrationBadgeVariant(
   if (s === "PENDING") return "warning";
   if (s === "CANCELLED") return "danger";
   return "muted";
+}
+
+function OrganizerEventStats({
+  summary,
+}: {
+  summary: EventRegistrationSummary;
+}) {
+  const feesLabel =
+    summary.registrationFeeType === "DONATION"
+      ? "Donations"
+      : "Reg. fees";
+
+  const items = [
+    { label: "Registrations", value: String(summary.registrationCount) },
+    { label: "Cars", value: String(summary.totalCars) },
+    {
+      label: feesLabel,
+      value: formatMoney(summary.totalRegistrationFeesCents),
+    },
+    {
+      label: "Collected",
+      value: formatMoney(summary.totalCollectedCents),
+    },
+    {
+      label: "Amount due",
+      value: formatMoney(summary.totalAmountDueCents),
+    },
+  ];
+
+  return (
+    <dl className="w-full space-y-1 text-xs sm:min-w-[10.5rem]">
+      {items.map(({ label, value }) => (
+        <div
+          key={label}
+          className="flex items-baseline justify-between gap-3 border-b border-border/50 pb-1 last:border-0 last:pb-0"
+        >
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="shrink-0 font-medium tabular-nums text-foreground">
+            {value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 export function EmptyManaging({ canCreate = false }: { canCreate?: boolean }) {
@@ -67,12 +124,16 @@ export function EmptyManaging({ canCreate = false }: { canCreate?: boolean }) {
   );
 }
 
-export function EmptyParticipating() {
+export function EmptyParticipating({
+  message,
+}: {
+  message?: string;
+}) {
   return (
     <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-12 text-center">
       <p className="text-sm text-muted-foreground">
-        No exhibitor registrations yet. Browse published shows and register your
-        vehicles to see them listed here.
+        {message ??
+          "No exhibitor registrations yet. Browse published shows and register your vehicles to see them listed here."}
       </p>
       <Link
         href="/events"
@@ -87,47 +148,81 @@ export function EmptyParticipating() {
   );
 }
 
-export function ManagingCard({ row }: { row: ManagingEventRow }) {
+export function ManagingCard({
+  row,
+  isRegistered = false,
+}: {
+  row: ManagingEventRow;
+  isRegistered?: boolean;
+}) {
   const roles = row.roles;
   const location =
     row.city && row.state
       ? `${row.city}, ${row.state}`
       : row.city || row.state || "Location TBD";
   const isOrganizer = roles.some((r) => r.slug === "organizer");
+  const canViewRegistrations = roles.some(
+    (r) => r.slug === "organizer" || r.slug === "treasurer",
+  );
 
   return (
     <li className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
       <div className="min-w-0 flex-1 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="truncate font-medium tracking-tight">{row.name}</h3>
-          <span className="flex flex-wrap gap-1.5">
-            {roles.map((r) => (
-              <Badge key={r.id} variant="default">
-                {r.name}
-              </Badge>
-            ))}
+        <EventCardIdentity
+          name={row.name}
+          showNumber={row.showNumber}
+          logoUrl={row.logoUrl}
+          orgName={row.orgName}
+          orgLogoUrl={row.orgLogoUrl}
+          titleClassName="text-sm font-medium"
+          badges={
+            <>
+              {isRegistered && <RegisteredEventBadge />}
+              {roles.map((r) => (
+                <Badge key={r.id} variant="default">
+                  {r.name}
+                </Badge>
+              ))}
+            </>
+          }
+        />
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+          <span>
+            {formatEventDateAndStartTime(row.startDate, row.startTime)} ·{" "}
+            {location}
           </span>
+          <span aria-hidden>·</span>
+          <EventListingStatusBadge status={row.status} />
         </div>
-        <p className="text-xs text-muted-foreground">
-          {formatEventDateAndStartTime(row.startDate, row.startTime)} ·{" "}
-          {location} · {formatStatusLabel(row.status)}
-        </p>
       </div>
-      <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-        {isOrganizer ? (
+      <div className="flex shrink-0 flex-col gap-3 sm:items-end sm:min-w-[10.5rem]">
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {canViewRegistrations ? (
+            <Link
+              href={`/organizer/events/${row.eventId}/registrations`}
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              Registrations
+            </Link>
+          ) : null}
+          {isOrganizer ? (
+            <Link
+              href={`/organizer/events/${row.eventId}/edit`}
+              className={buttonVariants({ size: "sm" })}
+            >
+              Edit event
+            </Link>
+          ) : null}
           <Link
-            href={`/organizer/events/${row.eventId}/edit`}
-            className={buttonVariants({ size: "sm" })}
+            href={`/events/${row.eventId}`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
           >
-            Edit event
+            View page
           </Link>
+        </div>
+        {canViewRegistrations && row.organizerStats ? (
+          <OrganizerEventStats summary={row.organizerStats} />
         ) : null}
-        <Link
-          href={`/events/${row.eventId}`}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          View page
-        </Link>
       </div>
     </li>
   );
@@ -148,13 +243,27 @@ export function ParticipatingCard({ row }: { row: ParticipatingEventRow }) {
   return (
     <li className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
       <div className="min-w-0 flex-1 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="truncate font-medium tracking-tight">{row.name}</h3>
-          <Badge variant="outline">Exhibitor</Badge>
-          <Badge variant={registrationBadgeVariant(row.registrationStatus)}>
-            {formatStatusLabel(row.registrationStatus)}
-          </Badge>
-        </div>
+        <EventCardIdentity
+          name={row.name}
+          showNumber={row.showNumber}
+          logoUrl={row.logoUrl}
+          orgName={row.orgName}
+          orgLogoUrl={row.orgLogoUrl}
+          titleClassName="text-sm font-medium"
+          badges={
+            <>
+              <Badge variant="outline">Exhibitor</Badge>
+              {row.registrationStatus !== "CANCELLED" && (
+                <RegisteredEventBadge />
+              )}
+              {row.registrationStatus === "CANCELLED" && (
+                <Badge variant={registrationBadgeVariant(row.registrationStatus)}>
+                  {formatStatusLabel(row.registrationStatus)}
+                </Badge>
+              )}
+            </>
+          }
+        />
         <p className="text-xs text-muted-foreground">
           {formatEventWhen(row.startDate)} · {location} ·{" "}
           {formatStatusLabel(row.eventStatus)}
@@ -163,6 +272,18 @@ export function ParticipatingCard({ row }: { row: ParticipatingEventRow }) {
           Tier: <span className="text-foreground">{row.tierName}</span> ·{" "}
           {vehicles}
         </p>
+        {row.paymentLabel && (
+          <p
+            className={cn(
+              "text-xs font-medium",
+              row.paymentKind === "due"
+                ? "text-amber-700 dark:text-amber-300"
+                : "text-emerald-700 dark:text-emerald-400",
+            )}
+          >
+            {row.paymentLabel}
+          </p>
+        )}
       </div>
       <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
         <Link
@@ -171,12 +292,17 @@ export function ParticipatingCard({ row }: { row: ParticipatingEventRow }) {
         >
           Event page
         </Link>
-        <Link
-          href="/dashboard/registrations"
-          className={buttonVariants({ size: "sm" })}
-        >
-          Registrations
-        </Link>
+        {row.registrationStatus !== "CANCELLED" && (
+          <Link
+            href={`/events/${row.eventId}/register/edit`}
+            className={buttonVariants({ size: "sm" })}
+          >
+            Edit Registration
+          </Link>
+        )}
+        {row.registrationStatus !== "CANCELLED" && (
+          <CancelRegistrationButton registrationId={row.registrationId} />
+        )}
       </div>
     </li>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,13 +12,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   Loader2,
   Check,
   Car,
   Plus,
-  X,
+  Trash2,
   Tag,
   CreditCard,
   Clock,
@@ -31,35 +38,81 @@ import {
   type VehicleLookupValues,
 } from "@/components/forms/vehicle-lookup-fields";
 import { formatUSPhoneDigits, digitsFromPhoneInput } from "@/lib/phone-us";
-import type { TierOption } from "./event-registration-page";
+import type { TierOption, PlatformFeeInfo } from "./event-registration-page";
+import {
+  donationPlatformFeeTotalCents,
+  parseDonationDollarsInput,
+  suggestedDonationDollarsInput,
+  suggestedDonationTotalDollars,
+} from "@/lib/donation";
+import { DonationAmountField } from "./donation-amount-field";
+import { convenienceFeePerVehicle } from "./reg-utils";
+import { GuestVehiclePhoto } from "./guest-vehicle-photo";
+import { RequiredFieldMark } from "./required-field-mark";
+import { VehicleClassSelect } from "./vehicle-class-select";
+import {
+  REGISTRATION_CLASS_REQUIRED_MSG,
+  REGISTRATION_VEHICLE_REQUIRED_MSG,
+  guestVehiclesHaveRequiredClasses,
+} from "@/lib/registration-vehicle-classes";
+import { hasCompleteMailingAddress } from "@/lib/registration-address";
+import { RegistrationAddressFields } from "./registration-address-fields";
 
-type GuestVehicleRow = {
-  year: string;
+type EventCategoryOption = { id: string; name: string };
+
+type RegisteredGuestVehicle = {
+  clientId: string;
+  year: number;
   make: string;
   model: string;
   trim: string;
+  nickname: string;
   notes: string;
+  photoUrl: string | null;
+  eventCategoryId: string | null;
 };
+
+const emptyDraft = (): VehicleLookupValues & { notes: string; nickname: string } => ({
+  year: "",
+  make: "",
+  model: "",
+  trim: "",
+  nickname: "",
+  notes: "",
+});
+
+type CheckoutMode = "guest_pay" | "create_account" | "free";
 
 export function GuestRegistrationForm({
   eventId,
   tiers,
   feeType,
   feeDollars,
+  stripeConnectReady,
+  platformFee,
+  eventCategories = [],
 }: {
   eventId: string;
   tiers: TierOption[];
   feeType: string | null;
   feeDollars: number | null;
+  /** Stripe Connect can accept charges for this event. */
+  stripeConnectReady: boolean;
+  platformFee: PlatformFeeInfo;
+  eventCategories?: EventCategoryOption[];
 }) {
   const router = useRouter();
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<CheckoutMode | null>(null);
   const [error, setError] = useState("");
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
 
   const singleTier = tiers.length === 1 ? tiers[0] : null;
   const [tierId, setTierId] = useState(() => {
@@ -68,50 +121,196 @@ export function GuestRegistrationForm({
     return firstOpen?.id ?? tiers[0]?.id ?? "";
   });
 
-  const [vehicles, setVehicles] = useState<GuestVehicleRow[]>([
-    { year: "", make: "", model: "", trim: "", notes: "" },
-  ]);
+  const [draft, setDraft] = useState(emptyDraft);
+  const [registeredVehicles, setRegisteredVehicles] = useState<
+    RegisteredGuestVehicle[]
+  >([]);
 
-  function addRow() {
-    setVehicles((r) => [
-      ...r,
-      { year: "", make: "", model: "", trim: "", notes: "" },
-    ]);
+  const isDonationEvent = feeType === "DONATION";
+  const requiresVehicleClass = eventCategories.length > 0;
+  const categoryNameById = Object.fromEntries(
+    eventCategories.map((c) => [c.id, c.name]),
+  );
+  function guestVehicleClassLabel(eventCategoryId: string | null): string {
+    if (!eventCategoryId) {
+      return requiresVehicleClass ? "Not selected" : "—";
+    }
+    return categoryNameById[eventCategoryId] ?? "—";
+  }
+  const [donationDollars, setDonationDollars] = useState(() =>
+    suggestedDonationDollarsInput(feeDollars, 1),
+  );
+  const prevVehicleCountRef = useRef(1);
+
+  const selectedTier = tiers.find((t) => t.id === tierId);
+  const vehicleCount = Math.max(registeredVehicles.length, 1);
+
+  useEffect(() => {
+    if (!isDonationEvent) return;
+    const prev = prevVehicleCountRef.current;
+    if (prev === vehicleCount) return;
+    const oldSuggested = suggestedDonationTotalDollars(feeDollars, prev);
+    prevVehicleCountRef.current = vehicleCount;
+    setDonationDollars((d) => {
+      const cents = parseDonationDollarsInput(d);
+      if (d.trim() === "" || cents === Math.round(oldSuggested * 100)) {
+        return suggestedDonationDollarsInput(feeDollars, vehicleCount);
+      }
+      return d;
+    });
+  }, [isDonationEvent, vehicleCount, feeDollars]);
+
+  const guestDonationCents = isDonationEvent
+    ? parseDonationDollarsInput(donationDollars) ?? 0
+    : 0;
+  const guestPlatformFee = isDonationEvent
+    ? donationPlatformFeeTotalCents(
+        (cents) => convenienceFeePerVehicle(platformFee, cents),
+        feeDollars,
+        vehicleCount,
+      )
+    : { perVehicleCents: 0, totalCents: 0 };
+  const guestGrandTotal = guestDonationCents + guestPlatformFee.totalCents;
+
+  function draftIsValid() {
+    return Boolean(draft.make && draft.model && draft.year);
   }
 
-  function updateRow(i: number, patch: Partial<GuestVehicleRow>) {
-    setVehicles((rows) =>
-      rows.map((row, j) => (j === i ? { ...row, ...patch } : row)),
+  function addDraftToRegistration() {
+    if (!draftIsValid()) {
+      setError("Enter year, make, and model before adding a vehicle.");
+      return;
+    }
+    setError("");
+    setRegisteredVehicles((prev) => [
+      ...prev,
+      {
+        clientId: crypto.randomUUID(),
+        year: parseInt(draft.year, 10),
+        make: draft.make.trim(),
+        model: draft.model.trim(),
+        trim: draft.trim.trim(),
+        nickname: draft.nickname.trim(),
+        notes: draft.notes.trim(),
+        photoUrl: null,
+        eventCategoryId: null,
+      },
+    ]);
+    setDraft(emptyDraft());
+  }
+
+  function removeVehicle(clientId: string) {
+    setRegisteredVehicles((prev) => prev.filter((v) => v.clientId !== clientId));
+  }
+
+  function updateVehicle(
+    clientId: string,
+    patch: Partial<RegisteredGuestVehicle>,
+  ) {
+    setRegisteredVehicles((prev) =>
+      prev.map((v) => (v.clientId === clientId ? { ...v, ...patch } : v)),
     );
   }
 
-  function removeRow(i: number) {
-    setVehicles((rows) => rows.filter((_, j) => j !== i));
+  /** Event charges a registration fee (independent of Stripe setup). */
+  function hasRegistrationFee() {
+    if (isDonationEvent) {
+      return guestGrandTotal > 0;
+    }
+    if (feeType === "FREE") return false;
+    if (feeType === "PAID_TIERED" && selectedTier) {
+      return selectedTier.priceCents > 0;
+    }
+    if (feeType === "PAID") {
+      return (feeDollars ?? 0) > 0;
+    }
+    return false;
   }
 
-  const selectedTier = tiers.find((t) => t.id === tierId);
-  const validVehicles = vehicles.filter((r) => r.make && r.model && r.year);
+  function canCollectPaymentOnline() {
+    return stripeConnectReady && hasRegistrationFee();
+  }
 
-  async function handleGuestSubmit() {
+  function validateBeforeSubmit() {
     if (!firstName.trim() || !lastName.trim()) {
       setError("First and last name are required.");
-      return;
+      return false;
     }
     if (!email.trim()) {
       setError("Email is required.");
-      return;
+      return false;
+    }
+    if (
+      !hasCompleteMailingAddress({
+        street,
+        city,
+        state,
+        zip,
+      })
+    ) {
+      setError("Street address, city, state, and zip are required.");
+      return false;
     }
     if (!tierId) {
       setError("Please select a registration tier.");
-      return;
+      return false;
     }
-    if (validVehicles.length === 0) {
-      setError("Add at least one vehicle.");
+    if (registeredVehicles.length === 0) {
+      setError(REGISTRATION_VEHICLE_REQUIRED_MSG);
+      return false;
+    }
+    if (
+      requiresVehicleClass &&
+      !guestVehiclesHaveRequiredClasses(requiresVehicleClass, registeredVehicles)
+    ) {
+      setError(REGISTRATION_CLASS_REQUIRED_MSG);
+      return false;
+    }
+    if (
+      isDonationEvent &&
+      hasRegistrationFee() &&
+      (parseDonationDollarsInput(donationDollars) ?? 0) <= 0
+    ) {
+      setError("Enter a donation amount greater than $0 to continue to payment.");
+      return false;
+    }
+    return true;
+  }
+
+  async function startCheckout(registrationId: string) {
+    const checkoutRes = await fetch("/api/stripe/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ registrationId }),
+    });
+    const checkoutData = (await checkoutRes.json()) as {
+      checkoutUrl?: string;
+      error?: string;
+    };
+    if (!checkoutRes.ok || !checkoutData.checkoutUrl) {
+      setError(checkoutData.error ?? "Failed to start checkout.");
+      return false;
+    }
+    window.location.href = checkoutData.checkoutUrl;
+    return true;
+  }
+
+  async function handleGuestSubmit(mode: CheckoutMode) {
+    if (!validateBeforeSubmit()) return;
+
+    if (
+      (mode === "guest_pay" || mode === "create_account") &&
+      hasRegistrationFee() &&
+      !stripeConnectReady
+    ) {
+      setError(
+        "Online payment is not available for this event yet. Contact the organizer.",
+      );
       return;
     }
 
     setError("");
-    setSubmitting(true);
+    setSubmitting(mode);
 
     try {
       const res = await fetch(`/api/events/${eventId}/register-guest`, {
@@ -123,37 +322,191 @@ export function GuestRegistrationForm({
           lastName: lastName.trim(),
           email: email.trim(),
           phone: phone.trim() || undefined,
-          vehicles: validVehicles.map((v) => ({
-            year: parseInt(v.year, 10),
-            make: v.make.trim(),
-            model: v.model.trim(),
-            trim: v.trim.trim() || undefined,
-            notes: v.notes.trim() || undefined,
+          street: street.trim(),
+          city: city.trim(),
+          state: state.trim().toUpperCase(),
+          zip: zip.trim(),
+          vehicles: registeredVehicles.map((v) => ({
+            year: v.year,
+            make: v.make,
+            model: v.model,
+            trim: v.trim || undefined,
+            nickname: v.nickname.trim() || undefined,
+            notes: v.notes || undefined,
+            photoUrl: v.photoUrl ?? undefined,
+            eventCategoryId: v.eventCategoryId ?? undefined,
           })),
+          ...(isDonationEvent
+            ? {
+                donationCents: parseDonationDollarsInput(donationDollars) ?? 0,
+              }
+            : {}),
         }),
       });
       const data = (await res.json()) as {
         id?: string;
         status?: string;
+        checkoutRequired?: boolean;
         error?: string;
       };
       if (!res.ok) {
         setError(data.error ?? "Registration failed.");
         return;
       }
+
+      if (mode === "create_account" && data.id) {
+        const q = new URLSearchParams({
+          registrationId: data.id,
+          email: email.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+        });
+        if (phone.trim()) q.set("phone", phone.trim());
+        if (data.checkoutRequired) q.set("checkout", "1");
+        router.push(
+          `/events/${eventId}/register/create-account?${q.toString()}`,
+        );
+        return;
+      }
+
+      if (data.id && mode === "guest_pay" && hasRegistrationFee()) {
+        if (data.checkoutRequired) {
+          await startCheckout(data.id);
+          return;
+        }
+        setError(
+          "Payment could not be started. The organizer may need to finish Stripe setup.",
+        );
+        return;
+      }
+
       router.push(
-        `/events/${eventId}/register/success?status=${data.status ?? "CONFIRMED"}&tier=${encodeURIComponent(selectedTier?.name ?? "")}&count=${validVehicles.length}`,
+        `/events/${eventId}/register/success?status=${data.status ?? "CONFIRMED"}&tier=${encodeURIComponent(selectedTier?.name ?? "")}&count=${registeredVehicles.length}`,
       );
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
     }
   }
 
+  const payRequired = hasRegistrationFee();
+  const checkoutReady = canCollectPaymentOnline();
+
+  function feeSummaryBlock() {
+    if (isDonationEvent) {
+      return (
+        <div className="space-y-3 text-sm">
+          <DonationAmountField
+            value={donationDollars}
+            onChange={setDonationDollars}
+            suggestedPerVehicleDollars={feeDollars}
+            vehicleCount={vehicleCount}
+            disabled={!!submitting}
+            id="guest-review-donation-amount"
+          />
+          {guestPlatformFee.totalCents > 0 && (
+            <div className="flex items-center justify-between gap-2 border-t pt-2">
+              <span>Convenience fee:</span>
+              <span className="text-right font-medium">
+                {formatMoney(guestPlatformFee.perVehicleCents)} × {vehicleCount}{" "}
+                vehicle
+                {vehicleCount !== 1 ? "s" : ""} ={" "}
+                {formatMoney(guestPlatformFee.totalCents)}
+              </span>
+            </div>
+          )}
+          {(guestDonationCents > 0 || guestPlatformFee.totalCents > 0) && (
+            <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
+              <span>Total:</span>
+              <span>{formatMoney(guestGrandTotal)}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const numVehicles = Math.max(registeredVehicles.length, 1);
+    if (feeType === "FREE") {
+      return (
+        <div className="flex items-center gap-2 text-sm">
+          <CreditCard className="size-4 text-muted-foreground" />
+          <span className="font-medium">Free</span>
+        </div>
+      );
+    }
+
+    let unitCents = 0;
+    let eventFeeLabel = "Event fee";
+    if (feeType === "PAID_TIERED" && selectedTier) {
+      unitCents = selectedTier.priceCents;
+      eventFeeLabel = selectedTier.name;
+    } else {
+      unitCents = (feeDollars ?? 0) * 100;
+    }
+
+    const eventFeeTotal = unitCents * numVehicles;
+    const convFeeCents = convenienceFeePerVehicle(platformFee, unitCents);
+    const totalConvFee = convFeeCents * numVehicles;
+    const grandTotal = eventFeeTotal + totalConvFee;
+
+    if (unitCents === 0) {
+      return (
+        <div className="flex items-center gap-2 text-sm">
+          <CreditCard className="size-4 text-muted-foreground" />
+          <span className="font-medium">Free</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-1 text-sm">
+        {feeType === "PAID_TIERED" && selectedTier && (
+          <div className="flex items-center gap-2">
+            <Tag className="size-4 text-muted-foreground" />
+            <span className="font-medium">{selectedTier.name}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <span>{eventFeeLabel}:</span>
+          <span className="text-right font-medium">
+            {formatMoney(unitCents)} × {numVehicles} vehicle
+            {numVehicles !== 1 ? "s" : ""} = {formatMoney(eventFeeTotal)}
+          </span>
+        </div>
+        {totalConvFee > 0 && (
+          <div className="flex items-center justify-between gap-2">
+            <span>Convenience fee:</span>
+            <span className="text-right font-medium">
+              {formatMoney(convFeeCents)} × {numVehicles} vehicle
+              {numVehicles !== 1 ? "s" : ""} = {formatMoney(totalConvFee)}
+            </span>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
+          <span>Total:</span>
+          <span>{formatMoney(grandTotal)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const formDisabled =
+    !!submitting ||
+    !tierId ||
+    registeredVehicles.length === 0 ||
+    (requiresVehicleClass &&
+      !guestVehiclesHaveRequiredClasses(
+        requiresVehicleClass,
+        registeredVehicles,
+      )) ||
+    !firstName.trim() ||
+    !lastName.trim() ||
+    !email.trim() ||
+    !hasCompleteMailingAddress({ street, city, state, zip });
+
   return (
     <div className="space-y-6">
-      {/* ---- Contact Information ---- */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -222,72 +575,190 @@ export function GuestRegistrationForm({
               />
             </div>
           </div>
+          <RegistrationAddressFields
+            idPrefix="guest"
+            values={{ street, city, state, zip }}
+            onChange={(patch) => {
+              if (patch.street !== undefined) setStreet(patch.street);
+              if (patch.city !== undefined) setCity(patch.city);
+              if (patch.state !== undefined) setState(patch.state);
+              if (patch.zip !== undefined) setZip(patch.zip);
+            }}
+          />
         </CardContent>
       </Card>
 
-      {/* ---- Vehicle Information ---- */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">
-            Vehicle Information
-            {validVehicles.length > 0 && (
-              <Badge variant="default" className="ml-2">
-                {validVehicles.length}
-              </Badge>
-            )}
-          </CardTitle>
+          <CardTitle className="text-base">Add Vehicle</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {vehicles.map((row, i) => (
-            <div
-              key={i}
-              className="relative rounded-lg border bg-card p-3 shadow-sm"
-            >
-              {vehicles.length > 1 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1.5 top-1.5 size-6 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeRow(i)}
-                  aria-label="Remove vehicle"
-                >
-                  <X className="size-3.5" />
-                </Button>
-              )}
-
-              <VehicleLookupFields
-                idPrefix={`gv-${i}`}
-                values={row}
-                onChange={(v: VehicleLookupValues) => updateRow(i, v)}
-              />
-
-              <div className="mt-2 space-y-1">
-                <Label className="text-xs">Your Vehicle Story</Label>
-                <Input
-                  placeholder="Tell us about your vehicle"
-                  value={row.notes}
-                  onChange={(e) => updateRow(i, { notes: e.target.value })}
-                  className="h-8 text-sm"
-                />
-              </div>
-            </div>
-          ))}
-
+        <CardContent className="space-y-3">
+          <VehicleLookupFields
+            idPrefix="guest-draft"
+            values={draft}
+            onChange={(v) => setDraft((d) => ({ ...d, ...v }))}
+          />
+          <div className="space-y-1">
+            <Label htmlFor="guest-draft-nickname" className="text-xs">
+              Vehicle nickname <span className="text-muted-foreground">(prints on dash card)</span>
+            </Label>
+            <Input
+              id="guest-draft-nickname"
+              placeholder='e.g. "Miss Behavin’"'
+              value={draft.nickname}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, nickname: e.target.value }))
+              }
+              maxLength={48}
+              className="h-8 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Your Vehicle Story</Label>
+            <Input
+              placeholder="Tell us about your vehicle"
+              value={draft.notes}
+              onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+              className="h-8 text-sm"
+            />
+          </div>
           <Button
             type="button"
-            variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={addRow}
+            disabled={!draftIsValid()}
+            onClick={addDraftToRegistration}
           >
             <Plus className="size-4" />
-            Add another vehicle
+            Add to Registration
           </Button>
         </CardContent>
       </Card>
 
-      {/* ---- Tier Selection (only for tiered pricing) ---- */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">
+            Registered Vehicles
+            {registeredVehicles.length > 0 && (
+              <Badge variant="default" className="ml-2">
+                {registeredVehicles.length}
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {registeredVehicles.length > 0 ? (
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
+                    <th className="w-16 px-3 py-2">Photo</th>
+                    <th className="px-3 py-2">Vehicle</th>
+                    <th className="px-3 py-2">Vehicle nickname</th>
+                    <th className="px-3 py-2">
+                      Class
+                      <RequiredFieldMark />
+                    </th>
+                    <th className="w-10 px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {registeredVehicles.map((v) => (
+                    <tr key={v.clientId} className="hover:bg-muted/30">
+                      <td className="px-3 py-2.5">
+                        <GuestVehiclePhoto
+                          eventId={eventId}
+                          photoUrl={v.photoUrl}
+                          onPhotoChange={(url) =>
+                            updateVehicle(v.clientId, { photoUrl: url })
+                          }
+                        />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Car className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="font-medium">
+                              {v.year} {v.make} {v.model}
+                            </span>
+                            {v.trim ? (
+                              <span className="text-muted-foreground">{v.trim}</span>
+                            ) : null}
+                          </div>
+                        {requiresVehicleClass ? (
+                          <p className="mt-1 text-xs">
+                            <span className="text-muted-foreground">Class: </span>
+                            <span
+                              className={cn(
+                                "font-medium",
+                                !v.eventCategoryId && "text-destructive",
+                              )}
+                            >
+                              {guestVehicleClassLabel(v.eventCategoryId)}
+                            </span>
+                          </p>
+                        ) : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Input
+                          value={v.nickname}
+                          onChange={(e) =>
+                            updateVehicle(v.clientId, {
+                              nickname: e.target.value,
+                            })
+                          }
+                          placeholder='e.g. "Miss Behavin’"'
+                          maxLength={48}
+                          className="h-8 min-w-[8rem] text-sm"
+                        />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {requiresVehicleClass ? (
+                          <VehicleClassSelect
+                            value={v.eventCategoryId}
+                            onChange={(categoryId) =>
+                              updateVehicle(v.clientId, {
+                                eventCategoryId: categoryId,
+                              })
+                            }
+                            categories={eventCategories}
+                            invalid={!v.eventCategoryId}
+                          />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            No classes configured
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => removeVehicle(v.clientId)}
+                          aria-label="Remove vehicle"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-lg border-2 border-dashed p-6 text-center">
+              <Car className="mx-auto mb-2 size-6 text-muted-foreground/50" />
+              <p className="text-sm text-muted-foreground">
+                Add a vehicle above, then click Add to Registration.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {feeType === "PAID_TIERED" && (
         <Card>
           <CardHeader className="pb-3">
@@ -321,7 +792,8 @@ export function GuestRegistrationForm({
                         "relative flex flex-col gap-1.5 rounded-xl border-2 p-3 text-left transition-all",
                         open && !active && "border-border hover:border-primary/40",
                         active && "border-primary bg-primary/5",
-                        !open && "cursor-not-allowed border-border bg-muted/50 opacity-60",
+                        !open &&
+                          "cursor-not-allowed border-border bg-muted/50 opacity-60",
                       )}
                     >
                       {active && (
@@ -341,22 +813,6 @@ export function GuestRegistrationForm({
                       <span className="text-xl font-bold">
                         {t.priceCents === 0 ? "Free" : formatMoney(t.priceCents)}
                       </span>
-                      {(t.opensAt || t.closesAt) && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Clock className="size-3 shrink-0" />
-                          {!open ? (
-                            <span>
-                              {t.opensAt && new Date(t.opensAt) > new Date()
-                                ? `Opens ${formatDate(t.opensAt)}`
-                                : "Closed"}
-                            </span>
-                          ) : (
-                            <span>
-                              {t.closesAt ? `Closes ${formatDate(t.closesAt)}` : "Open now"}
-                            </span>
-                          )}
-                        </div>
-                      )}
                     </button>
                   );
                 })}
@@ -366,16 +822,15 @@ export function GuestRegistrationForm({
         </Card>
       )}
 
-      {/* ---- Review & Submit ---- */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Review &amp; Submit</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {validVehicles.length > 0 && (
+          {registeredVehicles.length > 0 && (
             <ul className="space-y-1 text-sm">
-              {validVehicles.map((v, i) => (
-                <li key={i} className="flex items-center gap-2">
+              {registeredVehicles.map((v) => (
+                <li key={v.clientId} className="flex items-center gap-2">
                   <Car className="size-3.5 text-muted-foreground" />
                   <span>
                     {v.year} {v.make} {v.model}
@@ -385,72 +840,17 @@ export function GuestRegistrationForm({
             </ul>
           )}
 
-          {/* Fee summary */}
-          {(() => {
-            const numVehicles = validVehicles.length;
-            if (feeType === "FREE") {
-              return (
-                <div className="flex items-center gap-2 text-sm">
-                  <CreditCard className="size-4 text-muted-foreground" />
-                  <span className="font-medium">Free</span>
-                </div>
-              );
-            }
-            if (feeType === "PAID_TIERED" && selectedTier) {
-              const unitCents = selectedTier.priceCents;
-              const total = unitCents * numVehicles;
-              return (
-                <div className="space-y-1 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Tag className="size-4 text-muted-foreground" />
-                    <span className="font-medium">{selectedTier.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="size-4 text-muted-foreground" />
-                    <span className="font-bold">
-                      {unitCents === 0
-                        ? "Free"
-                        : `${formatMoney(unitCents)} \u00d7 ${numVehicles} vehicle${numVehicles !== 1 ? "s" : ""} = ${formatMoney(total)}`}
-                    </span>
-                  </div>
-                </div>
-              );
-            }
-            if (feeType === "DONATION") {
-              const unitCents = (feeDollars ?? 0) * 100;
-              const total = unitCents * numVehicles;
-              return (
-                <div className="flex items-center gap-2 text-sm">
-                  <CreditCard className="size-4 text-muted-foreground" />
-                  <span className="font-bold">
-                    {unitCents === 0
-                      ? "Donation"
-                      : `Donation ${formatMoney(unitCents)} \u00d7 ${numVehicles} vehicle${numVehicles !== 1 ? "s" : ""} = ${formatMoney(total)}`}
-                  </span>
-                </div>
-              );
-            }
-            /* PAID (Flat Rate) */
-            const unitCents = (feeDollars ?? 0) * 100;
-            const total = unitCents * numVehicles;
-            return (
-              <div className="flex items-center gap-2 text-sm">
-                <CreditCard className="size-4 text-muted-foreground" />
-                <span className="font-bold">
-                  {unitCents === 0
-                    ? "Free"
-                    : `Registration fee ${formatMoney(unitCents)} \u00d7 ${numVehicles} vehicle${numVehicles !== 1 ? "s" : ""} = ${formatMoney(total)}`}
-                </span>
-              </div>
-            );
-          })()}
+          {feeSummaryBlock()}
 
-          {((feeType === "PAID_TIERED" && selectedTier && selectedTier.priceCents > 0) ||
-            (feeType === "PAID" && (feeDollars ?? 0) > 0) ||
-            (feeType === "DONATION" && (feeDollars ?? 0) > 0)) && (
+          {payRequired && checkoutReady && (
             <p className="text-xs text-amber-700 dark:text-amber-300">
-              Payment will be collected at a later step. Your registration will
-              be marked as Pending.
+              You will be redirected to Stripe to complete payment.
+            </p>
+          )}
+          {payRequired && !checkoutReady && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              This event has a registration fee, but online payment is not set up
+              yet. Contact the organizer.
             </p>
           )}
 
@@ -460,23 +860,65 @@ export function GuestRegistrationForm({
             </div>
           )}
 
-          <Button
-            type="button"
-            size="lg"
-            className="w-full gap-2"
-            disabled={
-              submitting ||
-              !tierId ||
-              validVehicles.length === 0 ||
-              !firstName.trim() ||
-              !lastName.trim() ||
-              !email.trim()
-            }
-            onClick={() => void handleGuestSubmit()}
-          >
-            {submitting && <Loader2 className="size-4 animate-spin" />}
-            Register as Guest
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            {payRequired ? (
+              <>
+                <Button
+                  type="button"
+                  size="lg"
+                  variant="outline"
+                  className="gap-2 sm:min-w-[12rem]"
+                  disabled={formDisabled}
+                  onClick={() => void handleGuestSubmit("create_account")}
+                >
+                  {submitting === "create_account" && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  Create Account and Pay
+                </Button>
+                <Button
+                  type="button"
+                  size="lg"
+                  className="gap-2 sm:min-w-[12rem]"
+                  disabled={formDisabled}
+                  onClick={() => void handleGuestSubmit("guest_pay")}
+                >
+                  {submitting === "guest_pay" && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  Pay &amp; Register
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  size="lg"
+                  variant="outline"
+                  className="gap-2 sm:min-w-[12rem]"
+                  disabled={formDisabled}
+                  onClick={() => void handleGuestSubmit("create_account")}
+                >
+                  {submitting === "create_account" && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  Create Account &amp; Register
+                </Button>
+                <Button
+                  type="button"
+                  size="lg"
+                  className="gap-2 sm:min-w-[12rem]"
+                  disabled={formDisabled}
+                  onClick={() => void handleGuestSubmit("free")}
+                >
+                  {submitting === "free" && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  Register as Guest
+                </Button>
+              </>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

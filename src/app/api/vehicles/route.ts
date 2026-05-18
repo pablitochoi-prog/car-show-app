@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
 import { vehicleWriteSchema } from "@/lib/validation/registration";
 import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 
@@ -24,6 +24,8 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const writeDenied = writeAccessDeniedResponse(user);
+  if (writeDenied) return writeDenied;
 
   let body: unknown;
   try {

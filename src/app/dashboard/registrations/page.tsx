@@ -1,29 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { loadMyRegistrationCards } from "@/lib/dashboard-my-registrations";
 import { buttonVariants } from "@/components/ui/button";
+import { MyRegistrationCard } from "@/components/dashboard/registrations/my-registration-card";
 import { cn } from "@/lib/utils";
 
 export default async function MyRegistrationsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const rows = await prisma.registration.findMany({
-    where: { userId: user.id },
-    include: {
-      event: { select: { id: true, name: true, startDate: true, city: true, state: true } },
-      tier: { select: { name: true, priceCents: true } },
-      vehicles: {
-        include: {
-          vehicle: {
-            select: { year: true, make: true, model: true, trim: true },
-          },
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const cards = await loadMyRegistrationCards(user.id);
 
   return (
     <div className="page-shell max-w-4xl space-y-6">
@@ -38,14 +25,14 @@ export default async function MyRegistrationsPage() {
           href="/dashboard"
           className={cn(
             buttonVariants({ variant: "outline" }),
-            "w-full justify-center sm:w-auto"
+            "w-full justify-center sm:w-auto",
           )}
         >
           Back to dashboard
         </Link>
       </div>
 
-      {rows.length === 0 ? (
+      {cards.length === 0 ? (
         <p className="text-center text-sm text-muted-foreground sm:text-left">
           No registrations yet. Browse{" "}
           <Link href="/events" className="text-primary underline">
@@ -55,47 +42,8 @@ export default async function MyRegistrationsPage() {
         </p>
       ) : (
         <ul className="space-y-4">
-          {rows.map((r) => (
-            <li key={r.id} className="rounded-lg border p-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <Link
-                    href={`/events/${r.event.id}`}
-                    className="font-semibold hover:underline"
-                  >
-                    {r.event.name}
-                  </Link>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(r.event.startDate).toLocaleDateString()}
-                    {r.event.city || r.event.state
-                      ? ` · ${[r.event.city, r.event.state].filter(Boolean).join(", ")}`
-                      : ""}
-                  </p>
-                  <p className="text-sm mt-1">
-                    Tier: {r.tier.name} (
-                    {new Intl.NumberFormat(undefined, {
-                      style: "currency",
-                      currency: "USD",
-                    }).format(r.tier.priceCents / 100)}
-                    ) · Status: <strong>{r.status}</strong>
-                  </p>
-                </div>
-                <Link
-                  href={`/events/${r.event.id}`}
-                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                >
-                  Event page
-                </Link>
-              </div>
-              <ul className="mt-3 text-sm text-muted-foreground list-disc list-inside">
-                {r.vehicles.map((rv) => (
-                  <li key={rv.id}>
-                    {rv.vehicle.year} {rv.vehicle.make} {rv.vehicle.model}
-                    {rv.vehicle.trim ? ` ${rv.vehicle.trim}` : ""}
-                  </li>
-                ))}
-              </ul>
-            </li>
+          {cards.map((card) => (
+            <MyRegistrationCard key={card.id} card={card} />
           ))}
         </ul>
       )}

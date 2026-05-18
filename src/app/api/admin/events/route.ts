@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       name: true,
+      showNumber: true,
       city: true,
       state: true,
       startDate: true,
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
     events: events.map((e) => ({
       id: e.id,
       name: e.name,
+      showNumber: e.showNumber,
       city: e.city,
       state: e.state,
       startDate: e.startDate.toISOString(),

@@ -17,7 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, Minus, Plus, Search, Upload } from "lucide-react";
+import { Copy, Loader2, Minus, Plus, Search, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UsPhoneInput } from "@/components/inputs/us-phone-input";
 import { CurrencyDollarsInput } from "@/components/inputs/currency-dollars-input";
@@ -267,13 +267,17 @@ function FormPrimaryActions({
 function FormEditBottomBar({
   loading,
   destructiveBusy,
+  cloneBusy,
   showArchive,
+  onCloneClick,
   onArchiveClick,
   onDeleteClick,
 }: {
   loading: boolean;
   destructiveBusy: boolean;
+  cloneBusy: boolean;
   showArchive: boolean;
+  onCloneClick: () => void;
   onArchiveClick: () => void;
   onDeleteClick: () => void;
 }) {
@@ -281,14 +285,28 @@ function FormEditBottomBar({
     <div className="flex flex-col gap-4 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
       <FormPrimaryActions
         loading={loading}
-        destructiveBusy={destructiveBusy}
+        destructiveBusy={destructiveBusy || cloneBusy}
       />
       <div className="flex flex-wrap items-center justify-end gap-2 sm:ml-auto">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={loading || destructiveBusy || cloneBusy}
+          className="gap-1.5"
+          onClick={onCloneClick}
+        >
+          {cloneBusy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Copy className="size-4" />
+          )}
+          Clone event
+        </Button>
         {showArchive ? (
           <Button
             type="button"
             variant="outline"
-            disabled={loading || destructiveBusy}
+            disabled={loading || destructiveBusy || cloneBusy}
             onClick={onArchiveClick}
           >
             Archive event
@@ -297,7 +315,7 @@ function FormEditBottomBar({
         <Button
           type="button"
           variant="destructive"
-          disabled={loading || destructiveBusy}
+          disabled={loading || destructiveBusy || cloneBusy}
           onClick={onDeleteClick}
         >
           Permanently delete
@@ -318,6 +336,11 @@ function describeUnparseableApiResponse(
   return `${verb} (HTTP ${parsed.status}). The server returned empty or non-JSON. Check the terminal running next dev, or run: npx prisma db push`;
 }
 
+export type EventOrganizerContactRow = {
+  name: string;
+  email: string;
+};
+
 export function EventForm({
   initial,
   organizations = [],
@@ -325,6 +348,7 @@ export function EventForm({
   betweenOrganizerAndActions,
   eventId,
   initialTiers,
+  eventOrganizerContacts,
 }: {
   initial?: EventInitial;
   organizations?: OrgOption[];
@@ -334,6 +358,8 @@ export function EventForm({
   betweenOrganizerAndActions?: ReactNode;
   eventId?: string;
   initialTiers?: TierRow[];
+  /** Users with the Organizer staff role — receive registrant messages for this event. */
+  eventOrganizerContacts?: EventOrganizerContactRow[];
 }) {
   const router = useRouter();
   const isEdit = Boolean(initial);
@@ -351,6 +377,7 @@ export function EventForm({
   const [destructiveAction, setDestructiveAction] = useState<
     "archive" | "delete" | null
   >(null);
+  const [cloneBusy, setCloneBusy] = useState(false);
 
   const persistedEventStatus = initial?.persistedEventStatus;
   const showArchiveButton =
@@ -910,6 +937,37 @@ export function EventForm({
     }
   }
 
+  async function handleCloneEvent() {
+    if (!initial?.id) return;
+    setCloneBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/events/${initial.id}/clone`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const parsed = await readResponseJson<{
+        id?: string;
+        error?: string;
+      }>(res);
+      if (!parsed.bodyIsJson || !parsed.data) {
+        setError(describeUnparseableApiResponse("Could not clone event", parsed));
+        return;
+      }
+      const data = parsed.data;
+      if (!res.ok || !data.id) {
+        setError(data.error ?? "Could not clone event.");
+        return;
+      }
+      router.push(`/organizer/events/${data.id}/edit?cloned=1`);
+      router.refresh();
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setCloneBusy(false);
+    }
+  }
+
   async function confirmDeleteEvent() {
     if (!initial?.id) return;
     setDestructiveAction("delete");
@@ -1128,11 +1186,17 @@ export function EventForm({
         </CardContent>
       </Card>
 
-      {feeType === "PAID_TIERED" && eventId && (
+      {feeType === "PAID_TIERED" && eventId ? (
         <CollapsibleCard title="Registration Tiers" defaultOpen>
           <TierManager eventId={eventId} initialTiers={initialTiers ?? []} />
         </CollapsibleCard>
-      )}
+      ) : feeType && feeType !== "" && feeType !== "PAID_TIERED" ? (
+        <p className="text-sm text-muted-foreground">
+          {feeType === "FREE" || feeType === "PAID" || feeType === "DONATION"
+            ? "Registrants use a single General Admission tier automatically. Set the fee or suggested donation above."
+            : null}
+        </p>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -1653,6 +1717,33 @@ export function EventForm({
               </p>
             ) : null}
           </div>
+          {isEdit && eventOrganizerContacts !== undefined ? (
+            <div className="rounded-md border border-border bg-muted/25 px-3 py-2.5 text-xs">
+              <p className="font-medium text-foreground">Message &amp; refund inbox</p>
+              <p className="mt-1 text-muted-foreground">
+                Logged-in registrants can message the event organizer about this
+                show or request a refund. Those messages go to the organizer
+                account(s) listed here (same as the{" "}
+                <strong>Organizer</strong> role under Event Staffing).
+              </p>
+              {eventOrganizerContacts.length > 0 ? (
+                <ul className="mt-2 space-y-1.5">
+                  {eventOrganizerContacts.map((c) => (
+                    <li key={c.email} className="text-foreground">
+                      <span className="font-medium">{c.name}</span>
+                      <span className="text-muted-foreground"> · {c.email}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-amber-800 dark:text-amber-200">
+                  No organizer is assigned yet. Add at least one person with the
+                  Organizer role under <strong>Event Staffing</strong> so
+                  registrants can reach you.
+                </p>
+              )}
+            </div>
+          ) : null}
           {!hostingLocked &&
           hostingOrgId === ADD_ORGANIZATION_SELECT_VALUE ? (
             <p className="text-xs leading-relaxed text-muted-foreground">
@@ -1671,7 +1762,9 @@ export function EventForm({
         <FormEditBottomBar
           loading={loading}
           destructiveBusy={destructiveAction !== null}
+          cloneBusy={cloneBusy}
           showArchive={showArchiveButton}
+          onCloneClick={() => void handleCloneEvent()}
           onArchiveClick={() => setArchiveDialogOpen(true)}
           onDeleteClick={() => setDeleteDialogOpen(true)}
         />

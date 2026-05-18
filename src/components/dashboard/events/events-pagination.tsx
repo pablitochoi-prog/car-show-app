@@ -4,6 +4,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   hrefDashboardEvents,
+  type DashboardEventsLinkOptions,
   type EventsTab,
 } from "@/lib/dashboard-events-url";
 
@@ -12,8 +13,9 @@ export function EventsPaginationBar(props: {
   page: number;
   pageSize: number;
   total: number;
+  linkOptions?: DashboardEventsLinkOptions;
 }) {
-  const { tab, page, pageSize, total } = props;
+  const { tab, page, pageSize, total, linkOptions } = props;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const show = total > pageSize;
 
@@ -36,7 +38,7 @@ export function EventsPaginationBar(props: {
       <div className="flex items-center gap-2">
         {prev ? (
           <Link
-            href={hrefDashboardEvents(tab, prev)}
+            href={hrefDashboardEvents(tab, prev, linkOptions)}
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
               "gap-1"
@@ -61,7 +63,7 @@ export function EventsPaginationBar(props: {
         </span>
         {next ? (
           <Link
-            href={hrefDashboardEvents(tab, next)}
+            href={hrefDashboardEvents(tab, next, linkOptions)}
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
               "gap-1"

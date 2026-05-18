@@ -6,6 +6,17 @@ import { getCurrentUser } from "@/lib/auth";
 import { getEventForViewer } from "@/lib/event-access";
 import { displayContactName } from "@/lib/contact-display";
 import { EventRegistrationPage } from "@/components/registration/event-registration-page";
+import { getPlatformFee, type PlatformFeeConfig } from "@/lib/platform-fee";
+import { formatEventShowNumber } from "@/lib/event-show-number";
+import {
+  isStripeCheckoutAvailable,
+  isStripeConnectReady,
+} from "@/lib/stripe-checkout";
+import { getExistingRegistrationForEvent } from "@/lib/registration-for-event";
+import {
+  formatOrganizerMessageRecipientNote,
+  getEventOrganizerDisplayNames,
+} from "@/lib/event-staff";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -15,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const event = await getEventForViewer(id, viewer?.id ?? null);
   if (!event) return { title: "Event not found" };
   return {
-    title: `${event.name} | CarShowApp`,
+    title: `${formatEventShowNumber(event.showNumber)} ${event.name} | CarShowApp`,
     description: event.description ?? event.name,
   };
 }
@@ -27,18 +38,41 @@ export default async function EventDetailPage({ params }: Props) {
 
   if (!event) notFound();
 
-  const [tierRows, vehicleRows] = await Promise.all([
-    prisma.registrationTier.findMany({
-      where: { eventId: id },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    }),
-    viewer
-      ? prisma.vehicle.findMany({
-          where: { userId: viewer.id, archivedAt: null },
-          orderBy: [{ make: "asc" }, { model: "asc" }],
-        })
-      : Promise.resolve([]),
-  ]);
+  const [tierRows, existingRegistration, platformFee, categoryRows, organizerNames] =
+    await Promise.all([
+      prisma.registrationTier.findMany({
+        where: { eventId: id },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      }),
+      viewer
+        ? getExistingRegistrationForEvent(id, viewer.id)
+        : Promise.resolve(null),
+      getPlatformFee(),
+      prisma.eventCategory.findMany({
+        where: { eventId: id },
+        include: { category: { select: { name: true } } },
+        orderBy: { createdAt: "asc" },
+      }),
+      getEventOrganizerDisplayNames(id),
+    ]);
+
+  const organizerMessageNote = formatOrganizerMessageRecipientNote(organizerNames);
+
+  const regVehicleIds = existingRegistration?.vehicleIds ?? [];
+  const vehicleRows = viewer
+    ? await prisma.vehicle.findMany({
+        where: {
+          userId: viewer.id,
+          OR: [
+            { archivedAt: null },
+            ...(regVehicleIds.length > 0
+              ? [{ id: { in: regVehicleIds } }]
+              : []),
+          ],
+        },
+        orderBy: [{ make: "asc" }, { model: "asc" }],
+      })
+    : [];
 
   const tiers = tierRows.map((t) => ({
     id: t.id,
@@ -55,6 +89,13 @@ export default async function EventDetailPage({ params }: Props) {
     make: v.make,
     model: v.model,
     trim: v.trim,
+    nickname: v.nickname,
+    photoUrl: v.photoUrl,
+  }));
+
+  const eventCategories = categoryRows.map((ec) => ({
+    id: ec.id,
+    name: ec.customName ?? ec.category?.name ?? "Uncategorized",
   }));
 
   const contactName = displayContactName(
@@ -62,6 +103,9 @@ export default async function EventDetailPage({ params }: Props) {
     event.contactLastName,
     event.contactName,
   );
+
+  const stripeConnectReady = isStripeConnectReady(event);
+  const stripeCheckoutAvailable = isStripeCheckoutAvailable(event);
 
   return (
     <div className="page-shell max-w-6xl">
@@ -80,11 +124,15 @@ export default async function EventDetailPage({ params }: Props) {
       </div>
 
       <EventRegistrationPage
+        stripeConnectReady={stripeConnectReady}
+        stripeCheckoutAvailable={stripeCheckoutAvailable}
         event={{
           id: event.id,
           name: event.name,
+          showNumber: event.showNumber,
           description: event.description,
           status: event.status,
+          paymentEnabled: event.paymentEnabled,
           orgName: event.organization?.name ?? null,
           flyerUrl: event.flyerUrl,
           logoUrl: event.logoUrl,
@@ -103,10 +151,31 @@ export default async function EventDetailPage({ params }: Props) {
           contactPhone: event.contactPhone,
           eventWebsite: event.eventWebsite,
           socialHashtag: event.socialHashtag,
+          organizerMessageNote,
         }}
         tiers={tiers}
         vehicles={vehicles}
         isLoggedIn={!!viewer}
+        userContact={
+          viewer
+            ? {
+                firstName: viewer.firstName ?? "",
+                lastName: viewer.lastName ?? "",
+                email: viewer.email,
+                phone: viewer.phone ?? "",
+                profileExtras: {
+                  birthYear: viewer.birthYear ?? undefined,
+                  street: viewer.street ?? "",
+                  city: viewer.city ?? "",
+                  state: viewer.state ?? "",
+                  zip: viewer.zip ?? "",
+                },
+              }
+            : null
+        }
+        platformFee={platformFee}
+        eventCategories={eventCategories}
+        existingRegistration={existingRegistration}
       />
     </div>
   );

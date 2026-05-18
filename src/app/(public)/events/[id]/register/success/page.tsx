@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Clock, Car, ArrowRight } from "lucide-react";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -16,7 +17,13 @@ export default async function RegistrationSuccessPage({ params, searchParams }: 
 
   const event = await prisma.event.findUnique({
     where: { id },
-    select: { name: true, startDate: true, city: true, state: true },
+    select: {
+      name: true,
+      showNumber: true,
+      startDate: true,
+      city: true,
+      state: true,
+    },
   });
 
   if (!event) notFound();
@@ -60,7 +67,12 @@ export default async function RegistrationSuccessPage({ params, searchParams }: 
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Event
             </p>
-            <p className="font-semibold">{event.name}</p>
+            <p className="font-semibold">
+              <EventNameWithNumber
+                name={event.name}
+                showNumber={event.showNumber}
+              />
+            </p>
             <p className="text-muted-foreground">
               {eventDate}
               {location ? ` · ${location}` : ""}

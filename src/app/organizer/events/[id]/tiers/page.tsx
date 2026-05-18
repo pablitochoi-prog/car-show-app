@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEventAndLoad } from "@/lib/auth";
 import { TierManager } from "@/components/forms/tier-manager";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 export default async function EventTiersPage({
   params,
@@ -16,6 +17,10 @@ export default async function EventTiersPage({
 
   const { allowed, event } = await canManageEventAndLoad(user.id, id, user.platformRole);
   if (!allowed || !event) notFound();
+
+  if (event.registrationFeeType !== "PAID_TIERED") {
+    redirect(`/organizer/events/${id}/edit`);
+  }
 
   const tierRows = await prisma.registrationTier.findMany({
     where: { eventId: id },
@@ -42,7 +47,11 @@ export default async function EventTiersPage({
           ← My events
         </Link>
         <h1 className="mt-4 mb-6 text-2xl font-bold">
-          Registration tiers — {event.name}
+          Registration tiers —{" "}
+          <EventNameWithNumber
+            name={event.name}
+            showNumber={event.showNumber}
+          />
         </h1>
       </div>
       <TierManager eventId={id} initialTiers={initialTiers} />

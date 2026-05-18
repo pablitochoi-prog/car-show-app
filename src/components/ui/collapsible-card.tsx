@@ -7,10 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export function CollapsibleCard({
   title,
   defaultOpen = false,
+  keepMounted = false,
   children,
 }: {
   title: string;
   defaultOpen?: boolean;
+  /** When true, children stay mounted while collapsed (hidden) so client data can load. */
+  keepMounted?: boolean;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -39,7 +42,11 @@ export function CollapsibleCard({
           <CardTitle className="text-lg">{title}</CardTitle>
         </div>
       </CardHeader>
-      {open && <CardContent>{children}</CardContent>}
+      {keepMounted ? (
+        <CardContent className={open ? undefined : "hidden"}>{children}</CardContent>
+      ) : (
+        open && <CardContent>{children}</CardContent>
+      )}
     </Card>
   );
 }

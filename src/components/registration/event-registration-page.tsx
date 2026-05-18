@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -13,12 +14,13 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { VehicleClassSelect } from "@/components/registration/vehicle-class-select";
 import {
   Loader2,
   Check,
   Car,
   Plus,
-  X,
+  Trash2,
   Tag,
   CreditCard,
   Clock,
@@ -27,12 +29,48 @@ import {
 import { InlineLogin } from "./inline-login";
 import { EventInfoSidebar, type SidebarEvent } from "./event-info-sidebar";
 import { GuestRegistrationForm } from "./guest-registration-form";
-import { isTierOpen, formatMoney, formatDate } from "./reg-utils";
+import { isTierOpen, formatMoney, formatDate, convenienceFeePerVehicle } from "./reg-utils";
+import { RequiredFieldMark } from "./required-field-mark";
+import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
 import {
-  VehicleLookupFields,
-  type VehicleLookupValues,
-} from "@/components/forms/vehicle-lookup-fields";
+  REGISTRATION_CLASS_REQUIRED_MSG,
+  REGISTRATION_VEHICLE_REQUIRED_MSG,
+  loggedInVehiclesHaveRequiredClasses,
+} from "@/lib/registration-vehicle-classes";
+import { RegistrationVehiclePhoto } from "./registration-vehicle-photo";
+import { RegistrationContactSection } from "./registration-contact-section";
+import {
+  RegistrationContactSheet,
+  type ProfilePatchExtras,
+} from "./registration-contact-sheet";
 import { ThumbnailWithEye, ImageLightbox } from "@/components/ui/image-lightbox";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
+import { ContactOrganizerButton } from "@/components/messages/contact-organizer-button";
+import { formatEventShowNumber } from "@/lib/event-show-number";
+import {
+  emptyRegistrationContact,
+  isRegistrationContactComplete,
+  type RegistrationContact,
+} from "@/lib/registration-contact";
+import type { ExistingRegistrationForEvent } from "@/lib/registration-for-event-types";
+import { resolvePayableTier } from "@/lib/tiers";
+import {
+  donationPlatformFeeTotalCents,
+  formatDonationDollarsFromCents,
+  parseDonationDollarsInput,
+  resolveDonationUnitCents,
+  suggestedDonationDollarsInput,
+  suggestedDonationTotalDollars,
+} from "@/lib/donation";
+import { DonationAmountField } from "./donation-amount-field";
+import { CancelRegistrationButton } from "@/components/dashboard/events/cancel-registration-button";
+import {
+  derivePaidVehicleCount,
+  getRegistrationAmounts,
+  validateDonationNotDecreasedAfterPayment,
+} from "@/lib/registration-payment-display";
+import { applyClubRefundAdjustments } from "@/lib/registration-refund-adjustments";
+import type { PaymentStatus, RegistrationStatus } from "@prisma/client";
 
 export type TierOption = {
   id: string;
@@ -49,46 +87,291 @@ export type VehicleOption = {
   make: string;
   model: string;
   trim: string | null;
+  nickname: string | null;
+  photoUrl: string | null;
 };
 
-type NewVehicleRow = {
-  year: string;
-  make: string;
-  model: string;
-  trim: string;
-  notes: string;
+export type PlatformFeeInfo = {
+  type: "NONE" | "FIXED" | "PERCENT";
+  amountCents: number | null;
+  percent: number | null;
+} | null;
+
+export type EventCategoryOption = {
+  id: string;
+  name: string;
 };
 
-export function EventRegistrationPage({
-  event,
-  tiers,
-  vehicles,
-  isLoggedIn,
-}: {
-  event: SidebarEvent & { id: string; description: string | null; status: string };
+export type UserContactInitial = RegistrationContact & {
+  profileExtras: ProfilePatchExtras;
+};
+
+type EventRegistrationPageProps = {
+  event: SidebarEvent & {
+    id: string;
+    description: string | null;
+    status: string;
+    paymentEnabled: boolean;
+  };
+  stripeConnectReady: boolean;
+  stripeCheckoutAvailable: boolean;
   tiers: TierOption[];
   vehicles: VehicleOption[];
   isLoggedIn: boolean;
-}) {
+  userContact: UserContactInitial | null;
+  platformFee: PlatformFeeInfo;
+  eventCategories: EventCategoryOption[];
+  existingRegistration?: ExistingRegistrationForEvent | null;
+  /** Organizer editing another user's registration (PATCH + no checkout redirect). */
+  organizerEditMode?: boolean;
+  /** Registrant editing their own registration from My Events. */
+  editRegistrationMode?: boolean;
+  registerApiPath?: string;
+  registerMethod?: "POST" | "PATCH";
+  afterSaveRedirectHref?: string;
+};
+
+export function EventRegistrationPage(props: EventRegistrationPageProps) {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-6xl px-4 py-12 text-center text-sm text-muted-foreground">
+          Loading registration…
+        </div>
+      }
+    >
+      <EventRegistrationPageContent {...props} />
+    </Suspense>
+  );
+}
+
+function EventRegistrationPageContent({
+  event,
+  stripeConnectReady,
+  stripeCheckoutAvailable,
+  tiers,
+  vehicles,
+  isLoggedIn,
+  userContact,
+  platformFee,
+  eventCategories,
+  existingRegistration = null,
+  organizerEditMode = false,
+  editRegistrationMode = false,
+  registerApiPath,
+  registerMethod = "POST",
+  afterSaveRedirectHref,
+}: EventRegistrationPageProps) {
   const router = useRouter();
-  const [submitting, setSubmitting] = useState(false);
+  const searchParams = useSearchParams();
+  const isUpdating = !!existingRegistration;
+  const isEditRegistration = editRegistrationMode && isUpdating;
+  const [submittingAction, setSubmittingAction] = useState<"save" | "pay" | null>(
+    null,
+  );
+  const submitIntentRef = useRef<"save" | "pay">("save");
   const [error, setError] = useState("");
+  const [vehicleAddedNotice, setVehicleAddedNotice] = useState(false);
+  const [contact, setContact] = useState<RegistrationContact>(() => {
+    if (existingRegistration) {
+      return { ...existingRegistration.contact };
+    }
+    if (userContact) {
+      return {
+        firstName: userContact.firstName,
+        lastName: userContact.lastName,
+        email: userContact.email,
+        phone: userContact.phone,
+        street: userContact.profileExtras.street ?? "",
+        city: userContact.profileExtras.city ?? "",
+        state: userContact.profileExtras.state ?? "",
+        zip: userContact.profileExtras.zip ?? "",
+      };
+    }
+    return emptyRegistrationContact();
+  });
+  const [contactSheetOpen, setContactSheetOpen] = useState(false);
 
   const singleTier = tiers.length === 1 ? tiers[0] : null;
   const [tierId, setTierId] = useState(() => {
+    if (existingRegistration?.tierId) return existingRegistration.tierId;
     if (singleTier) return singleTier.id;
     const firstOpen = tiers.find((t) => isTierOpen(t));
     return firstOpen?.id ?? tiers[0]?.id ?? "";
   });
 
-  const [selectedVehicles, setSelectedVehicles] = useState<Set<string>>(
-    new Set(),
+  // Garage vehicles staged for the "Add to Registration" button
+  const [stagedVehicles, setStagedVehicles] = useState<Set<string>>(new Set());
+  const [stagedVehicleCategories, setStagedVehicleCategories] = useState<
+    Record<string, string>
+  >({});
+  // Vehicles confirmed into the registration table
+  const [registeredVehicles, setRegisteredVehicles] = useState<Set<string>>(
+    () => new Set(existingRegistration?.vehicleIds ?? []),
   );
-  const [newRows, setNewRows] = useState<NewVehicleRow[]>([]);
+  // Category assignment per vehicle (vehicleId → eventCategoryId)
+  const [vehicleCategories, setVehicleCategories] = useState<Record<string, string>>(
+    () => ({ ...existingRegistration?.vehicleCategories }),
+  );
+  const [vehicleNicknames, setVehicleNicknames] = useState<Record<string, string>>(
+    () =>
+      Object.fromEntries(
+        vehicles.map((v) => [v.id, v.nickname?.trim() ?? ""]),
+      ),
+  );
+  const [vehiclePhotos, setVehiclePhotos] = useState<Record<string, string | null>>(
+    () => Object.fromEntries(vehicles.map((v) => [v.id, v.photoUrl])),
+  );
+  const [photoConfirmOpen, setPhotoConfirmOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [editingRegisteredVehicles, setEditingRegisteredVehicles] =
+    useState(false);
+  const [selectedRegisteredForRemoval, setSelectedRegisteredForRemoval] =
+    useState<Set<string>>(new Set());
+  const [registrationCategories, setRegistrationCategories] =
+    useState<EventCategoryOption[]>(eventCategories);
+  const isDonationEvent = event.registrationFeeType === "DONATION";
+  const suggestedPerVehicleDollars = event.registrationFeeDollars;
+  const [donationDollars, setDonationDollars] = useState(() => {
+    if (existingRegistration?.amountCents) {
+      return formatDonationDollarsFromCents(
+        resolveDonationUnitCents(
+          existingRegistration.amountCents,
+          existingRegistration.platformFeeCents,
+        ),
+      );
+    }
+    const count = existingRegistration?.vehicleIds.length ?? 1;
+    return suggestedDonationDollarsInput(suggestedPerVehicleDollars, count);
+  });
+  const prevVehicleCountRef = useRef(
+    existingRegistration?.vehicleIds.length ?? 1,
+  );
 
-  function toggleVehicle(id: string) {
-    setSelectedVehicles((prev) => {
+  const registrationReturnPath = editRegistrationMode
+    ? `/events/${event.id}/register/edit`
+    : `/events/${event.id}`;
+  const addVehicleHref = `/dashboard/vehicles?returnTo=${encodeURIComponent(registrationReturnPath)}`;
+
+  useEffect(() => {
+    setRegistrationCategories(eventCategories);
+  }, [eventCategories]);
+
+  useEffect(() => {
+    void fetch(`/api/events/${event.id}/categories`, {
+      credentials: "same-origin",
+    })
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data: { categories?: { id: string; name: string }[] } | null) => {
+        if (data?.categories?.length) {
+          setRegistrationCategories(
+            data.categories.map((c) => ({ id: c.id, name: c.name })),
+          );
+        }
+      });
+  }, [event.id]);
+
+  useEffect(() => {
+    setVehiclePhotos((prev) => {
+      const next = { ...prev };
+      for (const v of vehicles) {
+        next[v.id] = v.photoUrl;
+      }
+      return next;
+    });
+  }, [vehicles]);
+
+  useEffect(() => {
+    const addedId = searchParams.get("addedVehicle");
+    if (!addedId) return;
+
+    const vehicle = vehicles.find((v) => v.id === addedId);
+    if (!vehicle) {
+      router.refresh();
+      return;
+    }
+
+    setRegisteredVehicles((prev) => new Set([...prev, addedId]));
+    setVehiclePhotos((prev) => ({ ...prev, [addedId]: vehicle.photoUrl }));
+    setVehicleAddedNotice(true);
+    router.replace(registrationReturnPath, { scroll: false });
+  }, [searchParams, vehicles, event.id, router, registrationReturnPath]);
+
+  function toggleStaged(id: string) {
+    setStagedVehicles((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        setStagedVehicleCategories((cats) => {
+          const updated = { ...cats };
+          delete updated[id];
+          return updated;
+        });
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function addToRegistration() {
+    if (registrationCategories.length > 0) {
+      for (const id of stagedVehicles) {
+        if (!stagedVehicleCategories[id]) {
+          setError(REGISTRATION_CLASS_REQUIRED_MSG);
+          return;
+        }
+      }
+    }
+    setError("");
+    setRegisteredVehicles((prev) => {
+      const next = new Set(prev);
+      stagedVehicles.forEach((id) => next.add(id));
+      return next;
+    });
+    setVehicleCategories((prev) => {
+      const next = { ...prev };
+      for (const id of stagedVehicles) {
+        const categoryId = stagedVehicleCategories[id];
+        if (categoryId) next[id] = categoryId;
+      }
+      return next;
+    });
+    setStagedVehicleCategories((prev) => {
+      const next = { ...prev };
+      for (const id of stagedVehicles) delete next[id];
+      return next;
+    });
+    setStagedVehicles(new Set());
+  }
+
+  function removeVehiclesFromRegistration(vehicleIds: Iterable<string>) {
+    const ids = [...vehicleIds];
+    if (ids.length === 0) return;
+    setRegisteredVehicles((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setVehicleCategories((prev) => {
+      const next = { ...prev };
+      for (const id of ids) delete next[id];
+      return next;
+    });
+    setSelectedRegisteredForRemoval((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function removeSelectedFromRegistration() {
+    removeVehiclesFromRegistration(selectedRegisteredForRemoval);
+    setEditingRegisteredVehicles(false);
+  }
+
+  function toggleRegisteredVehicleSelected(id: string) {
+    setSelectedRegisteredForRemoval((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -96,79 +379,359 @@ export function EventRegistrationPage({
     });
   }
 
-  function addBlankRow() {
-    setNewRows((r) => [
-      ...r,
-      { year: "", make: "", model: "", trim: "", notes: "" },
-    ]);
+  function setCategoryForVehicle(vehicleId: string, categoryId: string) {
+    setVehicleCategories((prev) => ({ ...prev, [vehicleId]: categoryId }));
   }
 
-  function updateRow(i: number, patch: Partial<NewVehicleRow>) {
-    setNewRows((rows) =>
-      rows.map((row, j) => (j === i ? { ...row, ...patch } : row)),
-    );
-  }
-
-  function removeRow(i: number) {
-    setNewRows((rows) => rows.filter((_, j) => j !== i));
+  function hasMissingVehiclePhotos(): boolean {
+    for (const v of garageVehicles) {
+      if (!vehiclePhotos[v.id]) return true;
+    }
+    return false;
   }
 
   const selectedTier = tiers.find((t) => t.id === tierId);
-  const garageVehicles = vehicles.filter((v) => selectedVehicles.has(v.id));
-  const validNewRows = newRows.filter((r) => r.make && r.model && r.year);
-  const totalVehicles = garageVehicles.length + validNewRows.length;
+  const garageVehicles = vehicles.filter((v) => registeredVehicles.has(v.id));
+  const availableGarage = vehicles.filter((v) => !registeredVehicles.has(v.id));
+  const totalVehicles = garageVehicles.length;
+  const requiresVehicleClass = registrationCategories.length > 0;
+  const categoryNameById = useMemo(
+    () =>
+      Object.fromEntries(registrationCategories.map((c) => [c.id, c.name])),
+    [registrationCategories],
+  );
+  function vehicleClassLabel(vehicleId: string): string {
+    const categoryId = vehicleCategories[vehicleId];
+    if (!categoryId) {
+      return requiresVehicleClass ? "Not selected" : "—";
+    }
+    return categoryNameById[categoryId] ?? "—";
+  }
+  const allRegisteredSelected =
+    garageVehicles.length > 0 &&
+    garageVehicles.every((v) => selectedRegisteredForRemoval.has(v.id));
+  const someRegisteredSelected = selectedRegisteredForRemoval.size > 0;
+  const allVehiclesHaveClass = loggedInVehiclesHaveRequiredClasses(
+    requiresVehicleClass,
+    [...registeredVehicles],
+    vehicleCategories,
+  );
+  const missingClassVehicleIds = requiresVehicleClass
+    ? garageVehicles
+        .filter((v) => !vehicleCategories[v.id])
+        .map((v) => v.id)
+    : [];
+  const canSubmitRegistration =
+    totalVehicles > 0 && allVehiclesHaveClass;
 
   const canRegister =
     ["PUBLISHED", "ACTIVE"].includes(event.status) && tiers.length > 0;
 
-  async function handleSubmit() {
+  const donationCents = isDonationEvent
+    ? parseDonationDollarsInput(donationDollars)
+    : null;
+
+  const payableTierResolution =
+    event.registrationFeeType === "PAID_TIERED"
+      ? resolvePayableTier(tiers, tierId)
+      : null;
+  const pricingTier =
+    payableTierResolution?.tier ??
+    selectedTier ??
+    tiers.find((t) => t.id === tierId);
+
+  const feeSummary = (() => {
+    const ft = event.registrationFeeType;
+    let unitCents = 0;
+    let tierLabel = "Free";
+    if (ft === "PAID_TIERED" && pricingTier) {
+      unitCents = pricingTier.priceCents;
+      tierLabel = pricingTier.name;
+    } else if (ft === "DONATION") {
+      unitCents = donationCents ?? 0;
+      tierLabel = "Donation amount";
+    } else {
+      unitCents = (event.registrationFeeDollars ?? 0) * 100;
+      tierLabel = "Registration fee";
+    }
+    const regTotal = ft === "DONATION" ? unitCents : unitCents * totalVehicles;
+    let convFeeCents = convenienceFeePerVehicle(platformFee, unitCents);
+    let totalConvFee =
+      ft === "DONATION" ? 0 : convFeeCents * totalVehicles;
+    if (ft === "DONATION") {
+      const platform = donationPlatformFeeTotalCents(
+        (cents) => convenienceFeePerVehicle(platformFee, cents),
+        suggestedPerVehicleDollars,
+        totalVehicles,
+      );
+      convFeeCents = platform.perVehicleCents;
+      totalConvFee = platform.totalCents;
+    }
+    let adjustedRegTotal = regTotal;
+    const refundedCents = existingRegistration?.refundedCents ?? 0;
+    if (
+      existingRegistration?.paymentStatus === "PAID" &&
+      refundedCents > 0 &&
+      ft !== "DONATION" &&
+      regTotal > 0
+    ) {
+      const adjusted = applyClubRefundAdjustments(
+        regTotal,
+        regTotal,
+        refundedCents,
+      );
+      adjustedRegTotal = adjusted.clubFeeCents;
+    }
+
+    const grandTotal = adjustedRegTotal + totalConvFee;
+    return {
+      unitCents,
+      regTotal: adjustedRegTotal,
+      convFeeCents,
+      totalConvFee,
+      grandTotal,
+      tierLabel,
+    };
+  })();
+
+  useEffect(() => {
+    if (!isDonationEvent || totalVehicles === 0) return;
+    const prevCount = prevVehicleCountRef.current;
+    if (prevCount === totalVehicles) return;
+    const oldSuggested = suggestedDonationTotalDollars(
+      suggestedPerVehicleDollars,
+      prevCount,
+    );
+    prevVehicleCountRef.current = totalVehicles;
+    setDonationDollars((prev) => {
+      const prevCents = parseDonationDollarsInput(prev);
+      if (
+        prev.trim() === "" ||
+        prevCents === Math.round(oldSuggested * 100)
+      ) {
+        return suggestedDonationDollarsInput(
+          suggestedPerVehicleDollars,
+          totalVehicles,
+        );
+      }
+      return prev;
+    });
+  }, [isDonationEvent, totalVehicles, suggestedPerVehicleDollars]);
+
+  const unitPriceCents = isDonationEvent
+    ? (donationCents ?? 0)
+    : (pricingTier?.priceCents ?? 0);
+
+  const registrationBalance = getRegistrationAmounts({
+    registrationFeeType: event.registrationFeeType,
+    unitPriceCents,
+    vehicleCount: totalVehicles,
+    registrationStatus:
+      (existingRegistration?.registrationStatus as RegistrationStatus) ??
+      "PENDING",
+    paymentStatus:
+      (existingRegistration?.paymentStatus as PaymentStatus | null) ?? null,
+    amountCents: existingRegistration?.amountCents ?? null,
+    platformFeeCents: existingRegistration?.platformFeeCents ?? null,
+    refundedCents: existingRegistration?.refundedCents ?? 0,
+    platformFee: platformFee ?? {
+      type: "NONE",
+      amountCents: null,
+      percent: null,
+    },
+    suggestedDonationPerVehicleDollars: event.registrationFeeDollars,
+  });
+
+  const paymentAlreadyComplete = registrationBalance.amountDueCents <= 0;
+  const isPaidRegistration =
+    existingRegistration?.paymentStatus === "PAID";
+  const vehiclesPaidForCount =
+    isPaidRegistration && unitPriceCents > 0
+      ? derivePaidVehicleCount({
+          amountPaidCents: existingRegistration?.amountCents ?? 0,
+          unitPriceCents,
+          platformFee: platformFee ?? {
+            type: "NONE",
+            amountCents: null,
+            percent: null,
+          },
+        })
+      : 0;
+  const vehiclesIncreasedSincePayment =
+    isPaidRegistration && totalVehicles > vehiclesPaidForCount;
+  const tierPriceWillChangeAtPayment =
+    !!payableTierResolution?.tierChanged && !paymentAlreadyComplete;
+  const hasBalanceDueOnPaidEdit =
+    isEditRegistration &&
+    isPaidRegistration &&
+    registrationBalance.amountDueCents > 0 &&
+    !organizerEditMode;
+  const showEditRegistrationPayOptions =
+    stripeConnectReady && hasBalanceDueOnPaidEdit;
+  const showMakePaymentButton =
+    stripeConnectReady &&
+    registrationBalance.amountDueCents > 0 &&
+    !showEditRegistrationPayOptions &&
+    (!isEditRegistration || !isPaidRegistration);
+  function validateBeforeSubmit(intent: "save" | "pay"): boolean {
+    if (!isRegistrationContactComplete(contact)) {
+      setError("Please complete your contact information.");
+      return false;
+    }
     if (!tierId) {
       setError("Please select a registration tier.");
-      return;
+      return false;
     }
     if (totalVehicles === 0) {
-      setError("Select at least one vehicle or add a new one.");
+      setError(REGISTRATION_VEHICLE_REQUIRED_MSG);
+      return false;
+    }
+    if (
+      requiresVehicleClass &&
+      !loggedInVehiclesHaveRequiredClasses(
+        requiresVehicleClass,
+        [...registeredVehicles],
+        vehicleCategories,
+      )
+    ) {
+      setError(REGISTRATION_CLASS_REQUIRED_MSG);
+      return false;
+    }
+    if (isDonationEvent && intent === "pay") {
+      const cents = parseDonationDollarsInput(donationDollars);
+      if (cents == null || cents <= 0) {
+        setError("Enter a donation amount greater than $0 to proceed to payment.");
+        return false;
+      }
+    }
+    if (isDonationEvent && isPaidRegistration && existingRegistration) {
+      const decreaseError = validateDonationNotDecreasedAfterPayment({
+        newDonationCents: parseDonationDollarsInput(donationDollars) ?? 0,
+        amountPaidCents: existingRegistration.amountCents ?? 0,
+        platformFeeCentsPaid: existingRegistration.platformFeeCents ?? null,
+      });
+      if (decreaseError) {
+        setError(decreaseError);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function handleSubmit(intent: "save" | "pay") {
+    setError("");
+    if (!validateBeforeSubmit(intent)) return;
+
+    submitIntentRef.current = intent;
+    if (hasMissingVehiclePhotos()) {
+      setPhotoConfirmOpen(true);
       return;
     }
 
-    setError("");
-    setSubmitting(true);
+    await submitRegistration(intent);
+  }
 
-    const vehicleIds = [...selectedVehicles];
-    const newVehicles = validNewRows.map((row) => ({
-      year: parseInt(row.year, 10),
-      make: row.make.trim(),
-      model: row.model.trim(),
-      trim: row.trim.trim() || undefined,
-      notes: row.notes.trim() || undefined,
-    }));
+  async function submitRegistration(intent: "save" | "pay") {
+    setError("");
+    setSubmittingAction(intent);
+
+    const vehicleIds = [...registeredVehicles];
+
+    const catMap = Object.keys(vehicleCategories).length > 0
+      ? vehicleCategories
+      : undefined;
 
     try {
-      const res = await fetch(`/api/events/${event.id}/register`, {
-        method: "POST",
+      const apiPath =
+        registerApiPath ?? `/api/events/${event.id}/register`;
+      const res = await fetch(apiPath, {
+        method: registerMethod,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tierId,
+          contact: {
+            firstName: contact.firstName.trim(),
+            lastName: contact.lastName.trim(),
+            email: contact.email.trim(),
+            phone: contact.phone.trim() || undefined,
+            street: contact.street.trim(),
+            city: contact.city.trim(),
+            state: contact.state.trim().toUpperCase(),
+            zip: contact.zip.trim(),
+          },
           vehicleIds,
-          newVehicles: newVehicles.length ? newVehicles : undefined,
+          vehicleCategories: catMap,
+          vehicleNicknames: Object.fromEntries(
+            vehicleIds.map((id) => [id, vehicleNicknames[id]?.trim() ?? ""]),
+          ),
+          ...(isDonationEvent
+            ? {
+                donationCents: parseDonationDollarsInput(donationDollars) ?? 0,
+              }
+            : {}),
         }),
       });
       const data = (await res.json()) as {
         id?: string;
         status?: string;
+        checkoutRequired?: boolean;
         error?: string;
       };
       if (!res.ok) {
         setError(data.error ?? "Registration failed.");
         return;
       }
+
+      const payAfterSave =
+        !organizerEditMode &&
+        intent === "pay" &&
+        data.id &&
+        (data.checkoutRequired ||
+          (existingRegistration?.paymentStatus === "PAID" &&
+            registrationBalance.amountDueCents > 0));
+
+      if (payAfterSave) {
+        const checkoutRes = await fetch("/api/stripe/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            registrationId: data.id,
+            ...(isDonationEvent
+              ? {
+                  donationCents:
+                    parseDonationDollarsInput(donationDollars) ?? 0,
+                }
+              : {}),
+          }),
+        });
+        const checkoutData = (await checkoutRes.json()) as {
+          checkoutUrl?: string;
+          error?: string;
+        };
+        if (!checkoutRes.ok) {
+          setError(checkoutData.error ?? "Failed to start checkout.");
+          return;
+        }
+        if (checkoutData.checkoutUrl) {
+          window.location.href = checkoutData.checkoutUrl;
+          return;
+        }
+      }
+
+      if (afterSaveRedirectHref) {
+        router.push(afterSaveRedirectHref);
+        router.refresh();
+        return;
+      }
+
       router.push(
         `/events/${event.id}/register/success?status=${data.status ?? "CONFIRMED"}&tier=${encodeURIComponent(selectedTier?.name ?? "")}&count=${totalVehicles}`,
       );
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
-      setSubmitting(false);
+      setSubmittingAction(null);
+      setPhotoConfirmOpen(false);
     }
   }
 
@@ -177,6 +740,31 @@ export function EventRegistrationPage({
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
         {/* ---- LEFT COLUMN: Registration form ---- */}
         <div className="space-y-6" id="register">
+          {isUpdating && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-foreground">
+                    {isEditRegistration
+                      ? "Edit registration"
+                      : "Updating your registration"}
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    {isEditRegistration
+                      ? "Update vehicles, photos, classifications, or contact details. Removing a vehicle does not issue a refund. If you add vehicles after paying, the additional registration and convenience fees will be due."
+                      : "Your registered vehicles and fees are shown below. Save your details now and pay when you are ready."}
+                  </p>
+                </div>
+                {isLoggedIn && (
+                  <ContactOrganizerButton
+                    variant="icon"
+                    eventId={event.id}
+                    eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
+                  />
+                )}
+              </div>
+            </div>
+          )}
           {/* ---- Header: Flyer + Event Name/Description ---- */}
           <div className="flex gap-4">
             {event.flyerUrl && (
@@ -189,11 +777,18 @@ export function EventRegistrationPage({
               </ThumbnailWithEye>
             )}
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-bold leading-tight">{event.name}</h1>
+              <h1 className="text-2xl font-bold leading-tight">
+                <EventNameWithNumber
+                  name={event.name}
+                  showNumber={event.showNumber}
+                />
+              </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {canRegister
-                  ? "Complete the form below to register."
-                  : "Registration is not currently open for this event."}
+                {isEditRegistration
+                  ? "Edit your registration details below."
+                  : canRegister
+                    ? "Complete the form below to register."
+                    : "Registration is not currently open for this event."}
               </p>
               {event.description && (
                 <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm text-muted-foreground">
@@ -202,6 +797,23 @@ export function EventRegistrationPage({
               )}
             </div>
           </div>
+
+          {canRegister && isLoggedIn && userContact && (
+            <>
+              <RegistrationContactSection
+                contact={contact}
+                onUpdate={() => setContactSheetOpen(true)}
+              />
+              <RegistrationContactSheet
+                open={contactSheetOpen}
+                onOpenChange={setContactSheetOpen}
+                initialContact={contact}
+                profileExtras={userContact.profileExtras}
+                accountEmail={userContact.email}
+                onApply={setContact}
+              />
+            </>
+          )}
 
           {/* Auth + guest registration for non-logged-in visitors */}
           {!isLoggedIn && canRegister && (
@@ -221,6 +833,9 @@ export function EventRegistrationPage({
                 tiers={tiers}
                 feeType={event.registrationFeeType}
                 feeDollars={event.registrationFeeDollars}
+                stripeConnectReady={stripeConnectReady}
+                platformFee={platformFee}
+                eventCategories={registrationCategories}
               />
             </>
           )}
@@ -231,125 +846,351 @@ export function EventRegistrationPage({
 
           {canRegister && isLoggedIn && (
             <>
-              {/* ---- Vehicle Selection ---- */}
+              {/* ---- Select Vehicles ---- */}
+              {vehicleAddedNotice && (
+                <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                  Your new vehicle was added to this registration.
+                  {requiresVehicleClass
+                    ? " Select a class for it in the Registered Vehicles list below, then save."
+                    : " Review the list below and submit when ready."}
+                </div>
+              )}
+
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">
-                    Vehicle Information
-                    {totalVehicles > 0 && (
-                      <Badge variant="default" className="ml-2">
-                        {totalVehicles} selected
-                      </Badge>
-                    )}
-                  </CardTitle>
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base">Your Garage</CardTitle>
+                    <Link
+                      href={addVehicleHref}
+                      className={cn(
+                        buttonVariants({ variant: "outline", size: "sm" }),
+                        "shrink-0 gap-1.5",
+                      )}
+                    >
+                      <Plus className="size-4" />
+                      Add New Vehicle
+                    </Link>
+                  </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Garage vehicles */}
-                  {vehicles.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Your Garage
-                      </p>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {vehicles.map((v) => {
-                          const active = selectedVehicles.has(v.id);
-                          return (
-                            <button
-                              key={v.id}
-                              type="button"
-                              onClick={() => toggleVehicle(v.id)}
+                  <CardContent className="space-y-4">
+                    {availableGarage.length > 0 ? (
+                      <>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {availableGarage.map((v) => {
+                        const staged = stagedVehicles.has(v.id);
+                        return (
+                          <div key={v.id} className="flex flex-col">
+                          <button
+                            type="button"
+                            onClick={() => toggleStaged(v.id)}
+                            className={cn(
+                              "flex w-full items-center gap-2.5 border-2 px-3 py-2.5 text-left text-sm transition-all",
+                              staged
+                                ? "rounded-t-lg border-b-0 border-primary bg-primary/5"
+                                : "rounded-lg border-border hover:border-primary/40",
+                            )}
+                          >
+                            <div
                               className={cn(
-                                "flex items-center gap-2.5 rounded-lg border-2 px-3 py-2.5 text-left text-sm transition-all",
-                                active
-                                  ? "border-primary bg-primary/5"
-                                  : "border-border hover:border-primary/40",
+                                "flex size-5 shrink-0 items-center justify-center rounded border transition-colors",
+                                staged
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-muted-foreground/40",
                               )}
                             >
-                              <div
-                                className={cn(
-                                  "flex size-5 shrink-0 items-center justify-center rounded border transition-colors",
-                                  active
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : "border-muted-foreground/40",
-                                )}
-                              >
-                                {active && <Check className="size-3" />}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="font-medium leading-snug">
-                                  {v.year} {v.make} {v.model}
+                              {staged && <Check className="size-3" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium leading-snug">
+                                {v.year} {v.make} {v.model}
+                              </p>
+                              {v.trim && (
+                                <p className="text-xs text-muted-foreground">
+                                  {v.trim}
                                 </p>
-                                {v.trim && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {v.trim}
-                                  </p>
-                                )}
+                              )}
+                            </div>
+                          </button>
+                            {staged && requiresVehicleClass ? (
+                              <div
+                                className="space-y-1 rounded-b-lg border-2 border-t-0 border-primary bg-primary/5 px-3 pb-2.5"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <p className="text-xs text-muted-foreground">
+                                  Class
+                                  <RequiredFieldMark />
+                                </p>
+                                <VehicleClassSelect
+                                  value={stagedVehicleCategories[v.id]}
+                                  onChange={(categoryId) =>
+                                    setStagedVehicleCategories((prev) => ({
+                                      ...prev,
+                                      [v.id]: categoryId,
+                                    }))
+                                  }
+                                  categories={registrationCategories}
+                                  invalid={!stagedVehicleCategories[v.id]}
+                                />
                               </div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={stagedVehicles.size === 0}
+                      onClick={addToRegistration}
+                    >
+                      <Plus className="size-4" />
+                      Add to Registration
+                    </Button>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {vehicles.length === 0
+                          ? "No vehicles in your garage yet. Add one to register for this show."
+                          : "All of your garage vehicles are already in this registration."}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+              {/* ---- Registration Table ---- */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <CardTitle className="text-base">
+                        Registered Vehicles
+                        {totalVehicles > 0 && (
+                          <Badge variant="default" className="ml-2">
+                            {totalVehicles}
+                          </Badge>
+                        )}
+                      </CardTitle>
+                      {requiresVehicleClass && missingClassVehicleIds.length > 0 ? (
+                        <p className="text-xs text-destructive">
+                          Select a class for each vehicle below before saving.
+                        </p>
+                      ) : null}
+                    </div>
+                    {garageVehicles.length > 0 ? (
+                      <EventSectionEditToolbar
+                        editing={editingRegisteredVehicles}
+                        onStartEdit={() => setEditingRegisteredVehicles(true)}
+                        onDone={() => {
+                          setEditingRegisteredVehicles(false);
+                          setSelectedRegisteredForRemoval(new Set());
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {!requiresVehicleClass && garageVehicles.length > 0 ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                      This event has no registration classes set up yet. Ask the
+                      organizer to add registration categories before you can
+                      assign a class to each vehicle.
+                    </p>
+                  ) : null}
+                  {garageVehicles.length > 0 && (
+                    <div className="overflow-x-auto rounded-lg border">
+                      {editingRegisteredVehicles ? (
+                        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                          <input
+                            type="checkbox"
+                            className="size-4 rounded border-input"
+                            checked={allRegisteredSelected}
+                            onChange={() => {
+                              if (allRegisteredSelected) {
+                                setSelectedRegisteredForRemoval(new Set());
+                              } else {
+                                setSelectedRegisteredForRemoval(
+                                  new Set(garageVehicles.map((v) => v.id)),
+                                );
+                              }
+                            }}
+                            aria-label="Select all registered vehicles"
+                          />
+                          {someRegisteredSelected ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-1 text-destructive hover:text-destructive"
+                              onClick={removeSelectedFromRegistration}
+                            >
+                              <Trash2 className="size-3.5" />
+                              Remove selected ({selectedRegisteredForRemoval.size})
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              Select vehicles to remove
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
+                            {editingRegisteredVehicles ? (
+                              <th className="w-10 px-3 py-2" />
+                            ) : null}
+                            <th className="w-16 px-3 py-2">Photo</th>
+                            <th className="px-3 py-2">Vehicle</th>
+                            <th className="px-3 py-2">Vehicle nickname</th>
+                            <th className="px-3 py-2">
+                              Class
+                              <RequiredFieldMark />
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {garageVehicles.map((v) => (
+                            <tr
+                              key={v.id}
+                              className={cn(
+                                "hover:bg-muted/30",
+                                editingRegisteredVehicles &&
+                                  selectedRegisteredForRemoval.has(v.id) &&
+                                  "bg-primary/5",
+                              )}
+                            >
+                              {editingRegisteredVehicles ? (
+                                <td className="px-3 py-2.5">
+                                  <input
+                                    type="checkbox"
+                                    className="size-4 rounded border-input"
+                                    checked={selectedRegisteredForRemoval.has(
+                                      v.id,
+                                    )}
+                                    onChange={() =>
+                                      toggleRegisteredVehicleSelected(v.id)
+                                    }
+                                    aria-label={`Select ${v.year} ${v.make} ${v.model}`}
+                                  />
+                                </td>
+                              ) : null}
+                              <td className="px-3 py-2.5">
+                                <RegistrationVehiclePhoto
+                                  vehicleId={v.id}
+                                  photoUrl={vehiclePhotos[v.id] ?? null}
+                                  onPhotoChange={(url) =>
+                                    setVehiclePhotos((prev) => ({
+                                      ...prev,
+                                      [v.id]: url,
+                                    }))
+                                  }
+                                />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <Car className="size-4 shrink-0 text-muted-foreground" />
+                                    <span className="font-medium">
+                                      {v.year} {v.make} {v.model}
+                                    </span>
+                                    {v.trim && (
+                                      <span className="text-muted-foreground">
+                                        {v.trim}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {requiresVehicleClass ? (
+                                    <p className="mt-1 text-xs">
+                                      <span className="text-muted-foreground">
+                                        Class:{" "}
+                                      </span>
+                                      <span
+                                        className={cn(
+                                          "font-medium",
+                                          !vehicleCategories[v.id] &&
+                                            "text-destructive",
+                                        )}
+                                      >
+                                        {vehicleClassLabel(v.id)}
+                                      </span>
+                                    </p>
+                                  ) : null}
+                                  {existingRegistration?.vehiclePublicIds?.[
+                                    v.id
+                                  ] ? (
+                                    <p className="mt-1 text-xs">
+                                      <span className="text-muted-foreground">
+                                        Show ID:{" "}
+                                      </span>
+                                      <span className="font-mono font-semibold text-foreground">
+                                        {
+                                          existingRegistration
+                                            .vehiclePublicIds[v.id]
+                                        }
+                                      </span>
+                                    </p>
+                                  ) : isUpdating &&
+                                    registeredVehicles.has(v.id) ? (
+                                    <p className="mt-1 text-xs italic text-muted-foreground">
+                                      Show ID assigned after you save
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <Input
+                                  value={vehicleNicknames[v.id] ?? ""}
+                                  onChange={(e) =>
+                                    setVehicleNicknames((prev) => ({
+                                      ...prev,
+                                      [v.id]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Vehicle nickname"
+                                  aria-label={`Vehicle nickname for ${v.year} ${v.make} ${v.model}`}
+                                  maxLength={48}
+                                  className="h-8 min-w-[8rem] text-sm"
+                                />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                {requiresVehicleClass ? (
+                                  <VehicleClassSelect
+                                    value={vehicleCategories[v.id]}
+                                    onChange={(categoryId) =>
+                                      setCategoryForVehicle(v.id, categoryId)
+                                    }
+                                    categories={registrationCategories}
+                                    invalid={missingClassVehicleIds.includes(
+                                      v.id,
+                                    )}
+                                  />
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">
+                                    No classes configured
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
 
-                  {vehicles.length === 0 && newRows.length === 0 && (
+                  {garageVehicles.length === 0 && (
                     <div className="rounded-lg border-2 border-dashed p-6 text-center">
                       <Car className="mx-auto mb-2 size-6 text-muted-foreground/50" />
                       <p className="text-sm text-muted-foreground">
-                        No saved vehicles. Add your vehicle below.
+                        {vehicles.length > 0
+                          ? "Select vehicles from your garage above and click Add to Registration."
+                          : "Use Add New Vehicle above to add a car to your garage, then add it here."}
                       </p>
                     </div>
                   )}
 
-                  {/* New vehicle rows */}
-                  {newRows.map((row, i) => (
-                    <div
-                      key={i}
-                      className="relative rounded-lg border bg-card p-3 shadow-sm"
-                    >
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1.5 top-1.5 size-6 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeRow(i)}
-                        aria-label="Remove vehicle"
-                      >
-                        <X className="size-3.5" />
-                      </Button>
 
-                      <VehicleLookupFields
-                        idPrefix={`nv-${i}`}
-                        values={row}
-                        onChange={(v: VehicleLookupValues) =>
-                          updateRow(i, v)
-                        }
-                      />
-
-                      <div className="mt-2 space-y-1">
-                        <Label className="text-xs">Your Vehicle Story</Label>
-                        <Input
-                          placeholder="Tell us about your vehicle"
-                          value={row.notes}
-                          onChange={(e) =>
-                            updateRow(i, { notes: e.target.value })
-                          }
-                          className="h-8 text-sm"
-                        />
-                      </div>
-                    </div>
-                  ))}
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={addBlankRow}
-                  >
-                    <Plus className="size-4" />
-                    Add a vehicle
-                  </Button>
                 </CardContent>
               </Card>
 
@@ -443,46 +1284,101 @@ export function EventRegistrationPage({
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">
-                    Review &amp; Submit
+                    {isEditRegistration
+                      ? "Review & save"
+                      : "Review & Submit"}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {totalVehicles > 0 && (
                     <ul className="space-y-1 text-sm">
                       {garageVehicles.map((v) => (
-                        <li key={v.id} className="flex items-center gap-2">
-                          <Car className="size-3.5 text-muted-foreground" />
+                        <li key={v.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <Car className="size-3.5 shrink-0 text-muted-foreground" />
                           <span>
                             {v.year} {v.make} {v.model}
+                            {v.trim ? (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                {v.trim}
+                              </span>
+                            ) : null}
                           </span>
-                          {v.trim && (
+                          {existingRegistration?.vehiclePublicIds?.[v.id] ? (
                             <span className="text-muted-foreground">
-                              {v.trim}
+                              ·{" "}
+                              <span className="font-mono font-medium text-foreground">
+                                {existingRegistration.vehiclePublicIds[v.id]}
+                              </span>
                             </span>
-                          )}
-                        </li>
-                      ))}
-                      {validNewRows.map((v, i) => (
-                        <li
-                          key={`new-${i}`}
-                          className="flex items-center gap-2"
-                        >
-                          <Car className="size-3.5 text-muted-foreground" />
-                          <span>
-                            {v.year} {v.make} {v.model}
-                          </span>
-                          <Badge variant="default" className="text-[10px]">
-                            New
-                          </Badge>
+                          ) : null}
+                          {requiresVehicleClass ? (
+                            <span className="text-muted-foreground">
+                              · Class:{" "}
+                              <span
+                                className={cn(
+                                  "font-medium text-foreground",
+                                  !vehicleCategories[v.id] && "text-destructive",
+                                )}
+                              >
+                                {vehicleClassLabel(v.id)}
+                              </span>
+                            </span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
                   )}
 
                   {/* Fee summary */}
-                  {(() => {
-                    const ft = event.registrationFeeType;
-                    if (ft === "FREE") {
+                  {isDonationEvent ? (
+                    <div className="space-y-3 text-sm">
+                      <DonationAmountField
+                        value={donationDollars}
+                        onChange={setDonationDollars}
+                        suggestedPerVehicleDollars={suggestedPerVehicleDollars}
+                        vehicleCount={totalVehicles}
+                        disabled={!!submittingAction}
+                        id="review-donation-amount"
+                      />
+                      {feeSummary.totalConvFee > 0 && (
+                        <div className="flex items-center justify-between gap-2 border-t pt-2">
+                          <span>Registration fee:</span>
+                          <span className="text-right font-medium">
+                            {formatMoney(feeSummary.convFeeCents)} ×{" "}
+                            {totalVehicles} vehicle
+                            {totalVehicles !== 1 ? "s" : ""} ={" "}
+                            {formatMoney(feeSummary.totalConvFee)}
+                          </span>
+                        </div>
+                      )}
+                      {(feeSummary.regTotal > 0 ||
+                        feeSummary.totalConvFee > 0) && (
+                        <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
+                          <span>Total:</span>
+                          <span>{formatMoney(feeSummary.grandTotal)}</span>
+                        </div>
+                      )}
+                      {feeSummary.regTotal === 0 &&
+                        feeSummary.totalConvFee === 0 && (
+                          <p className="text-muted-foreground">
+                            Enter a donation amount to see your total. You can save
+                            your registration without paying.
+                          </p>
+                        )}
+                    </div>
+                  ) : (
+                  (() => {
+                    const {
+                      unitCents,
+                      regTotal,
+                      convFeeCents,
+                      totalConvFee,
+                      grandTotal,
+                      tierLabel,
+                    } = feeSummary;
+
+                    if (regTotal === 0 && totalConvFee === 0) {
                       return (
                         <div className="flex items-center gap-2 text-sm">
                           <CreditCard className="size-4 text-muted-foreground" />
@@ -490,62 +1386,75 @@ export function EventRegistrationPage({
                         </div>
                       );
                     }
-                    if (ft === "PAID_TIERED" && selectedTier) {
-                      const unitCents = selectedTier.priceCents;
-                      const total = unitCents * totalVehicles;
-                      return (
-                        <div className="space-y-1 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Tag className="size-4 text-muted-foreground" />
-                            <span className="font-medium">{selectedTier.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <CreditCard className="size-4 text-muted-foreground" />
-                            <span className="font-bold">
-                              {unitCents === 0
-                                ? "Free"
-                                : `${formatMoney(unitCents)} \u00d7 ${totalVehicles} vehicle${totalVehicles !== 1 ? "s" : ""} = ${formatMoney(total)}`}
+
+                    return (
+                      <div className="space-y-1 text-sm">
+                        {regTotal > 0 && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{tierLabel}:</span>
+                            <span className="text-right font-medium">
+                              {formatMoney(unitCents)} × {totalVehicles} vehicle
+                              {totalVehicles !== 1 ? "s" : ""} ={" "}
+                              {formatMoney(regTotal)}
                             </span>
                           </div>
-                        </div>
-                      );
-                    }
-                    if (ft === "DONATION") {
-                      const unitCents = (event.registrationFeeDollars ?? 0) * 100;
-                      const total = unitCents * totalVehicles;
-                      return (
-                        <div className="flex items-center gap-2 text-sm">
-                          <CreditCard className="size-4 text-muted-foreground" />
-                          <span className="font-bold">
-                            {unitCents === 0
-                              ? "Donation"
-                              : `Donation ${formatMoney(unitCents)} \u00d7 ${totalVehicles} vehicle${totalVehicles !== 1 ? "s" : ""} = ${formatMoney(total)}`}
-                          </span>
-                        </div>
-                      );
-                    }
-                    /* PAID (Flat Rate) */
-                    const unitCents = (event.registrationFeeDollars ?? 0) * 100;
-                    const total = unitCents * totalVehicles;
-                    return (
-                      <div className="flex items-center gap-2 text-sm">
-                        <CreditCard className="size-4 text-muted-foreground" />
-                        <span className="font-bold">
-                          {unitCents === 0
-                            ? "Free"
-                            : `Registration fee ${formatMoney(unitCents)} \u00d7 ${totalVehicles} vehicle${totalVehicles !== 1 ? "s" : ""} = ${formatMoney(total)}`}
-                        </span>
+                        )}
+                        {totalConvFee > 0 && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Registration fee:</span>
+                            <span className="text-right font-medium">
+                              {formatMoney(convFeeCents)} × {totalVehicles} vehicle
+                              {totalVehicles !== 1 ? "s" : ""} ={" "}
+                              {formatMoney(totalConvFee)}
+                            </span>
+                          </div>
+                        )}
+                        {(totalConvFee > 0 || regTotal > 0) && (
+                          <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
+                            <span>Total:</span>
+                            <span>{formatMoney(grandTotal)}</span>
+                          </div>
+                        )}
                       </div>
                     );
-                  })()}
+                  })()
+                  )}
 
-                  {((event.registrationFeeType === "PAID_TIERED" && selectedTier && selectedTier.priceCents > 0) ||
-                    (event.registrationFeeType === "PAID" && (event.registrationFeeDollars ?? 0) > 0) ||
-                    (event.registrationFeeType === "DONATION" && (event.registrationFeeDollars ?? 0) > 0)) && (
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Payment will be collected at a later step. Your
-                      registration will be marked as Pending.
+                  {tierPriceWillChangeAtPayment && pricingTier && selectedTier && (
+                    <p className="text-sm text-amber-800 dark:text-amber-200">
+                      {selectedTier.name} has ended. Payment will use the{" "}
+                      <span className="font-medium">{pricingTier.name}</span> tier
+                      ({formatMoney(pricingTier.priceCents)} per vehicle) in effect
+                      when you pay.
                     </p>
+                  )}
+
+                  {(registrationBalance.amountPaidCents > 0 ||
+                    registrationBalance.amountDueCents > 0) && (
+                    <div className="space-y-1 border-t pt-2 text-sm">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Amount paid</span>
+                        <span className="font-medium">
+                          {formatMoney(registrationBalance.amountPaidCents)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">
+                          {showEditRegistrationPayOptions
+                            ? "Additional amount due"
+                            : "Amount due"}
+                        </span>
+                        <span
+                          className={cn(
+                            "font-medium",
+                            registrationBalance.amountDueCents > 0 &&
+                              "text-amber-700 dark:text-amber-300",
+                          )}
+                        >
+                          {formatMoney(registrationBalance.amountDueCents)}
+                        </span>
+                      </div>
+                    </div>
                   )}
 
                   {error && (
@@ -554,18 +1463,88 @@ export function EventRegistrationPage({
                     </div>
                   )}
 
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="w-full gap-2"
-                    disabled={submitting || !tierId || totalVehicles === 0}
-                    onClick={() => void handleSubmit()}
-                  >
-                    {submitting && (
-                      <Loader2 className="size-4 animate-spin" />
+                  {(showMakePaymentButton || showEditRegistrationPayOptions) && (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      You will be redirected to Stripe to complete payment.
+                    </p>
+                  )}
+
+                  <div
+                    className={cn(
+                      "flex flex-col gap-3",
+                      isUpdating && existingRegistration?.id
+                        ? "sm:flex-row sm:items-start sm:justify-between"
+                        : "sm:flex-row sm:justify-end",
                     )}
-                    Submit Registration
-                  </Button>
+                  >
+                    {isUpdating &&
+                      existingRegistration?.id &&
+                      !organizerEditMode && (
+                      <div className="flex shrink-0 justify-start">
+                        <CancelRegistrationButton
+                          registrationId={existingRegistration.id}
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                      <Button
+                        type="button"
+                        size="lg"
+                        variant={
+                          showMakePaymentButton || showEditRegistrationPayOptions
+                            ? "outline"
+                            : "default"
+                        }
+                        className="gap-2 sm:min-w-[12rem]"
+                        disabled={
+                          !!submittingAction || !tierId || !canSubmitRegistration
+                        }
+                        onClick={() => void handleSubmit("save")}
+                      >
+                        {submittingAction === "save" && (
+                          <Loader2 className="size-4 animate-spin" />
+                        )}
+                        {showEditRegistrationPayOptions
+                          ? "Update Registration & Pay Later"
+                          : "Save Registration Details"}
+                      </Button>
+
+                      {showMakePaymentButton && !organizerEditMode && (
+                        <Button
+                          type="button"
+                          size="lg"
+                          className="gap-2 sm:min-w-[10rem]"
+                          disabled={
+                            !!submittingAction || !tierId || !canSubmitRegistration
+                          }
+                          onClick={() => void handleSubmit("pay")}
+                        >
+                          {submittingAction === "pay" && (
+                            <Loader2 className="size-4 animate-spin" />
+                          )}
+                          Make Payment
+                        </Button>
+                      )}
+
+                      {showEditRegistrationPayOptions && (
+                        <Button
+                          type="button"
+                          size="lg"
+                          className="gap-2 sm:min-w-[12rem]"
+                          disabled={
+                            !!submittingAction || !tierId || !canSubmitRegistration
+                          }
+                          onClick={() => void handleSubmit("pay")}
+                        >
+                          {submittingAction === "pay" && (
+                            <Loader2 className="size-4 animate-spin" />
+                          )}
+                          Update Registration and Pay Now
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </>
@@ -586,8 +1565,16 @@ export function EventRegistrationPage({
 
         {/* ---- RIGHT COLUMN: Sticky sidebar ---- */}
         <aside className="hidden lg:block">
-          <div className="sticky top-4 rounded-xl border bg-card p-5">
-            <EventInfoSidebar event={event} />
+          <div className="sticky top-4 space-y-3">
+            <div className="rounded-xl border bg-card p-5">
+              <EventInfoSidebar event={event} />
+            </div>
+            {isLoggedIn && (
+              <ContactOrganizerButton
+                eventId={event.id}
+                eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
+              />
+            )}
           </div>
         </aside>
 
@@ -596,11 +1583,53 @@ export function EventRegistrationPage({
           <summary className="cursor-pointer text-sm font-semibold">
             Event Details
           </summary>
-          <div className="mt-3">
+          <div className="mt-3 space-y-3">
             <EventInfoSidebar event={event} />
+            {isLoggedIn && (
+              <ContactOrganizerButton
+                eventId={event.id}
+                eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
+              />
+            )}
           </div>
         </details>
       </div>
+
+      {photoConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="photo-confirm-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border bg-card p-6 shadow-lg">
+            <p id="photo-confirm-title" className="text-sm leading-relaxed">
+              Do you want to register for this car show without uploading a vehicle
+              photo?
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!!submittingAction}
+                onClick={() => setPhotoConfirmOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={!!submittingAction}
+                onClick={() => void submitRegistration(submitIntentRef.current)}
+              >
+                {submittingAction && (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                )}
+                Continue without photo
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {lightboxSrc && (
         <ImageLightbox

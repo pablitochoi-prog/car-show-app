@@ -1,10 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import {
+  adminAccountListSelect,
+  serializeAdminAccountRow,
+} from "@/lib/admin-account-rows";
 import { isSiteAdmin } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const VALID_STATUSES = ["ACTIVE", "SUSPENDED", "BANNED"] as const;
+const VALID_ROLES = ["USER", "ORGANIZER", "ADMIN"];
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
@@ -27,28 +34,11 @@ export async function GET(req: NextRequest) {
     where,
     orderBy: { createdAt: "desc" },
     take: 100,
-    select: {
-      id: true,
-      name: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      platformRole: true,
-      archivedAt: true,
-      createdAt: true,
-    },
+    select: adminAccountListSelect,
   });
 
   return NextResponse.json({
-    accounts: users.map((u) => ({
-      id: u.id,
-      firstName: u.firstName ?? "",
-      lastName: u.lastName ?? "",
-      email: u.email,
-      platformRole: u.platformRole,
-      archivedAt: u.archivedAt?.toISOString() ?? null,
-      createdAt: u.createdAt.toISOString(),
-    })),
+    accounts: users.map(serializeAdminAccountRow),
   });
 }
 
@@ -62,14 +52,24 @@ export async function PATCH(req: NextRequest) {
     firstName?: string;
     lastName?: string;
     platformRole?: string;
+    status?: string;
+    statusReason?: string | null;
     archive?: boolean;
   };
   if (!body.id)
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-  const validRoles = ["USER", "ORGANIZER", "ADMIN"];
-  if (body.platformRole && !validRoles.includes(body.platformRole))
+  if (body.platformRole && !VALID_ROLES.includes(body.platformRole))
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+
+  if (body.status && !VALID_STATUSES.includes(body.status as (typeof VALID_STATUSES)[number]))
+    return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+
+  if (body.id === user.id && body.status && body.status !== "ACTIVE")
+    return NextResponse.json(
+      { error: "You cannot suspend or ban your own account" },
+      { status: 400 },
+    );
 
   const data: Record<string, unknown> = {};
   if (body.firstName !== undefined) data.firstName = body.firstName.trim() || null;
@@ -80,13 +80,31 @@ export async function PATCH(req: NextRequest) {
     data.name = [fn, ln].filter(Boolean).join(" ") || "Unnamed";
   }
   if (body.platformRole) data.platformRole = body.platformRole;
+  if (body.status) {
+    data.status = body.status;
+    data.statusChangedAt = new Date();
+    if (body.statusReason !== undefined) {
+      data.statusReason = body.statusReason?.trim() || null;
+    }
+  } else if (body.statusReason !== undefined) {
+    data.statusReason = body.statusReason?.trim() || null;
+  }
   if (body.archive === true) data.archivedAt = new Date();
   if (body.archive === false) data.archivedAt = null;
 
   const updated = await prisma.user.update({
     where: { id: body.id },
     data,
-    select: { id: true, firstName: true, lastName: true, platformRole: true },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      platformRole: true,
+      status: true,
+      statusReason: true,
+      statusChangedAt: true,
+      archivedAt: true,
+    },
   });
 
   return NextResponse.json({
@@ -94,10 +112,13 @@ export async function PATCH(req: NextRequest) {
       ...updated,
       firstName: updated.firstName ?? "",
       lastName: updated.lastName ?? "",
+      statusChangedAt: updated.statusChangedAt?.toISOString() ?? null,
+      archivedAt: updated.archivedAt?.toISOString() ?? null,
     },
   });
 }
 
+/** Legacy DELETE — use POST /api/admin/accounts/[id]/delete for reassignment flow. */
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !isSiteAdmin(user))
@@ -110,6 +131,11 @@ export async function DELETE(req: NextRequest) {
   if (id === user.id)
     return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
 
-  await prisma.user.delete({ where: { id } }).catch(() => null);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(
+    {
+      error:
+        "Use the permanent delete dialog to reassign events, registrations, and vehicles first.",
+    },
+    { status: 400 },
+  );
 }

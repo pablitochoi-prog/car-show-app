@@ -1,17 +1,24 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { canCreateEvent } from "@/lib/permissions";
+import { getRegisteredEventIdsForUser } from "@/lib/user-registered-events";
 import {
   countUserManagingEvents,
+  countUserOrganizerStaffEvents,
   loadManagingEventRowsPage,
 } from "@/lib/dashboard-managing-events";
+import { loadEventRegistrationSummaries } from "@/lib/event-registration-summary";
+import {
+  countParticipatingRegistrations,
+  loadParticipatingEventRowsPage,
+} from "@/lib/dashboard-participating-events";
 import {
   getEventsPageSize,
   hrefDashboardEvents,
   parseEventsPage,
   parseEventsTab,
+  parseShowPastEvents,
 } from "@/lib/dashboard-events-url";
 import {
   EventsOverview,
@@ -30,16 +37,40 @@ export default async function DashboardEventsPage({
   if (!user) redirect("/login");
 
   const sp = await searchParams;
-  const tab = parseEventsTab(sp.tab);
+  const showPastEvents = parseShowPastEvents(sp.past);
   const pageSize = getEventsPageSize();
 
-  const [managingDistinctCount, participatingTotal] = await Promise.all([
+  const [
+    organizerEventCount,
+    managingDistinctCount,
+    participatingRecentCount,
+    participatingTotalAll,
+    registeredEventIds,
+  ] = await Promise.all([
+    countUserOrganizerStaffEvents(user.id),
     countUserManagingEvents(user.id),
-    prisma.registration.count({ where: { userId: user.id } }),
+    countParticipatingRegistrations(user.id, false),
+    countParticipatingRegistrations(user.id, true),
+    getRegisteredEventIdsForUser(user.id),
   ]);
 
+  const showManagingTab = organizerEventCount > 0;
+  let tab = parseEventsTab(sp.tab);
+  if (tab === "managing" && !showManagingTab) {
+    redirect(hrefDashboardEvents("participating", 1));
+  }
+
+  const participatingFilteredTotal = showPastEvents
+    ? participatingTotalAll
+    : participatingRecentCount;
+
+  const participatingTabCount =
+    showPastEvents && tab === "participating"
+      ? participatingFilteredTotal
+      : participatingRecentCount;
+
   const totalForTab =
-    tab === "managing" ? managingDistinctCount : participatingTotal;
+    tab === "managing" ? managingDistinctCount : participatingFilteredTotal;
   const totalPages = Math.max(1, Math.ceil(totalForTab / pageSize));
   const page = Math.min(parseEventsPage(sp.page), totalPages);
 
@@ -47,45 +78,37 @@ export default async function DashboardEventsPage({
   let participatingRows: ParticipatingEventRow[] = [];
 
   if (tab === "managing") {
-    managingRows = await loadManagingEventRowsPage(
+    const loaded = await loadManagingEventRowsPage(
       user.id,
       (page - 1) * pageSize,
       pageSize,
     );
-  } else {
-    const registrations = await prisma.registration.findMany({
-      where: { userId: user.id },
-      include: {
-        event: {
-          select: {
-            id: true,
-            name: true,
-            startDate: true,
-            city: true,
-            state: true,
-            status: true,
-          },
-        },
-        tier: { select: { name: true } },
-        vehicles: { select: { id: true } },
-      },
-      orderBy: { event: { startDate: "asc" } },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
-
-    participatingRows = registrations.map((r) => ({
-      registrationId: r.id,
-      eventId: r.event.id,
-      name: r.event.name,
-      startDate: r.event.startDate,
-      city: r.event.city,
-      state: r.event.state,
-      eventStatus: r.event.status,
-      registrationStatus: r.status,
-      tierName: r.tier.name,
-      vehicleCount: r.vehicles.length,
+    const organizerEventIds = loaded
+      .filter((r) =>
+        r.roles.some(
+          (role) => role.slug === "organizer" || role.slug === "treasurer",
+        ),
+      )
+      .map((r) => r.eventId);
+    const summaries =
+      organizerEventIds.length > 0
+        ? await loadEventRegistrationSummaries(organizerEventIds)
+        : {};
+    managingRows = loaded.map((r) => ({
+      ...r,
+      organizerStats: r.roles.some(
+        (role) => role.slug === "organizer" || role.slug === "treasurer",
+      )
+        ? (summaries[r.eventId] ?? null)
+        : undefined,
     }));
+  } else {
+    participatingRows = await loadParticipatingEventRowsPage(
+      user.id,
+      showPastEvents,
+      (page - 1) * pageSize,
+      pageSize,
+    );
   }
 
   const pickQuery = (key: string) => {
@@ -104,7 +127,11 @@ export default async function DashboardEventsPage({
   else if (showCreated) flash = "created";
   else if (showUpdated) flash = "updated";
 
-  const dismissEventsHref = hrefDashboardEvents(tab, page);
+  const dismissEventsHref = hrefDashboardEvents(
+    tab,
+    page,
+    tab === "participating" ? { showPast: showPastEvents } : undefined,
+  );
 
   return (
     <div className="page-shell max-w-4xl space-y-8">
@@ -119,15 +146,28 @@ export default async function DashboardEventsPage({
             The same event can appear in both when you wear multiple hats.
           </p>
         </div>
-        <Link
-          href="/dashboard"
-          className={cn(
-            buttonVariants({ variant: "outline" }),
-            "w-full justify-center sm:w-auto",
-          )}
-        >
-          Back to dashboard
-        </Link>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+          {tab === "participating" ? (
+            <Link
+              href="/organizer/events/new"
+              className={cn(
+                buttonVariants({ size: "sm" }),
+                "w-full justify-center sm:w-auto",
+              )}
+            >
+              Create New Event
+            </Link>
+          ) : null}
+          <Link
+            href="/dashboard"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "w-full justify-center sm:w-auto",
+            )}
+          >
+            Back to dashboard
+          </Link>
+        </div>
       </div>
 
       {flash ? (
@@ -182,9 +222,13 @@ export default async function DashboardEventsPage({
         pageSize={pageSize}
         managingTotal={managingDistinctCount}
         managingRows={managingRows}
-        participatingTotal={participatingTotal}
+        participatingTotal={participatingTabCount}
+        participatingTotalAll={participatingTotalAll}
         participatingRows={participatingRows}
+        showPastEvents={showPastEvents}
+        registeredEventIds={registeredEventIds}
         canCreate={canCreateEvent(user)}
+        showManagingTab={showManagingTab}
       />
     </div>
   );

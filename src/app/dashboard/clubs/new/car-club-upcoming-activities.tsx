@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatEventWhen } from "@/components/dashboard/events/format-event-meta";
 import { formatClubEventLocationLine } from "@/lib/club-event-location-line";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 type UpcomingEventRow = {
   id: string;
   name: string;
+  showNumber: number;
   startDate: string;
   endDate: string | null;
   venue: string | null;
@@ -108,7 +110,7 @@ export function CarClubUpcomingActivities({
                   href={`/events/${ev.id}`}
                   className="font-medium text-primary hover:underline"
                 >
-                  {ev.name}
+                  <EventNameWithNumber name={ev.name} showNumber={ev.showNumber} />
                 </Link>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {formatEventWhen(new Date(ev.startDate))}

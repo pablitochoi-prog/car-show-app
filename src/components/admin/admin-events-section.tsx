@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAdminSearch, AdminSearchBar, AdminEmptyState } from "./admin-search-table";
 import { SortableHeader, sortRows, type SortState } from "./sortable-header";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 type EventRow = {
   id: string;
   name: string;
+  showNumber: number;
   city: string | null;
   state: string | null;
   startDate: string;
@@ -77,7 +79,9 @@ export function AdminEventsSection() {
             <tbody>
               {sorted.map((e) => (
                 <tr key={e.id} className="border-b last:border-0">
-                  <td className="px-4 py-2.5 font-medium">{e.name}</td>
+                  <td className="px-4 py-2.5 font-medium">
+                    <EventNameWithNumber name={e.name} showNumber={e.showNumber} />
+                  </td>
                   <td className="px-4 py-2.5 text-muted-foreground">{[e.city, e.state].filter(Boolean).join(", ") || "—"}</td>
                   <td className="px-4 py-2.5 text-muted-foreground">{new Date(e.startDate).toLocaleDateString()}</td>
                   <td className="px-4 py-2.5 text-muted-foreground">{e.startTime ?? "—"}</td>

@@ -25,8 +25,23 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const body = (await req.json()) as {
     specialAwardId?: string;
+    specialAwardIds?: string[];
     customName?: string;
   };
+
+  if (Array.isArray(body.specialAwardIds) && body.specialAwardIds.length > 0) {
+    const uniqueIds = [...new Set(body.specialAwardIds.filter(Boolean))];
+    for (const specialAwardId of uniqueIds) {
+      const exists = await prisma.eventAward.findUnique({
+        where: { eventId_specialAwardId: { eventId, specialAwardId } },
+      });
+      if (exists) continue;
+      await prisma.eventAward.create({
+        data: { eventId, specialAwardId },
+      });
+    }
+    return refetch(eventId);
+  }
 
   if (body.specialAwardId) {
     const exists = await prisma.eventAward.findUnique({
@@ -60,11 +75,27 @@ export async function DELETE(req: Request, ctx: Ctx) {
   const allowed = await canManageEvent(user.id, eventId, event.orgId, user.platformRole);
   if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  let eventAwardIds: string[] = [];
+  try {
+    const body = (await req.json()) as { eventAwardIds?: string[] };
+    if (Array.isArray(body.eventAwardIds)) {
+      eventAwardIds = body.eventAwardIds.filter(Boolean);
+    }
+  } catch {
+    // no JSON body
+  }
+
   const { searchParams } = new URL(req.url);
   const eaId = searchParams.get("eventAwardId");
-  if (!eaId) return NextResponse.json({ error: "eventAwardId required." }, { status: 400 });
+  if (eaId) eventAwardIds.push(eaId);
 
-  await prisma.eventAward.deleteMany({ where: { id: eaId, eventId } });
+  if (eventAwardIds.length === 0) {
+    return NextResponse.json({ error: "eventAwardId required." }, { status: 400 });
+  }
+
+  await prisma.eventAward.deleteMany({
+    where: { eventId, id: { in: [...new Set(eventAwardIds)] } },
+  });
 
   return refetch(eventId);
 }

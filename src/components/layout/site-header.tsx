@@ -1,11 +1,15 @@
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, getSession } from "@/lib/auth";
 import { Header } from "@/components/layout/header";
 import type { PlatformRole } from "@/types";
 
 export async function SiteHeader() {
-  const user = await getCurrentUser();
+  const sessionUser = await getSession();
+  const isLoggedIn = Boolean(sessionUser);
+  const user = isLoggedIn ? await getCurrentUser() : null;
+
   return (
     <Header
+      isLoggedIn={isLoggedIn}
       user={
         user
           ? {

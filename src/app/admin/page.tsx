@@ -9,9 +9,31 @@ import { AdminCategoryFolders } from "@/components/admin/admin-category-folders"
 import { AdminAwardList } from "@/components/admin/admin-award-list";
 import { AdminStaffRolesSection } from "@/components/admin/admin-staff-roles-section";
 import { AdminTierTemplatesSection } from "@/components/admin/admin-tier-templates-section";
+import { AdminConvenienceFee } from "@/components/admin/admin-convenience-fee";
+import {
+  adminAccountListSelect,
+  serializeAdminAccountRow,
+} from "@/lib/admin-account-rows";
 
 export default async function AdminDashboardPage() {
-  const awards = await prisma.specialAward.findMany({ orderBy: { sortOrder: "asc" } });
+  const [awards, , users] = await Promise.all([
+    prisma.specialAward.findMany({ orderBy: { sortOrder: "asc" } }),
+    prisma.globalSetting.upsert({
+      where: { key: "platform_fee" },
+      update: {},
+      create: {
+        key: "platform_fee",
+        value: { type: "FIXED", amountCents: 50, percent: null },
+      },
+    }),
+    prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: adminAccountListSelect,
+    }),
+  ]);
+
+  const initialAccounts = users.map(serializeAdminAccountRow);
 
   const serializedAwards = awards.map((a) => ({
     id: a.id,
@@ -37,8 +59,8 @@ export default async function AdminDashboardPage() {
           <AdminEventsSection />
         </CollapsibleCard>
 
-        <CollapsibleCard title="Accounts" defaultOpen={false}>
-          <AdminAccountsSection />
+        <CollapsibleCard title="Users" defaultOpen={false} keepMounted>
+          <AdminAccountsSection initialAccounts={initialAccounts} />
         </CollapsibleCard>
 
         <CollapsibleCard title="Awards" defaultOpen={false}>
@@ -51,6 +73,15 @@ export default async function AdminDashboardPage() {
 
         <CollapsibleCard title="Global Settings" defaultOpen={false}>
           <div className="space-y-4">
+            <CollapsibleCard title="Convenience Fee" defaultOpen={false}>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Platform convenience fee applied to every paid registration.
+                This fee is collected by CarShowScout as an application fee on
+                Stripe Connect payments.
+              </p>
+              <AdminConvenienceFee />
+            </CollapsibleCard>
+
             <CollapsibleCard title="Registration Categories" defaultOpen={false}>
               <p className="mb-3 text-xs text-muted-foreground">
                 Organize categories into groups (folders) like &quot;By Vehicle Year&quot;, &quot;By Type&quot;, &quot;By Manufacturer&quot;, etc.
@@ -59,15 +90,15 @@ export default async function AdminDashboardPage() {
               <AdminCategoryFolders />
             </CollapsibleCard>
 
+            <CollapsibleCard title="Registration Tier Templates" defaultOpen={false}>
+              <AdminTierTemplatesSection />
+            </CollapsibleCard>
+
             <CollapsibleCard title="Award Categories" defaultOpen={false}>
               <p className="mb-3 text-xs text-muted-foreground">
                 Master list of award names available to all events. Drag to reorder.
               </p>
               <AdminAwardList initialAwards={serializedAwards} />
-            </CollapsibleCard>
-
-            <CollapsibleCard title="Registration Tier Templates" defaultOpen={false}>
-              <AdminTierTemplatesSection />
             </CollapsibleCard>
 
             <CollapsibleCard title="Default Staff Roles" defaultOpen={false}>

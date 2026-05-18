@@ -56,5 +56,29 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  const skipBanCheck =
+    request.nextUrl.pathname === "/banned" ||
+    request.nextUrl.pathname.startsWith("/api/auth/");
+
+  if (user && isProtected && !skipBanCheck) {
+    try {
+      const statusUrl = new URL("/api/auth/user-status", request.nextUrl.origin);
+      const statusRes = await fetch(statusUrl, {
+        headers: { cookie: request.headers.get("cookie") ?? "" },
+      });
+      if (statusRes.ok) {
+        const data = (await statusRes.json()) as { status?: string | null };
+        if (data.status === "BANNED") {
+          const bannedUrl = request.nextUrl.clone();
+          bannedUrl.pathname = "/banned";
+          bannedUrl.search = "";
+          return NextResponse.redirect(bannedUrl);
+        }
+      }
+    } catch (e) {
+      console.error("[middleware] user-status check failed", e);
+    }
+  }
+
   return supabaseResponse;
 }

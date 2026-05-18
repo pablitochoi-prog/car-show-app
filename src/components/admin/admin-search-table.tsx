@@ -7,25 +7,36 @@ import { Input } from "@/components/ui/input";
 export function useAdminSearch<T>(
   apiUrl: string,
   dataKey: string,
+  initialRows: T[] = [],
 ) {
   const [query, setQuery] = useState("");
-  const [rows, setRows] = useState<T[]>([]);
+  const [rows, setRows] = useState<T[]>(initialRows);
   const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(initialRows.length > 0);
+  const [error, setError] = useState<string | null>(null);
 
   const search = useCallback(
-    async (q?: string) => {
-      const term = q ?? query;
+    async (overrideQuery?: string) => {
+      const term = (overrideQuery !== undefined ? overrideQuery : query).trim();
       setLoading(true);
+      setError(null);
       try {
         const url = term
           ? `${apiUrl}?q=${encodeURIComponent(term)}`
           : apiUrl;
         const res = await fetch(url, { credentials: "same-origin" });
+        const data = (await res.json()) as Record<string, unknown>;
         if (res.ok) {
-          const data = await res.json();
           setRows((data[dataKey] ?? []) as T[]);
+        } else {
+          const message =
+            typeof data.error === "string"
+              ? data.error
+              : `Could not load data (${res.status})`;
+          setError(message);
         }
+      } catch {
+        setError("Could not load data. Check your connection and try again.");
       } finally {
         setLoading(false);
         setLoaded(true);
@@ -35,10 +46,10 @@ export function useAdminSearch<T>(
   );
 
   useEffect(() => {
-    void search("");
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    void search();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { query, setQuery, rows, setRows, loading, loaded, search };
+  return { query, setQuery, rows, setRows, loading, loaded, error, search };
 }
 
 export function AdminSearchBar({
@@ -83,8 +94,20 @@ export function AdminSearchBar({
   );
 }
 
-export function AdminEmptyState({ message }: { message: string }) {
+export function AdminEmptyState({
+  message,
+  error,
+}: {
+  message: string;
+  error?: string | null;
+}) {
   return (
-    <p className="py-8 text-center text-sm text-muted-foreground">{message}</p>
+    <div className="py-8 text-center text-sm">
+      {error ? (
+        <p className="text-destructive">{error}</p>
+      ) : (
+        <p className="text-muted-foreground">{message}</p>
+      )}
+    </div>
   );
 }

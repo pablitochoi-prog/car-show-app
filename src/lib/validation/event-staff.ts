@@ -38,6 +38,10 @@ export const patchEventStaffBodySchema = z.object({
   roleIds: z.array(z.string().uuid()).min(1, "Select at least one role"),
 });
 
+export const transferEventOrganizerBodySchema = z.object({
+  email: z.string().trim().email("Enter a valid email address"),
+});
+
 export const postCustomRoleBodySchema = z.object({
   name: customRoleNameSchema,
 });
@@ -45,3 +49,6 @@ export const postCustomRoleBodySchema = z.object({
 export type PostEventStaffBody = z.infer<typeof postEventStaffBodySchema>;
 export type PatchEventStaffBody = z.infer<typeof patchEventStaffBodySchema>;
 export type PostCustomRoleBody = z.infer<typeof postCustomRoleBodySchema>;
+export type TransferEventOrganizerBody = z.infer<
+  typeof transferEventOrganizerBodySchema
+>;

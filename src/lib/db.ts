@@ -37,22 +37,43 @@ function assertPostgresUrls(): void {
   }
 }
 
-assertPostgresUrls();
-
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
 /**
- * Production: singleton to avoid exhausting DB connections on serverless/lambda.
- * Development: no global cache — after `prisma generate` / migrations, a new client
- * picks up schema changes without a stuck Turbopack bundle referencing an old client.
+ * Supabase pooler (pgbouncer): Prisma must use a single connection per client instance.
+ * Without this, each PrismaClient opens a large default pool and quickly hits EMAXCONN.
  */
-export const prisma =
-  process.env.NODE_ENV === "production"
-    ? (globalForPrisma.prisma ?? new PrismaClient())
-    : new PrismaClient();
+function prismaDatasourceUrl(): string {
+  const url = process.env.DATABASE_URL!;
+  if (/[?&]connection_limit=/i.test(url)) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  const limit = /pgbouncer=true/i.test(url) ? 1 : 5;
+  return `${url}${sep}connection_limit=${limit}`;
+}
 
-if (process.env.NODE_ENV === "production") {
+function createPrismaClient(): PrismaClient {
+  if (typeof window !== "undefined") {
+    throw new Error(
+      "Database access is server-only. Import Prisma from API routes or Server Components, not client components.",
+    );
+  }
+  assertPostgresUrls();
+  return new PrismaClient({
+    datasources: {
+      db: { url: prismaDatasourceUrl() },
+    },
+  });
+}
+
+/**
+ * One Prisma client per Node process. Dev hot reload must not create new clients
+ * (each orphan pool holds connections until Supabase returns max client errors).
+ */
+const existing = globalForPrisma.prisma;
+export const prisma = existing ?? createPrismaClient();
+
+if (!existing) {
   globalForPrisma.prisma = prisma;
 }

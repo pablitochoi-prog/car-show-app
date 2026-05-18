@@ -13,7 +13,16 @@ import {
   type VehicleLookupValues,
 } from "@/components/forms/vehicle-lookup-fields";
 
-export function AddVehicleForm({ onSaved }: { onSaved?: () => void } = {}) {
+type SavedVehicle = { id: string };
+
+export function AddVehicleForm({
+  onSaved,
+  returnTo,
+}: {
+  onSaved?: () => void;
+  /** After save, redirect here with ?addedVehicle=<id> (must be an app path). */
+  returnTo?: string | null;
+} = {}) {
   const router = useRouter();
 
   const [lookup, setLookup] = useState<VehicleLookupValues>({
@@ -62,9 +71,11 @@ export function AddVehicleForm({ onSaved }: { onSaved?: () => void } = {}) {
       });
 
       const raw = await res.text();
-      let data: { error?: string } = {};
+      let data: { error?: string; id?: string } = {};
       try {
-        data = raw.trim() ? (JSON.parse(raw) as { error?: string }) : {};
+        data = raw.trim()
+          ? (JSON.parse(raw) as { error?: string; id?: string })
+          : {};
       } catch {
         setError(
           `Save failed (HTTP ${res.status}). The server returned a non-JSON response—often because the database needs updating. In your project folder run: npx prisma migrate deploy`,
@@ -74,6 +85,13 @@ export function AddVehicleForm({ onSaved }: { onSaved?: () => void } = {}) {
 
       if (!res.ok) {
         setError(data.error ?? `Could not save vehicle (${res.status}).`);
+        return;
+      }
+
+      const saved = data as SavedVehicle;
+      if (returnTo && saved.id) {
+        const dest = `${returnTo}${returnTo.includes("?") ? "&" : "?"}addedVehicle=${encodeURIComponent(saved.id)}`;
+        router.push(dest);
         return;
       }
 

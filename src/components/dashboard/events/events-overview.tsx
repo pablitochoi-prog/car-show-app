@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -5,6 +6,7 @@ import {
   hrefDashboardEvents,
   type EventsTab,
 } from "@/lib/dashboard-events-url";
+import { ShowPastEventsCheckbox } from "./show-past-events-checkbox";
 import { EventsPaginationBar } from "./events-pagination";
 import {
   EmptyManaging,
@@ -24,8 +26,13 @@ export function EventsOverview(props: {
   managingTotal: number;
   managingRows: ManagingEventRow[];
   participatingTotal: number;
+  participatingTotalAll: number;
   participatingRows: ParticipatingEventRow[];
+  showPastEvents: boolean;
+  registeredEventIds: Set<string>;
   canCreate?: boolean;
+  /** False until the user has created at least one event (organizer on a show). */
+  showManagingTab?: boolean;
 }) {
   const {
     tab,
@@ -34,9 +41,16 @@ export function EventsOverview(props: {
     managingTotal,
     managingRows,
     participatingTotal,
+    participatingTotalAll,
     participatingRows,
+    showPastEvents,
+    registeredEventIds,
     canCreate = false,
+    showManagingTab = false,
   } = props;
+
+  const participatingLinkOptions = { showPast: showPastEvents };
+  const hiddenPastCount = participatingTotalAll - participatingTotal;
 
   const managingActive = tab === "managing";
   const participatingActive = tab === "participating";
@@ -47,28 +61,7 @@ export function EventsOverview(props: {
         <div className="border-b border-border px-4 pt-4 sm:px-6">
           <nav aria-label="Event categories" className="flex gap-1 sm:gap-2">
             <Link
-              href={hrefDashboardEvents("managing", 1)}
-              className={cn(
-                "relative flex-1 rounded-t-lg px-3 py-2.5 text-center text-sm font-medium transition-colors sm:flex-none sm:px-5",
-                managingActive
-                  ? "bg-background text-foreground shadow-[inset_0_-2px_0_0_var(--primary)]"
-                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              )}
-            >
-              <span className="inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
-                Managing
-                {managingTotal > 0 ? (
-                  <span className="rounded-md bg-muted px-1.5 py-px text-[11px] font-normal tabular-nums text-muted-foreground">
-                    {managingTotal}
-                  </span>
-                ) : null}
-              </span>
-              <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground sm:inline sm:mt-0 sm:ml-1.5 sm:text-xs">
-                Staff &amp; organizer tools
-              </span>
-            </Link>
-            <Link
-              href={hrefDashboardEvents("participating", 1)}
+              href={hrefDashboardEvents("participating", 1, participatingLinkOptions)}
               className={cn(
                 "relative flex-1 rounded-t-lg px-3 py-2.5 text-center text-sm font-medium transition-colors sm:flex-none sm:px-5",
                 participatingActive
@@ -88,6 +81,29 @@ export function EventsOverview(props: {
                 Exhibiting &amp; attending
               </span>
             </Link>
+            {showManagingTab ? (
+              <Link
+                href={hrefDashboardEvents("managing", 1)}
+                className={cn(
+                  "relative flex-1 rounded-t-lg px-3 py-2.5 text-center text-sm font-medium transition-colors sm:flex-none sm:px-5",
+                  managingActive
+                    ? "bg-background text-foreground shadow-[inset_0_-2px_0_0_var(--primary)]"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                )}
+              >
+                <span className="inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
+                  Managing
+                  {managingTotal > 0 ? (
+                    <span className="rounded-md bg-muted px-1.5 py-px text-[11px] font-normal tabular-nums text-muted-foreground">
+                      {managingTotal}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground sm:inline sm:mt-0 sm:ml-1.5 sm:text-xs">
+                  Staff &amp; organizer tools
+                </span>
+              </Link>
+            ) : null}
           </nav>
         </div>
 
@@ -112,7 +128,11 @@ export function EventsOverview(props: {
               ) : (
                 <ul className="divide-y divide-border rounded-lg border border-border/80">
                   {managingRows.map((row) => (
-                    <ManagingCard key={row.eventId} row={row} />
+                    <ManagingCard
+                      key={row.eventId}
+                      row={row}
+                      isRegistered={registeredEventIds.has(row.eventId)}
+                    />
                   ))}
                 </ul>
               )}
@@ -125,21 +145,29 @@ export function EventsOverview(props: {
             </>
           ) : (
             <>
-              <div className="mb-4">
-                <h2 className="text-base font-semibold tracking-tight">
-                  Events where you&apos;re registered as an exhibitor
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Vehicle registrations and attendance tied to your account. You
-                  can still appear under{" "}
-                  <strong className="font-medium text-foreground">
-                    Managing
-                  </strong>{" "}
-                  if you also work the show.
-                </p>
+              <div className="mb-4 space-y-3">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight">
+                    Events where you&apos;re registered as an exhibitor
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Showing recent and upcoming events, sorted by date. A new
+                    tab will be shown above if you are organizing, managing, or
+                    volunteering for any car shows.
+                  </p>
+                </div>
+                <Suspense fallback={null}>
+                  <ShowPastEventsCheckbox checked={showPastEvents} />
+                </Suspense>
               </div>
               {participatingRows.length === 0 ? (
-                <EmptyParticipating />
+                <EmptyParticipating
+                  message={
+                    !showPastEvents && hiddenPastCount > 0
+                      ? `No current or recent registrations. ${hiddenPastCount} older event${hiddenPastCount === 1 ? "" : "s"} hidden — check Show past events to view them.`
+                      : undefined
+                  }
+                />
               ) : (
                 <ul className="divide-y divide-border rounded-lg border border-border/80">
                   {participatingRows.map((row) => (
@@ -152,6 +180,7 @@ export function EventsOverview(props: {
                 page={page}
                 pageSize={pageSize}
                 total={participatingTotal}
+                linkOptions={participatingLinkOptions}
               />
             </>
           )}

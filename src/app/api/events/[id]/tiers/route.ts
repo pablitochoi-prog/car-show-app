@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { registrationTierWriteSchema } from "@/lib/validation/registration";
+import {
+  isTieredRegistrationFees,
+  TIER_MANAGEMENT_FEE_TYPE_ERROR,
+} from "@/lib/general-admission-tier";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -54,6 +58,20 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { registrationFeeType: true },
+  });
+  if (!event) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!isTieredRegistrationFees(event.registrationFeeType)) {
+    return NextResponse.json(
+      { error: TIER_MANAGEMENT_FEE_TYPE_ERROR },
+      { status: 400 },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -104,6 +122,20 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   const allowed = await canManageEvent(user.id, eventId, undefined, user.platformRole);
   if (!allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { registrationFeeType: true },
+  });
+  if (!event) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!isTieredRegistrationFees(event.registrationFeeType)) {
+    return NextResponse.json(
+      { error: TIER_MANAGEMENT_FEE_TYPE_ERROR },
+      { status: 400 },
+    );
   }
 
   let body: unknown;

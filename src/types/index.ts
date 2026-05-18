@@ -1,5 +1,7 @@
 export type PlatformRole = "USER" | "ORGANIZER" | "ADMIN";
 
+export type UserStatus = "ACTIVE" | "SUSPENDED" | "BANNED";
+
 export type EventRole =
   | "ORGANIZER"
   | "TREASURER"

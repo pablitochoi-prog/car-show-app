@@ -9,7 +9,14 @@ export async function getEventForViewer(
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     include: {
-      organization: { select: { id: true, name: true } },
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          stripeAccountId: true,
+          stripeChargesEnabled: true,
+        },
+      },
     },
   });
 

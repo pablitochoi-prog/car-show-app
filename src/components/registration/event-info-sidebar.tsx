@@ -10,11 +10,14 @@ import {
   Mail,
   Phone,
   ExternalLink,
+  MessageSquare,
 } from "lucide-react";
 import { ImageLightbox, ThumbnailWithEye } from "@/components/ui/image-lightbox";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 export type SidebarEvent = {
   name: string;
+  showNumber: number;
   orgName: string | null;
   flyerUrl: string | null;
   logoUrl: string | null;
@@ -33,14 +36,16 @@ export type SidebarEvent = {
   contactPhone: string | null;
   eventWebsite: string | null;
   socialHashtag: string | null;
+  /** Who receives in-app messages from logged-in registrants. */
+  organizerMessageNote?: string | null;
 };
 
 function feeLabel(type: string | null, dollars: number | null): string {
   if (!type || type === "FREE") return "Free";
   if (type === "DONATION")
-    return dollars != null ? `$${dollars} suggested donation` : "Donation";
+    return dollars != null ? `${dollars} suggested donation` : "Donation";
   if (type === "PAID_TIERED") return "Tiered pricing";
-  return dollars != null ? `$${dollars}` : "Paid";
+  return dollars != null ? String(dollars) : "Paid";
 }
 
 export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
@@ -84,7 +89,12 @@ export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
                 {event.orgName}
               </p>
             )}
-            <h2 className="text-base font-bold leading-tight">{event.name}</h2>
+            <h2 className="text-base font-bold leading-tight">
+              <EventNameWithNumber
+                name={event.name}
+                showNumber={event.showNumber}
+              />
+            </h2>
             <div className="mt-1.5 space-y-0.5 text-sm">
               <div className="flex items-center gap-1.5 text-foreground">
                 <Calendar className="size-3.5 shrink-0 text-muted-foreground" />
@@ -186,6 +196,15 @@ export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
             </p>
           )}
         </div>
+        {event.organizerMessageNote ? (
+          <div className="flex gap-2 rounded-lg border border-border/80 bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
+            <MessageSquare
+              className="mt-0.5 size-4 shrink-0 text-primary"
+              aria-hidden
+            />
+            <p>{event.organizerMessageNote}</p>
+          </div>
+        ) : null}
       </div>
 
       {lightboxSrc && (

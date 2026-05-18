@@ -1,7 +1,10 @@
-import type { PlatformRole, EventRole } from "@/types";
+import type { PlatformRole, EventRole, UserStatus } from "@/types";
 
 /** Minimal user shape needed for permission checks (avoids importing full Prisma type). */
-export type PermUser = { platformRole: PlatformRole };
+export type PermUser = {
+  platformRole: PlatformRole;
+  status?: UserStatus;
+};
 
 // ---------------------------------------------------------------------------
 // Site-level role checks
@@ -9,6 +12,14 @@ export type PermUser = { platformRole: PlatformRole };
 
 export function isSiteAdmin(user: PermUser): boolean {
   return user.platformRole === "ADMIN";
+}
+
+export function isUserSuspended(user: Pick<PermUser, "status">): boolean {
+  return user.status === "SUSPENDED";
+}
+
+export function isUserBanned(user: Pick<PermUser, "status">): boolean {
+  return user.status === "BANNED";
 }
 
 export function isOrganizerOrAbove(user: PermUser): boolean {

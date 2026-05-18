@@ -44,6 +44,7 @@ export default async function LinkEventOrganizationPage({
       <LinkEventOrganizationForm
         eventId={event.id}
         eventName={event.name}
+        eventShowNumber={event.showNumber}
         linkedOrgName={orgName}
         memberships={memberships.map((m) => ({
           orgId: m.organization.id,

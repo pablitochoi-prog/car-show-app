@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
 import {
   normalizeProfilePayload,
   updateProfileSchema,
@@ -12,6 +12,8 @@ export async function PATCH(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const writeDenied = writeAccessDeniedResponse(user);
+  if (writeDenied) return writeDenied;
 
   let body: unknown;
   try {

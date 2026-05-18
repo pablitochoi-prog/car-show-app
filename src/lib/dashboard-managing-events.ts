@@ -4,6 +4,7 @@ import {
   sortStaffRoleBadgeRowsForDisplay,
   type StaffRoleBadgeRow,
 } from "@/lib/event-role-labels";
+import type { EventCardBrandingFields } from "@/lib/event-card-branding";
 
 function eventStaffMemberDelegate() {
   return (
@@ -16,6 +17,21 @@ function eventStaffMemberDelegate() {
       };
     }
   ).eventStaffMember;
+}
+
+/** Events where the user holds the default organizer role (includes shows they created). */
+export async function countUserOrganizerStaffEvents(
+  userId: string,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<[{ c: bigint }]>`
+    SELECT COUNT(DISTINCT esm."eventId")::bigint AS c
+    FROM event_staff_members esm
+    INNER JOIN event_staff_role_links esrl ON esrl."staffMemberId" = esm.id
+    INNER JOIN event_role_definitions erd ON erd.id = esrl."roleId"
+    WHERE esm."userId" = ${userId}
+      AND erd.slug = 'organizer'
+  `;
+  return Number(rows[0]?.c ?? 0);
 }
 
 /** Avoids runtime crash when an outdated bundled Prisma client omits new delegates (run `npx prisma generate` + restart dev server). */
@@ -36,6 +52,10 @@ export async function countUserManagingEvents(userId: string): Promise<number> {
 type ManagingRowRaw = {
   eventId: string;
   name: string;
+  showNumber: number;
+  logoUrl: string | null;
+  orgName: string | null;
+  orgLogoUrl: string | null;
   startDate: Date;
   startTime: string | null;
   city: string | null;
@@ -47,13 +67,14 @@ type ManagingRowRaw = {
 export type DashboardManagingEventRow = {
   eventId: string;
   name: string;
+  showNumber: number;
   startDate: Date;
   startTime: string | null;
   city: string | null;
   state: string | null;
   status: EventStatus;
   roles: StaffRoleBadgeRow[];
-};
+} & EventCardBrandingFields;
 
 export async function loadManagingEventRowsPage(
   userId: string,
@@ -69,11 +90,14 @@ export async function loadManagingEventRowsPage(
           select: {
             id: true,
             name: true,
+            showNumber: true,
+            logoUrl: true,
             startDate: true,
             startTime: true,
             city: true,
             state: true,
             status: true,
+            organization: { select: { name: true, logo: true } },
           },
         },
         roleLinks: {
@@ -98,21 +122,28 @@ export async function loadManagingEventRowsPage(
       event: {
         id: string;
         name: string;
+        showNumber: number;
+        logoUrl: string | null;
         startDate: Date;
         startTime: string | null;
         city: string | null;
         state: string | null;
         status: EventStatus;
+        organization: { name: string; logo: string | null } | null;
       };
       roleLinks: { role: StaffRoleBadgeRow & { sortOrder: number } }[];
     }[]).map((m) => ({
       eventId: m.event.id,
       name: m.event.name,
+      showNumber: m.event.showNumber,
       startDate: m.event.startDate,
       startTime: m.event.startTime,
       city: m.event.city,
       state: m.event.state,
       status: m.event.status,
+      logoUrl: m.event.logoUrl,
+      orgName: m.event.organization?.name ?? null,
+      orgLogoUrl: m.event.organization?.logo ?? null,
       roles: sortStaffRoleBadgeRowsForDisplay(
         m.roleLinks.map((l) => ({
           id: l.role.id,
@@ -127,6 +158,10 @@ export async function loadManagingEventRowsPage(
     SELECT
       e.id AS "eventId",
       e.name,
+      e."showNumber" AS "showNumber",
+      e."logoUrl" AS "logoUrl",
+      o.name AS "orgName",
+      o.logo AS "orgLogoUrl",
       e."startDate" AS "startDate",
       e."startTime" AS "startTime",
       e.city,
@@ -146,10 +181,11 @@ export async function loadManagingEventRowsPage(
       ) AS roles
     FROM event_staff_members esm
     INNER JOIN events e ON e.id = esm."eventId"
+    LEFT JOIN organizations o ON o.id = e."orgId"
     LEFT JOIN event_staff_role_links esrl ON esrl."staffMemberId" = esm.id
     LEFT JOIN event_role_definitions erd ON erd.id = esrl."roleId"
     WHERE esm."userId" = ${userId}
-    GROUP BY esm.id, e.id, e.name, e."startDate", e."startTime", e.city, e.state, e.status
+    GROUP BY esm.id, e.id, e.name, e."showNumber", e."logoUrl", o.name, o.logo, e."startDate", e."startTime", e.city, e.state, e.status
     ORDER BY e."startDate" ASC
     LIMIT ${take} OFFSET ${skip}
   `;
@@ -157,6 +193,10 @@ export async function loadManagingEventRowsPage(
   return raw.map((row) => ({
     eventId: row.eventId,
     name: row.name,
+    showNumber: row.showNumber,
+    logoUrl: row.logoUrl,
+    orgName: row.orgName,
+    orgLogoUrl: row.orgLogoUrl,
     startDate: row.startDate,
     startTime: row.startTime,
     city: row.city,

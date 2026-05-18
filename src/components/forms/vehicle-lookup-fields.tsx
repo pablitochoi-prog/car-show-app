@@ -9,6 +9,25 @@ type MakeOption = { companynum: number; company: string };
 type ModelOption = { modelcat: string; basemodel: string };
 type TrimOption = { model: string; basebody?: string; basedoor?: string };
 
+function openSelectDropdown(el: HTMLSelectElement | null) {
+  if (!el || el.disabled) return;
+  el.focus();
+  try {
+    el.showPicker();
+  } catch {
+    el.click();
+  }
+}
+
+/** Value of the option currently highlighted in a native select (keyboard or mouse). */
+function highlightedSelectValue(select: HTMLSelectElement): string {
+  const fromValue = select.value?.trim();
+  if (fromValue) return fromValue;
+  const idx = select.selectedIndex;
+  if (idx > 0) return select.options[idx]?.value ?? "";
+  return "";
+}
+
 export type VehicleLookupValues = {
   year: string;
   make: string;
@@ -32,6 +51,8 @@ export function VehicleLookupFields({
 }) {
   const [notListed, setNotListed] = useState(false);
   const makeRef = useRef<HTMLSelectElement>(null);
+  const modelRef = useRef<HTMLSelectElement>(null);
+  const trimRef = useRef<HTMLSelectElement>(null);
 
   const [selectedCompanynum, setSelectedCompanynum] = useState<number | null>(null);
   const [selectedModelcat, setSelectedModelcat] = useState("");
@@ -78,45 +99,127 @@ export function VehicleLookupFields({
         setLookupError("Could not reach vehicle lookup.");
       } finally {
         setMakesLoading(false);
-        if (focusAfter) requestAnimationFrame(() => makeRef.current?.focus());
+        if (focusAfter) {
+          requestAnimationFrame(() => openSelectDropdown(makeRef.current));
+        }
       }
     },
     [],
   );
 
-  const fetchModels = useCallback(async (companynum: number, y: string) => {
-    const yearNum = Number.parseInt(y, 10);
-    if (!Number.isFinite(yearNum)) return;
-    setModelsLoading(true);
-    setModels([]);
-    setTrims([]);
-    setSelectedModelcat("");
-    try {
-      const res = await fetch(
-        `/api/vehicles/lookup/models?companynum=${companynum}&year=${yearNum}`,
-        { credentials: "same-origin" },
-      );
-      const data = (await res.json()) as { models?: ModelOption[] };
-      if (res.ok) setModels(data.models ?? []);
-    } catch { /* ignore */ }
-    finally { setModelsLoading(false); }
-  }, []);
+  const fetchModels = useCallback(
+    async (companynum: number, y: string, focusAfter = false) => {
+      const yearNum = Number.parseInt(y, 10);
+      if (!Number.isFinite(yearNum)) return;
+      setModelsLoading(true);
+      setModels([]);
+      setTrims([]);
+      setSelectedModelcat("");
+      try {
+        const res = await fetch(
+          `/api/vehicles/lookup/models?companynum=${companynum}&year=${yearNum}`,
+          { credentials: "same-origin" },
+        );
+        const data = (await res.json()) as { models?: ModelOption[] };
+        if (res.ok) setModels(data.models ?? []);
+      } catch {
+        /* ignore */
+      } finally {
+        setModelsLoading(false);
+        if (focusAfter) {
+          requestAnimationFrame(() => openSelectDropdown(modelRef.current));
+        }
+      }
+    },
+    [],
+  );
 
-  const fetchTrims = useCallback(async (companynum: number, y: string, modelcat: string) => {
-    const yearNum = Number.parseInt(y, 10);
-    if (!Number.isFinite(yearNum) || !modelcat) return;
-    setTrimsLoading(true);
+  const fetchTrims = useCallback(
+    async (
+      companynum: number,
+      y: string,
+      modelcat: string,
+      focusAfter = false,
+    ) => {
+      const yearNum = Number.parseInt(y, 10);
+      if (!Number.isFinite(yearNum) || !modelcat) return;
+      setTrimsLoading(true);
+      setTrims([]);
+      try {
+        const res = await fetch(
+          `/api/vehicles/lookup/trims?companynum=${companynum}&year=${yearNum}&modelcat=${encodeURIComponent(modelcat)}`,
+          { credentials: "same-origin" },
+        );
+        const data = (await res.json()) as { trims?: TrimOption[] };
+        if (res.ok) setTrims(data.trims ?? []);
+      } catch {
+        /* ignore */
+      } finally {
+        setTrimsLoading(false);
+        if (focusAfter) {
+          requestAnimationFrame(() => openSelectDropdown(trimRef.current));
+        }
+      }
+    },
+    [],
+  );
+
+  function advanceFromYear() {
+    if (notListed || values.year.length !== 4) return;
+    if (makes.length > 0 && !makesLoading) {
+      openSelectDropdown(makeRef.current);
+    } else {
+      void fetchMakes(values.year, true);
+    }
+  }
+
+  function selectMake(val: string, focusModelAfter: boolean) {
+    const selected = makes.find((m) => String(m.companynum) === val);
+    if (!selected) {
+      patch({ make: "", model: "", trim: "" });
+      setSelectedCompanynum(null);
+      setModels([]);
+      setTrims([]);
+      return;
+    }
+    patch({ make: selected.company, model: "", trim: "" });
+    setSelectedCompanynum(selected.companynum);
+    setSelectedModelcat("");
     setTrims([]);
-    try {
-      const res = await fetch(
-        `/api/vehicles/lookup/trims?companynum=${companynum}&year=${yearNum}&modelcat=${encodeURIComponent(modelcat)}`,
-        { credentials: "same-origin" },
-      );
-      const data = (await res.json()) as { trims?: TrimOption[] };
-      if (res.ok) setTrims(data.trims ?? []);
-    } catch { /* ignore */ }
-    finally { setTrimsLoading(false); }
-  }, []);
+    void fetchModels(selected.companynum, values.year, focusModelAfter);
+  }
+
+  function selectModel(val: string, focusTrimAfter: boolean) {
+    const selected = models.find((m) => m.modelcat === val);
+    if (!selected || selectedCompanynum == null) {
+      patch({ model: "", trim: "" });
+      setSelectedModelcat("");
+      setTrims([]);
+      return;
+    }
+    patch({ model: selected.modelcat, trim: "" });
+    setSelectedModelcat(selected.modelcat);
+    void fetchTrims(
+      selectedCompanynum,
+      values.year,
+      selected.modelcat,
+      focusTrimAfter,
+    );
+  }
+
+  function commitMakeFromSelect(select: HTMLSelectElement) {
+    const val = highlightedSelectValue(select);
+    if (!val) return false;
+    selectMake(val, true);
+    return true;
+  }
+
+  function commitModelFromSelect(select: HTMLSelectElement) {
+    const val = highlightedSelectValue(select);
+    if (!val) return false;
+    selectModel(val, true);
+    return true;
+  }
 
   useEffect(() => {
     if (notListed) return;
@@ -130,32 +233,11 @@ export function VehicleLookupFields({
   }, [values.year, notListed, fetchMakes]);
 
   function handleMakeChange(val: string) {
-    const selected = makes.find((m) => String(m.companynum) === val);
-    if (selected) {
-      patch({ make: selected.company, model: "", trim: "" });
-      setSelectedCompanynum(selected.companynum);
-      void fetchModels(selected.companynum, values.year);
-    } else {
-      patch({ make: "", model: "", trim: "" });
-      setSelectedCompanynum(null);
-      setModels([]);
-      setTrims([]);
-    }
+    selectMake(val, false);
   }
 
   function handleModelChange(val: string) {
-    const selected = models.find((m) => m.modelcat === val);
-    if (selected) {
-      patch({ model: selected.modelcat, trim: "" });
-      setSelectedModelcat(selected.modelcat);
-      if (selectedCompanynum) {
-        void fetchTrims(selectedCompanynum, values.year, selected.modelcat);
-      }
-    } else {
-      patch({ model: "", trim: "" });
-      setSelectedModelcat("");
-      setTrims([]);
-    }
+    selectModel(val, false);
   }
 
   function handleNotListedToggle(checked: boolean) {
@@ -196,10 +278,17 @@ export function VehicleLookupFields({
               patch({ year: e.target.value.replace(/\D/g, "").slice(0, 4) })
             }
             onKeyDown={(e) => {
+              if (e.key === "Tab" && !e.shiftKey) {
+                if (values.year.length === 4 && !notListed) {
+                  e.preventDefault();
+                  advanceFromYear();
+                }
+                return;
+              }
               if (e.key === "Enter") {
                 e.preventDefault();
                 if (values.year.length === 4 && !notListed) {
-                  void fetchMakes(values.year, true);
+                  advanceFromYear();
                 }
               }
             }}
@@ -219,6 +308,19 @@ export function VehicleLookupFields({
               className={cn(selectClass)}
               value={selectedCompanynum != null ? String(selectedCompanynum) : ""}
               onChange={(e) => handleMakeChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Tab" && !e.shiftKey) {
+                  if (commitMakeFromSelect(e.currentTarget)) {
+                    e.preventDefault();
+                  }
+                  return;
+                }
+                if (e.key === "Enter") {
+                  if (commitMakeFromSelect(e.currentTarget)) {
+                    e.preventDefault();
+                  }
+                }
+              }}
               required
               disabled={makesLoading}
             >
@@ -254,10 +356,24 @@ export function VehicleLookupFields({
           <Label htmlFor={`${idPrefix}-mo`} className="text-xs">Model *</Label>
           {useDropdowns ? (
             <select
+              ref={modelRef}
               id={`${idPrefix}-mo`}
               className={cn(selectClass)}
               value={selectedModelcat}
               onChange={(e) => handleModelChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Tab" && !e.shiftKey) {
+                  if (commitModelFromSelect(e.currentTarget)) {
+                    e.preventDefault();
+                  }
+                  return;
+                }
+                if (e.key === "Enter") {
+                  if (commitModelFromSelect(e.currentTarget)) {
+                    e.preventDefault();
+                  }
+                }
+              }}
               required
               disabled={modelsLoading || !selectedCompanynum}
             >
@@ -293,6 +409,7 @@ export function VehicleLookupFields({
           <Label htmlFor={`${idPrefix}-tr`} className="text-xs">Trim</Label>
           {useDropdowns ? (
             <select
+              ref={trimRef}
               id={`${idPrefix}-tr`}
               className={cn(selectClass)}
               value={values.trim}

@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, requireOrgMember } from "@/lib/auth";
+import { getCurrentUser, requireOrgMember, writeAccessDeniedResponse } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocoding";
 import { createEventSchema } from "@/lib/validation/event";
 import { deriveFieldsFromDailyHours } from "@/lib/daily-hours";
 import { resolveListingScheduledAtForPersistence } from "@/lib/listing-scheduled";
 import { canCreateEvent } from "@/lib/permissions";
+import { allocateUniqueVotePrefixForNewEvent } from "@/lib/event-sms-vehicle-id";
 import {
   ensureDefaultEventRoles,
   upsertStaffMemberWithRoles,
 } from "@/lib/event-staff";
+import { allocateEventShowNumber } from "@/lib/event-show-number";
+import { syncGeneralAdmissionTier } from "@/lib/general-admission-tier";
 import type { EventStatus, Prisma } from "@prisma/client";
 
 /** Prisma and cookies require Node; avoids accidental Edge bundling. */
@@ -63,6 +66,8 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const writeDenied = writeAccessDeniedResponse(user);
+  if (writeDenied) return writeDenied;
 
   if (!canCreateEvent(user)) {
     return NextResponse.json(
@@ -175,10 +180,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const event = await prisma.event.create({
+  const event = await prisma.$transaction(async (tx) => {
+    const showNumber = await allocateEventShowNumber(tx);
+    const smsVotePrefix = await allocateUniqueVotePrefixForNewEvent(tx);
+    return tx.event.create({
     data: {
       orgId: d.orgId ?? null,
       name: d.name,
+      showNumber,
+      smsVotePrefix,
+      nextVehicleNumber: 1,
       estimatedCarCount:
         d.estimatedCarCount !== undefined && d.estimatedCarCount !== null
           ? d.estimatedCarCount
@@ -211,6 +222,7 @@ export async function POST(request: Request) {
       listingScheduledAt,
     },
   });
+  });
 
   await ensureDefaultEventRoles(event.id);
   const organizerRole = await prisma.eventRoleDefinition.findFirst({
@@ -221,27 +233,17 @@ export async function POST(request: Request) {
     await upsertStaffMemberWithRoles(event.id, user.id, [organizerRole.id]);
   }
 
-  // Auto-create a default tier for flat-rate / free / donation events.
-  // PAID_TIERED events skip this — organizer sets up tiers manually.
-  if (fee.registrationFeeType !== "PAID_TIERED") {
-    const tierPrice =
-      fee.registrationFeeType === "PAID" && fee.registrationFeeDollars
-        ? fee.registrationFeeDollars * 100
-        : 0;
-    await prisma.registrationTier.create({
-      data: {
-        eventId: event.id,
-        name: "General Admission",
-        priceCents: tierPrice,
-        sortOrder: 0,
-      },
-    });
-  }
+  await syncGeneralAdmissionTier(
+    event.id,
+    fee.registrationFeeType,
+    fee.registrationFeeDollars,
+  );
 
   return NextResponse.json(
     {
       id: event.id,
       name: event.name,
+      showNumber: event.showNumber,
       status: event.status,
     },
     { status: 201 }

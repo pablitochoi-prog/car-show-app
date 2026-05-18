@@ -14,6 +14,12 @@ enum PlatformRole {
   ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
 enum EventStatus {
   DRAFT
   SCHEDULED
@@ -37,6 +43,34 @@ enum RegistrationFeeType {
   DONATION
 }
 
+enum StripeAccountStatus {
+  NOT_CONNECTED
+  ONBOARDING
+  ACTIVE
+  RESTRICTED
+  DISABLED
+}
+
+enum PlatformFeeType {
+  NONE
+  FIXED
+  PERCENT
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELED
+}
+
+enum MessageType {
+  GENERAL
+  REFUND_REQUEST
+  SYSTEM
+}
+
 model User {
   id          String       @id @default(uuid())
   email       String       @unique
@@ -55,6 +89,10 @@ model User {
   birthYear   Int?
   avatarUrl   String?
   platformRole PlatformRole @default(USER)
+  status       UserStatus   @default(ACTIVE)
+  /// Admin note when status is changed (suspend, ban, etc.).
+  statusReason String?
+  statusChangedAt DateTime?
   /// Admin-hidden accounts are excluded from public listings.
   archivedAt  DateTime?
   createdAt   DateTime     @default(now())
@@ -67,6 +105,9 @@ model User {
   eventStaffMembers EventStaffMember[]
   vehicles       Vehicle[]
   registrations  Registration[]
+  sentMessages     Message[] @relation("MessageSender")
+  receivedMessages Message[] @relation("MessageRecipient")
+  messageStates    MessageUserState[]
 
   @@map("users")
 }
@@ -121,8 +162,19 @@ model Organization {
   /// Owner-archived clubs are hidden from My clubs until restored.
   archivedAt DateTime?
 
+  // ── Stripe Connect ──
+  stripeAccountId        String?              @unique
+  stripeAccountStatus    StripeAccountStatus  @default(NOT_CONNECTED)
+  stripeChargesEnabled   Boolean              @default(false)
+  stripePayoutsEnabled   Boolean              @default(false)
+  stripeDetailsSubmitted Boolean              @default(false)
+  onboardingCompletedAt  DateTime?
+  stripeConnectedAt      DateTime?
+  stripeLastSyncedAt     DateTime?
+
   members OrganizationMember[]
   events  Event[]
+  messages Message[]
 
   @@map("organizations")
 }
@@ -146,6 +198,12 @@ model OrganizationMember {
 model Event {
   id           String      @id @default(uuid())
   name              String
+  /// Unique numeric id for display as EVT-#### (assigned from 1001 at creation).
+  showNumber        Int         @unique
+  /// Unique 3-character code (A–Z, 2–9) for SMS voting / per-vehicle IDs, e.g. AXY-004.
+  smsVotePrefix     String?     @unique
+  /// Next 3-digit sequence number for this event (001–999). Incremented when vehicles are assigned IDs.
+  nextVehicleNumber Int         @default(1)
   /// Organizer-facing estimate; optional.
   estimatedCarCount Int?
   description  String?
@@ -181,6 +239,13 @@ model Event {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  // ── Payment settings ──
+  paymentEnabled         Boolean         @default(false)
+  platformFeeType        PlatformFeeType @default(NONE)
+  platformFeeAmountCents Int?
+  platformFeePercent     Float?
+  currency               String          @default("usd")
+
   orgId        String?
   organization Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
@@ -190,6 +255,7 @@ model Event {
   registrations     Registration[]
   eventCategories   EventCategory[]
   eventAwards       EventAward[]
+  messages          Message[]
 
   @@index([status, startDate])
   @@index([city, state])
@@ -259,13 +325,38 @@ model Registration {
   tierId String
   tier   RegistrationTier @relation(fields: [tierId], references: [id], onDelete: Restrict)
 
+  // ── Payment tracking ──
+  stripeCheckoutSessionId String?        @unique
+  stripePaymentIntentId   String?        @unique
+  paymentStatus           PaymentStatus?
+  amountCents             Int?
+  platformFeeCents        Int?
+  /// Cumulative Stripe refund total in cents (partial refunds reduce displayed fees/collected).
+  refundedCents           Int                @default(0)
+  paidAt                  DateTime?
+  /// Stripe event ID of the last processed webhook for idempotency.
+  stripeEventId           String?
+
   /// Guest contact fields (null when userId is present).
   guestFirstName String?
   guestLastName  String?
   guestEmail     String?
   guestPhone     String?
-  /// Vehicle data for guests stored as JSON array of {year,make,model,trim,notes}.
+  /// Logged-in registrant contact for this event (may differ from profile).
+  registrantFirstName String?
+  registrantLastName  String?
+  registrantEmail     String?
+  registrantPhone     String?
+  registrantStreet    String?
+  registrantCity      String?
+  registrantState     String?
+  registrantZip       String?
+  /// Vehicle data for guests stored as JSON array of {year,make,model,trim,notes,nickname,...}.
   guestVehicles  Json?
+  guestStreet    String?
+  guestCity      String?
+  guestState     String?
+  guestZip       String?
 
   vehicles RegistrationVehicle[]
 
@@ -278,13 +369,19 @@ model Registration {
 
 model RegistrationVehicle {
   id            String @id @default(uuid())
+  /// Legacy optional display order; numeric part also matches the 3-digit suffix of publicVehicleId when set.
   displayNumber Int?
+  /// Full display id for this vehicle at this event, e.g. AXY-004 (prefix unique per event; number unique among event vehicles).
+  publicVehicleId String? @unique
 
   registrationId String
   registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   vehicleId String
   vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  eventCategoryId String?
+  eventCategory   EventCategory? @relation(fields: [eventCategoryId], references: [id], onDelete: SetNull)
 
   @@unique([registrationId, vehicleId])
   @@map("registration_vehicles")
@@ -386,6 +483,8 @@ model EventCategory {
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  registrationVehicles RegistrationVehicle[]
+
   createdAt DateTime @default(now())
 
   @@unique([eventId, categoryId])
@@ -432,4 +531,50 @@ model EventAward {
   @@unique([eventId, specialAwardId])
   @@index([eventId])
   @@map("event_awards")
+}
+
+model Message {
+  id        String      @id @default(uuid())
+  type      MessageType @default(GENERAL)
+  subject   String
+  body      String
+  createdAt DateTime    @default(now())
+  readAt    DateTime?
+
+  senderUserId String
+  sender       User   @relation("MessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  recipientUserId String?
+  recipient       User?  @relation("MessageRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  orgId String?
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
+  userStates MessageUserState[]
+
+  @@index([recipientUserId])
+  @@index([senderUserId])
+  @@index([eventId])
+  @@map("messages")
+}
+
+/// Per-user inbox state (archive / delete) for a message thread.
+model MessageUserState {
+  id         String    @id @default(uuid())
+  archivedAt DateTime?
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId])
+  @@map("message_user_states")
 }

@@ -186,6 +186,149 @@ export async function upsertStaffMemberWithRoles(
   await setRoleLinksForMember(member.id, roleIds);
 }
 
+/** After removing Organizer, fall back to Volunteer instead of dropping staff. */
+function roleIdsAfterStrippingOrganizer(
+  roleIds: string[],
+  organizerRoleId: string,
+  volunteerRoleId: string | null,
+): { next: string[]; deleteMember: boolean } {
+  const without = roleIds.filter((id) => id !== organizerRoleId);
+  if (without.length === roleIds.length) {
+    return { next: roleIds, deleteMember: false };
+  }
+  if (without.length > 0) {
+    return { next: [...new Set(without)], deleteMember: false };
+  }
+  if (volunteerRoleId) {
+    return { next: [volunteerRoleId], deleteMember: false };
+  }
+  return { next: [], deleteMember: true };
+}
+
+/**
+ * Ensure only `keeperUserId` has the Organizer role. Everyone else loses it;
+ * if they only had Organizer they become Volunteer (if defined).
+ */
+export async function ensureOnlyOneEventOrganizer(
+  eventId: string,
+  keeperUserId: string,
+): Promise<void> {
+  await ensureDefaultEventRoles(eventId);
+  const organizerRole = await prisma.eventRoleDefinition.findFirst({
+    where: { eventId, slug: "organizer" },
+    select: { id: true },
+  });
+  if (!organizerRole) return;
+  const volunteerRole = await prisma.eventRoleDefinition.findFirst({
+    where: { eventId, slug: "volunteer" },
+    select: { id: true },
+  });
+  const organizerRoleId = organizerRole.id;
+  const volunteerRoleId = volunteerRole?.id ?? null;
+
+  const members = await prisma.eventStaffMember.findMany({
+    where: { eventId },
+    include: { roleLinks: { select: { roleId: true } } },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const m of members) {
+      if (m.userId === keeperUserId) continue;
+      const roleIds = m.roleLinks.map((l) => l.roleId);
+      if (!roleIds.includes(organizerRoleId)) continue;
+      const { next, deleteMember } = roleIdsAfterStrippingOrganizer(
+        roleIds,
+        organizerRoleId,
+        volunteerRoleId,
+      );
+      if (deleteMember) {
+        await tx.eventStaffMember.delete({ where: { id: m.id } });
+      } else {
+        await tx.eventStaffRoleLink.deleteMany({ where: { staffMemberId: m.id } });
+        await tx.eventStaffRoleLink.createMany({
+          data: next.map((roleId) => ({
+            staffMemberId: m.id,
+            roleId,
+          })),
+        });
+      }
+    }
+  });
+}
+
+/**
+ * Make `newOrganizerUserId` the only user with the default “organizer” role.
+ * Others lose organizer; former organizers with no other roles become **Volunteer**.
+ * New user is on staff with organizer plus any roles they already held.
+ */
+export async function transferEventOrganizerRole(
+  eventId: string,
+  newOrganizerUserId: string,
+): Promise<void> {
+  await ensureDefaultEventRoles(eventId);
+  const organizerRole = await prisma.eventRoleDefinition.findFirst({
+    where: { eventId, slug: "organizer" },
+    select: { id: true },
+  });
+  if (!organizerRole) {
+    throw new Error("This event has no organizer role.");
+  }
+  const volunteerRole = await prisma.eventRoleDefinition.findFirst({
+    where: { eventId, slug: "volunteer" },
+    select: { id: true },
+  });
+  const organizerRoleId = organizerRole.id;
+  const volunteerRoleId = volunteerRole?.id ?? null;
+
+  const members = await prisma.eventStaffMember.findMany({
+    where: { eventId },
+    include: { roleLinks: { select: { roleId: true } } },
+  });
+
+  const priorNewOwnerRoles =
+    members.find((m) => m.userId === newOrganizerUserId)?.roleLinks.map((l) => l.roleId) ??
+    [];
+  const mergedForNewOwner = [...new Set([...priorNewOwnerRoles, organizerRoleId])];
+
+  await prisma.$transaction(async (tx) => {
+    for (const m of members) {
+      if (m.userId === newOrganizerUserId) continue;
+      const roleIds = m.roleLinks.map((l) => l.roleId);
+      if (!roleIds.includes(organizerRoleId)) continue;
+      const { next, deleteMember } = roleIdsAfterStrippingOrganizer(
+        roleIds,
+        organizerRoleId,
+        volunteerRoleId,
+      );
+      if (deleteMember) {
+        await tx.eventStaffMember.delete({ where: { id: m.id } });
+      } else {
+        await tx.eventStaffRoleLink.deleteMany({ where: { staffMemberId: m.id } });
+        await tx.eventStaffRoleLink.createMany({
+          data: next.map((roleId) => ({
+            staffMemberId: m.id,
+            roleId,
+          })),
+        });
+      }
+    }
+
+    const staffRow = await tx.eventStaffMember.upsert({
+      where: { eventId_userId: { eventId, userId: newOrganizerUserId } },
+      create: { eventId, userId: newOrganizerUserId },
+      update: {},
+      select: { id: true },
+    });
+    await tx.eventStaffRoleLink.deleteMany({ where: { staffMemberId: staffRow.id } });
+    await tx.eventStaffRoleLink.createMany({
+      data: mergedForNewOwner.map((roleId) => ({
+        staffMemberId: staffRow.id,
+        roleId,
+      })),
+    });
+  });
+}
+
 export async function removeStaffMember(eventId: string, userId: string) {
   await prisma.eventStaffMember.deleteMany({ where: { eventId, userId } });
 }
@@ -214,6 +357,42 @@ export async function userHasOrganizerStaffRole(
     },
   });
   return n > 0;
+}
+
+/** Display names for users with the “organizer” staff role (registrant message recipients). */
+export async function getEventOrganizerDisplayNames(
+  eventId: string,
+): Promise<string[]> {
+  await ensureDefaultEventRoles(eventId);
+  const members = await prisma.eventStaffMember.findMany({
+    where: {
+      eventId,
+      roleLinks: { some: { role: { slug: "organizer" } } },
+    },
+    include: {
+      user: {
+        select: { name: true, firstName: true, lastName: true },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  return members.map((m) => {
+    const u = m.user;
+    const n = u.name?.trim();
+    if (n) return n;
+    const fromParts = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+    return fromParts || "Event organizer";
+  });
+}
+
+/** Public copy for the event page explaining who receives contact messages. */
+export function formatOrganizerMessageRecipientNote(names: string[]): string | null {
+  if (names.length === 0) return null;
+  const list = new Intl.ListFormat("en", {
+    style: "long",
+    type: "conjunction",
+  }).format(names);
+  return `Questions about this event and refund requests are sent to ${list}.`;
 }
 
 export async function createCustomEventRole(eventId: string, name: string) {

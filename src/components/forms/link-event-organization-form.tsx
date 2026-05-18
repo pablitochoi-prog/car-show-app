@@ -16,6 +16,7 @@ import {
 import { Loader2 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 export type MembershipOption = {
   orgId: string;
@@ -26,11 +27,13 @@ export type MembershipOption = {
 export function LinkEventOrganizationForm({
   eventId,
   eventName,
+  eventShowNumber,
   linkedOrgName,
   memberships,
 }: {
   eventId: string;
   eventName: string;
+  eventShowNumber: number;
   linkedOrgName: string | null;
   memberships: MembershipOption[];
 }) {
@@ -78,7 +81,12 @@ export function LinkEventOrganizationForm({
         <CardHeader>
           <CardTitle>Organization linked</CardTitle>
           <CardDescription>
-            &ldquo;{eventName}&rdquo; is associated with{" "}
+            <EventNameWithNumber
+              name={eventName}
+              showNumber={eventShowNumber}
+              className="font-medium text-foreground"
+            />{" "}
+            is associated with{" "}
             <span className="font-medium text-foreground">{linkedOrgName}</span>.
           </CardDescription>
         </CardHeader>
@@ -120,7 +128,12 @@ export function LinkEventOrganizationForm({
             </div>
           )}
           <p className="text-sm text-muted-foreground">
-            Event: <span className="font-medium text-foreground">{eventName}</span>
+            Event:{" "}
+            <EventNameWithNumber
+              name={eventName}
+              showNumber={eventShowNumber}
+              className="font-medium text-foreground"
+            />
           </p>
           {memberships.length > 0 ? (
             <div className="space-y-2">

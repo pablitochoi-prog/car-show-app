@@ -5,30 +5,27 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, Car, LogIn, UserPlus, LogOut } from "lucide-react";
+import { Menu, Car, LogIn, UserPlus, LogOut, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlatformRole } from "@/types";
-import { isOrganizerOrAbove } from "@/lib/permissions";
+import { useUnreadMessages } from "@/components/messages/unread-messages-provider";
+import { UnreadCountBadge } from "@/components/messages/unread-count-badge";
 
 interface HeaderProps {
+  isLoggedIn?: boolean;
   user?: { name: string; email: string; platformRole?: PlatformRole } | null;
 }
 
-export function Header({ user }: HeaderProps) {
+export function Header({ isLoggedIn = false }: HeaderProps) {
+  const { unreadCount: unreadMessageCount } = useUnreadMessages();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  const showOrganizerLinks = user?.platformRole
-    ? isOrganizerOrAbove({ platformRole: user.platformRole })
-    : false;
-
-  /** Organizer tools: dashboard Events (Managing) or legacy `/organizer/*` routes. */
-  const organizerToolsActive =
-    pathname.startsWith("/dashboard/events") ||
-    pathname.startsWith("/organizer");
   const eventsActive = pathname.startsWith("/events");
   const dashboardActive = pathname.startsWith("/dashboard");
+  const messagesActive = pathname.startsWith("/dashboard/messages");
+  const hasUnreadMessages = unreadMessageCount > 0;
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -44,7 +41,7 @@ export function Header({ user }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 print:hidden">
       <div className="layout-bar h-16 items-center justify-between">
         <Link href="/" className="flex items-center gap-2 font-bold text-xl">
           <Car className="h-6 w-6" />
@@ -53,82 +50,79 @@ export function Header({ user }: HeaderProps) {
 
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-2 md:flex">
-          {user ? (
-            <div className="flex items-center gap-2">
-              {showOrganizerLinks && (
+          <div className="flex items-center gap-2">
+            <Link
+              href="/events"
+              className={cn(
+                buttonVariants({
+                  variant: eventsActive ? "default" : "outline",
+                  size: "sm",
+                }),
+              )}
+            >
+              Find Events
+            </Link>
+            {isLoggedIn ? (
+              <>
                 <Link
-                  href="/dashboard/events"
+                  href="/dashboard"
                   className={cn(
                     buttonVariants({
-                      variant: organizerToolsActive ? "default" : "outline",
+                      variant:
+                        dashboardActive && !messagesActive ? "default" : "outline",
                       size: "sm",
-                    })
+                    }),
                   )}
                 >
-                  Create/Edit Event
+                  Dashboard
                 </Link>
-              )}
-              <Link
-                href="/events"
-                className={cn(
-                  buttonVariants({
-                    variant: eventsActive ? "default" : "outline",
-                    size: "sm",
-                  })
-                )}
-              >
-                Find Events
-              </Link>
-              <Link
-                href="/dashboard"
-                className={cn(
-                  buttonVariants({
-                    variant: dashboardActive ? "default" : "outline",
-                    size: "sm",
-                  })
-                )}
-              >
-                Dashboard
-              </Link>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={loggingOut}
-                onClick={handleLogout}
-                className="ml-1 text-muted-foreground"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Log out
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Link
-                href="/events"
-                className={cn(
-                  buttonVariants({
-                    variant: eventsActive ? "default" : "outline",
-                    size: "sm",
-                  })
-                )}
-              >
-                Find Events
-              </Link>
-              <Link href="/login">
-                <Button variant="ghost" size="sm">
-                  <LogIn className="mr-2 h-4 w-4" />
-                  Log In
+                <Link
+                  href="/dashboard/messages"
+                  className={cn(
+                    buttonVariants({
+                      variant: hasUnreadMessages ? "default" : "outline",
+                      size: "sm",
+                    }),
+                    "relative inline-flex items-center gap-1.5",
+                    !hasUnreadMessages && "bg-background",
+                  )}
+                >
+                  <MessageSquare className="size-3.5 shrink-0" aria-hidden />
+                  Messages
+                  <UnreadCountBadge
+                    count={unreadMessageCount}
+                    onPrimary={hasUnreadMessages}
+                  />
+                </Link>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={loggingOut}
+                  onClick={handleLogout}
+                  className="ml-1 text-muted-foreground"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Log out
                 </Button>
-              </Link>
-              <Link href="/signup">
-                <Button size="sm">
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  Sign Up
-                </Button>
-              </Link>
-            </div>
-          )}
+              </>
+            ) : (
+              <>
+                <Link href="/login">
+                  <Button variant="ghost" size="sm">
+                    <LogIn className="mr-2 h-4 w-4" />
+                    Log In
+                  </Button>
+                </Link>
+                <Link href="/signup">
+                  <Button size="sm">
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Sign Up
+                  </Button>
+                </Link>
+              </>
+            )}
+          </div>
         </nav>
 
         {/* Mobile Navigation */}
@@ -138,48 +132,53 @@ export function Header({ user }: HeaderProps) {
           </SheetTrigger>
           <SheetContent side="right" className="w-72">
             <nav className="mt-8 flex flex-col gap-3">
-              {user ? (
+              <Link
+                href="/events"
+                onClick={() => setOpen(false)}
+                className={cn(
+                  buttonVariants({
+                    variant: eventsActive ? "default" : "outline",
+                    size: "default",
+                  }),
+                  "w-full justify-center text-center",
+                )}
+              >
+                Find Events
+              </Link>
+              {isLoggedIn ? (
                 <>
-                  {showOrganizerLinks && (
-                    <Link
-                      href="/dashboard/events"
-                      onClick={() => setOpen(false)}
-                      className={cn(
-                        buttonVariants({
-                          variant: organizerToolsActive ? "default" : "outline",
-                          size: "default",
-                        }),
-                        "w-full justify-center text-center"
-                      )}
-                    >
-                      Create/Edit Event
-                    </Link>
-                  )}
-                  <Link
-                    href="/events"
-                    onClick={() => setOpen(false)}
-                    className={cn(
-                      buttonVariants({
-                        variant: eventsActive ? "default" : "outline",
-                        size: "default",
-                      }),
-                      "w-full justify-center text-center"
-                    )}
-                  >
-                    Find Events
-                  </Link>
                   <Link
                     href="/dashboard"
                     onClick={() => setOpen(false)}
                     className={cn(
                       buttonVariants({
-                        variant: dashboardActive ? "default" : "outline",
+                        variant:
+                          dashboardActive && !messagesActive ? "default" : "outline",
                         size: "default",
                       }),
-                      "w-full justify-center text-center"
+                      "w-full justify-center text-center",
                     )}
                   >
                     Dashboard
+                  </Link>
+                  <Link
+                    href="/dashboard/messages"
+                    onClick={() => setOpen(false)}
+                    className={cn(
+                      buttonVariants({
+                        variant: hasUnreadMessages ? "default" : "outline",
+                        size: "default",
+                      }),
+                      "inline-flex w-full items-center justify-center gap-2 text-center",
+                      !hasUnreadMessages && "bg-background",
+                    )}
+                  >
+                    <MessageSquare className="size-4 shrink-0" aria-hidden />
+                    Messages
+                    <UnreadCountBadge
+                      count={unreadMessageCount}
+                      onPrimary={hasUnreadMessages}
+                    />
                   </Link>
                   <Button
                     type="button"
@@ -197,19 +196,6 @@ export function Header({ user }: HeaderProps) {
                 </>
               ) : (
                 <>
-                  <Link
-                    href="/events"
-                    onClick={() => setOpen(false)}
-                    className={cn(
-                      buttonVariants({
-                        variant: eventsActive ? "default" : "outline",
-                        size: "default",
-                      }),
-                      "w-full justify-center text-center"
-                    )}
-                  >
-                    Find Events
-                  </Link>
                   <Link href="/login" onClick={() => setOpen(false)}>
                     <Button variant="outline" className="w-full">
                       Log In

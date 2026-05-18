@@ -19,3 +19,22 @@ export function formatDate(iso: string): string {
     year: "numeric",
   });
 }
+
+export type ConvFeeInput = {
+  type: "NONE" | "FIXED" | "PERCENT";
+  amountCents: number | null;
+  percent: number | null;
+} | null;
+
+/** Per-vehicle convenience fee in cents (fixed or percent of tier unit price). */
+export function convenienceFeePerVehicle(
+  fee: ConvFeeInput,
+  tierUnitCents: number,
+): number {
+  if (!fee || fee.type === "NONE") return 0;
+  if (fee.type === "FIXED" && fee.amountCents) return fee.amountCents;
+  if (fee.type === "PERCENT" && fee.percent) {
+    return Math.round((tierUnitCents * fee.percent) / 100);
+  }
+  return 0;
+}

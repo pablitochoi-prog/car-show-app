@@ -7,6 +7,8 @@ import type { RoleDefinitionOption } from "@/components/forms/staff-role-multi-s
 import { EventStaffTable } from "@/components/forms/event-staff-table";
 import { StaffMemberSheet } from "@/components/forms/staff-member-sheet";
 import { Plus } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 function parseStaffListResponse(text: string): StaffMember[] | null {
   try {
@@ -58,6 +60,8 @@ export function EventStaffManager({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [transferEmail, setTransferEmail] = useState("");
+  const [transferBusy, setTransferBusy] = useState(false);
 
   function resetFormDefaults() {
     setFirstName("");
@@ -66,9 +70,9 @@ export function EventStaffManager({
     setPhone("");
     setError(null);
     setSuccess(null);
-    const judge = roleDefinitions.find((r) => r.slug === "judge");
+    const volunteer = roleDefinitions.find((r) => r.slug === "volunteer");
     setSelectedRoleIds(
-      judge ? [judge.id] : roleDefinitions[0]?.id ? [roleDefinitions[0].id] : [],
+      volunteer ? [volunteer.id] : roleDefinitions[0]?.id ? [roleDefinitions[0].id] : [],
     );
   }
 
@@ -196,14 +200,81 @@ export function EventStaffManager({
     }
   }
 
+  async function handleTransferOrganizer() {
+    const email = transferEmail.trim();
+    if (!email) {
+      setError("Enter the new organizer’s email.");
+      setSuccess(null);
+      return;
+    }
+    if (
+      !confirm(
+        `Make ${email} the event organizer?\n\n` +
+          "They become the only Organizer. You lose Organizer and become Volunteer (unless you already had other roles).\n" +
+          "Other former organizers also become Volunteer if they had no other roles.\n" +
+          "Messages and refund requests go to the new organizer.",
+      )
+    ) {
+      return;
+    }
+
+    setTransferBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/events/${eventId}/transfer-organizer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ email }),
+      });
+      const ok = await persistStaffList(res);
+      if (ok) {
+        setTransferEmail("");
+        setSuccess("Event ownership reassigned.");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setTransferBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <EventStaffTable
-        staff={staff}
-        busy={busy}
-        onEdit={openEditSheet}
-        onRemove={handleRemoveMember}
-      />
+      <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-foreground">
+          Reassign event ownership
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Makes this person the <strong>only</strong> Organizer, removes Organizer from
+          everyone else (you become <strong>Volunteer</strong> if you had no other
+          roles), and keeps registrant messages pointed at the new owner. The user
+          must already have an account—enter their login email.
+        </p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-1.5">
+            <Label htmlFor={`transfer-org-${eventId}`}>New organizer email</Label>
+            <Input
+              id={`transfer-org-${eventId}`}
+              type="email"
+              autoComplete="off"
+              value={transferEmail}
+              onChange={(e) => setTransferEmail(e.target.value)}
+              placeholder="new.organizer@example.com"
+              disabled={transferBusy}
+              className="text-sm"
+            />
+          </div>
+          <Button
+            type="button"
+            disabled={transferBusy || !transferEmail.trim()}
+            onClick={() => void handleTransferOrganizer()}
+          >
+            {transferBusy ? "Working…" : "Reassign ownership"}
+          </Button>
+        </div>
+      </div>
 
       {error && (
         <p className="text-sm text-destructive" role="alert">
@@ -215,6 +286,13 @@ export function EventStaffManager({
           {success}
         </p>
       )}
+
+      <EventStaffTable
+        staff={staff}
+        busy={busy}
+        onEdit={openEditSheet}
+        onRemove={handleRemoveMember}
+      />
 
       <div className="space-y-2">
         <Button
@@ -230,8 +308,10 @@ export function EventStaffManager({
           Add event staff
         </Button>
         <p className="text-xs text-muted-foreground">
-          New staff must already have an account. We match by email and save
-          name and phone to their profile.
+          Default role for new staff is <strong>Volunteer</strong>. Only one person
+          should be Organizer—use <strong>Reassign event ownership</strong> above to
+          change who that is; editing roles to add Organizer also moves it from the
+          previous organizer to Volunteer when needed.
         </p>
       </div>
 

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { getUserEventRoles } from "@/lib/event-staff";
+import { resolveRegistrationContact } from "@/lib/registration-contact";
+import { formatEventShowNumber } from "@/lib/event-show-number";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -19,11 +21,25 @@ export async function GET(_request: Request, { params }: RouteParams) {
   const { id: eventId } = await params;
 
   const roles = await getUserEventRoles(user.id, eventId);
-  const hasRegistrarAccess = roles.includes("REGISTRAR") || roles.includes("ORGANIZER");
-  const allowed = hasRegistrarAccess || await canManageEvent(user.id, eventId, undefined, user.platformRole);
+  const hasStaffAccess =
+    roles.includes("REGISTRAR") ||
+    roles.includes("ORGANIZER") ||
+    roles.includes("TREASURER");
+  const allowed =
+    hasStaffAccess ||
+    (await canManageEvent(user.id, eventId, undefined, user.platformRole));
   if (!allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { name: true, showNumber: true },
+  });
+  if (!event) {
+    return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  }
+  const eventCode = formatEventShowNumber(event.showNumber);
 
   const rows = await prisma.registration.findMany({
     where: { eventId },
@@ -31,7 +47,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
       id: true,
       status: true,
       createdAt: true,
-      user: { select: { name: true, email: true, phone: true } },
+      user: {
+        select: {
+          name: true,
+          email: true,
+          phone: true,
+          firstName: true,
+          lastName: true,
+          status: true,
+        },
+      },
       tier: { select: { name: true, priceCents: true } },
       vehicles: {
         include: {
@@ -44,6 +69,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
       guestLastName: true,
       guestEmail: true,
       guestPhone: true,
+      registrantFirstName: true,
+      registrantLastName: true,
+      registrantEmail: true,
+      registrantPhone: true,
       guestVehicles: true,
     },
     orderBy: { createdAt: "asc" },
@@ -52,6 +81,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
   type GV = { year?: number; make?: string; model?: string; trim?: string };
 
   const header = [
+    "event_show_number",
+    "event_name",
     "status",
     "type",
     "registrant_name",
@@ -67,11 +98,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
     header.join(","),
     ...rows.map((r) => {
       const isGuest = !r.user;
-      const name = isGuest
-        ? `${r.guestFirstName ?? ""} ${r.guestLastName ?? ""}`.trim() || "Guest"
-        : r.user!.name;
-      const regEmail = isGuest ? (r.guestEmail ?? "") : r.user!.email;
-      const regPhone = isGuest ? (r.guestPhone ?? "") : (r.user!.phone ?? "");
+      const resolved = resolveRegistrationContact(r);
+      const name = resolved.name;
+      const regEmail = resolved.email;
+      const regPhone = resolved.phone;
 
       const linkedVehicles = r.vehicles
         .map((rv) => {
@@ -92,6 +122,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
         .join("; ");
 
       return [
+        csvEscape(eventCode),
+        csvEscape(event.name),
         csvEscape(r.status),
         csvEscape(isGuest ? "Guest" : "Member"),
         csvEscape(name),

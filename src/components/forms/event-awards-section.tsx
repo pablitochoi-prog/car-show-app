@@ -1,10 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Trophy } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  EventMultiPickList,
+  type PickListOption,
+} from "@/components/forms/event-multi-pick-list";
+import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
+import {
+  EVENT_CATEGORIES_CHANGED,
+  buildEventAwardTrophyEntries,
+  notifyEventCategoriesChanged,
+} from "@/lib/event-awards-trophies";
 
 type MasterAward = { id: string; name: string };
 type EventAwardRow = {
@@ -19,27 +28,20 @@ type EventCategoryRow = {
   trophyCount: number;
 };
 
-const PLACE_LABELS = [
-  "1st Place",
-  "2nd Place",
-  "3rd Place",
-  "4th Place",
-  "5th Place",
-  "6th Place",
-  "7th Place",
-  "8th Place",
-  "9th Place",
-  "10th Place",
-];
-
-export function EventAwardsSection({ eventId }: { eventId: string }) {
+export function EventAwardsSection({
+  eventId,
+  onCountChange,
+}: {
+  eventId: string;
+  onCountChange?: (count: number) => void;
+}) {
   const [masterList, setMasterList] = useState<MasterAward[]>([]);
   const [eventAwards, setEventAwards] = useState<EventAwardRow[]>([]);
   const [eventCategories, setEventCategories] = useState<EventCategoryRow[]>([]);
-  const [selectedAwardId, setSelectedAwardId] = useState("");
   const [customName, setCustomName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
 
   const fetchData = useCallback(async () => {
     const [awardsRes, catsRes, masterRes] = await Promise.all([
@@ -59,38 +61,101 @@ export function EventAwardsSection({ eventId }: { eventId: string }) {
     void fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    function onCategoriesChanged(e: Event) {
+      const detail = (e as CustomEvent<{ eventId?: string }>).detail;
+      if (detail?.eventId === eventId) void fetchData();
+    }
+    window.addEventListener(EVENT_CATEGORIES_CHANGED, onCategoriesChanged);
+    return () =>
+      window.removeEventListener(EVENT_CATEGORIES_CHANGED, onCategoriesChanged);
+  }, [eventId, fetchData]);
+
+  const trophyEntries = useMemo(
+    () =>
+      buildEventAwardTrophyEntries({
+        categories: eventCategories,
+        specialAwards: eventAwards.map((a) => ({ id: a.id, name: a.name })),
+      }),
+    [eventCategories, eventAwards],
+  );
+
+  useEffect(() => {
+    onCountChange?.(trophyEntries.length);
+  }, [trophyEntries.length, onCountChange]);
+
   const addedAwardIds = new Set(
     eventAwards.filter((a) => a.specialAwardId).map((a) => a.specialAwardId),
   );
-  const availableAwards = masterList.filter((a) => !addedAwardIds.has(a.id));
+  const pickOptions: PickListOption[] = masterList
+    .filter((a) => !addedAwardIds.has(a.id))
+    .map((a) => ({ id: a.id, label: a.name }));
 
-  // Derive category-based place awards
-  const derivedAwards: string[] = [];
-  for (const cat of eventCategories) {
-    for (let i = 0; i < cat.trophyCount && i < PLACE_LABELS.length; i++) {
-      derivedAwards.push(`Best ${cat.name} — ${PLACE_LABELS[i]}`);
-    }
-  }
-
-  async function handleAddAward() {
+  async function handleAddSelected(specialAwardIds: string[]) {
     setBusy(true);
     setError("");
     try {
-      const body: Record<string, string> = {};
-      if (selectedAwardId) {
-        body.specialAwardId = selectedAwardId;
-      } else if (customName.trim()) {
-        body.customName = customName.trim();
-      } else {
-        setError("Select an award or enter a custom name.");
-        return;
-      }
-
       const res = await fetch(`/api/events/${eventId}/awards`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ specialAwardIds }),
+      });
+      const data = (await res.json()) as { awards?: EventAwardRow[]; error?: string };
+      if (!res.ok) {
+        setError(data.error ?? "Could not add awards.");
+        return;
+      }
+      setEventAwards(data.awards ?? []);
+    } catch {
+      setError("Network error.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveSelected(entryIds: string[]) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/events/${eventId}/awards-trophies`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ entryIds }),
+      });
+      const data = (await res.json()) as {
+        categories?: EventCategoryRow[];
+        awards?: EventAwardRow[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setError(data.error ?? "Could not remove awards.");
+        return;
+      }
+      if (data.categories) setEventCategories(data.categories);
+      if (data.awards) setEventAwards(data.awards);
+      notifyEventCategoriesChanged(eventId);
+    } catch {
+      setError("Network error.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAddCustom() {
+    if (!customName.trim()) {
+      setError("Enter a custom award name.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/events/${eventId}/awards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ customName: customName.trim() }),
       });
       const data = (await res.json()) as { awards?: EventAwardRow[]; error?: string };
       if (!res.ok) {
@@ -98,7 +163,6 @@ export function EventAwardsSection({ eventId }: { eventId: string }) {
         return;
       }
       setEventAwards(data.awards ?? []);
-      setSelectedAwardId("");
       setCustomName("");
     } catch {
       setError("Network error.");
@@ -107,146 +171,88 @@ export function EventAwardsSection({ eventId }: { eventId: string }) {
     }
   }
 
-  async function handleRemove(eaId: string) {
-    setBusy(true);
-    try {
-      const res = await fetch(
-        `/api/events/${eventId}/awards?eventAwardId=${eaId}`,
-        { method: "DELETE", credentials: "same-origin" },
-      );
-      const data = (await res.json()) as { awards?: EventAwardRow[] };
-      if (data.awards) setEventAwards(data.awards);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const selectClass =
-    "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm";
-
   return (
-    <div className="space-y-6">
-      {/* Category-derived place awards (read-only) */}
-      {derivedAwards.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Category Place Awards</p>
-          <p className="text-xs text-muted-foreground">
-            Auto-generated from your registration categories and trophy counts.
-          </p>
-          <ul className="divide-y rounded-md border bg-muted/20">
-            {derivedAwards.map((label) => (
-              <li
-                key={label}
-                className="flex items-center gap-2 px-4 py-2 text-sm"
-              >
-                <Trophy className="size-3.5 text-amber-500" />
-                {label}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+    <div className="space-y-4">
+      <EventSectionEditToolbar
+        editing={editing}
+        busy={busy}
+        onStartEdit={() => setEditing(true)}
+        onDone={() => {
+          setEditing(false);
+          setError("");
+          setCustomName("");
+        }}
+      />
 
-      {/* Special / custom awards */}
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Special Awards</p>
-        {eventAwards.length > 0 && (
-          <ul className="divide-y rounded-md border">
-            {eventAwards.map((ea) => (
-              <li
-                key={ea.id}
-                className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
-              >
-                <div className="flex items-center gap-2">
-                  <Trophy className="size-3.5 text-amber-500" />
-                  <span className="font-medium">{ea.name}</span>
-                  {ea.isCustom && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      Custom
-                    </span>
-                  )}
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-destructive hover:bg-destructive/10"
-                  disabled={busy}
-                  onClick={() => handleRemove(ea.id)}
-                  aria-label={`Remove ${ea.name}`}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {editing ? (
+        <p className="text-xs text-muted-foreground">
+          All trophies for this event — category place awards and special awards.
+          Removing a category place trophy lowers that category&apos;s award count
+          on the Registration Categories list.
+        </p>
+      ) : null}
 
-      {/* `div` not `form` — may render inside the main event edit <form>. */}
-      <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-        <p className="text-sm font-medium">Add a special award</p>
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Select from list</Label>
-            <select
-              className={selectClass}
-              value={selectedAwardId}
-              onChange={(e) => {
-                setSelectedAwardId(e.target.value);
-                if (e.target.value) setCustomName("");
-              }}
-              disabled={busy}
-            >
-              <option value="">— Choose award —</option>
-              {availableAwards.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-end">
-            <Button type="submit" size="sm" disabled={busy} className="gap-1.5">
-              <Plus className="size-4" />
-              Add
-            </Button>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>or</span>
-          <Input
-            placeholder="Custom award name"
-            value={customName}
-            onChange={(e) => {
-              setCustomName(e.target.value);
-              if (e.target.value) setSelectedAwardId("");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void handleAddAward();
-              }
-            }}
-            className="h-8 max-w-xs text-sm"
+      <EventMultiPickList
+        availableLabel="Available special awards"
+        addPanelTitle="Add special awards to the list"
+        emptyListMessage="No awards or trophies yet. Add registration categories (with place awards) or special awards below."
+        options={pickOptions}
+        busy={busy}
+        readOnly={!editing}
+        rows={trophyEntries.map((entry) => ({
+          id: entry.id,
+          label: (
+            <div className="flex flex-wrap items-center gap-2">
+              <Trophy className="size-3.5 shrink-0 text-amber-500" />
+              <span className="font-medium">{entry.label}</span>
+              {entry.kind === "category_place" ? (
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  Category place
+                </span>
+              ) : (
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  Special
+                </span>
+              )}
+            </div>
+          ),
+        }))}
+        onAddSelected={handleAddSelected}
+        onRemoveSelected={handleRemoveSelected}
+      />
+
+      {editing ? (
+      <div className="flex flex-wrap items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
+        <span>or add a custom special award:</span>
+        <Input
+          placeholder="Custom award name"
+          value={customName}
+          onChange={(e) => setCustomName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleAddCustom();
+            }
+          }}
+          className="h-8 max-w-xs text-sm"
+          disabled={busy}
+        />
+        {customName.trim() ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
             disabled={busy}
-          />
-          {customName.trim() && (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              className="gap-1.5"
-              onClick={() => void handleAddAward()}
-            >
-              <Plus className="size-3.5" />
-              Add Custom
-            </Button>
-          )}
-        </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
+            className="gap-1.5"
+            onClick={() => void handleAddCustom()}
+          >
+            <Plus className="size-3.5" />
+            Add custom
+          </Button>
+        ) : null}
       </div>
+      ) : null}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }

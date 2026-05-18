@@ -5,7 +5,13 @@ import { Plus, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AddVehicleForm } from "@/components/forms/add-vehicle-form";
 
-export function AddVehicleSection({ autoOpen }: { autoOpen: boolean }) {
+export function AddVehicleSection({
+  autoOpen,
+  returnTo,
+}: {
+  autoOpen: boolean;
+  returnTo?: string | null;
+}) {
   const [open, setOpen] = useState(autoOpen);
 
   if (!open) {
@@ -36,7 +42,7 @@ export function AddVehicleSection({ autoOpen }: { autoOpen: boolean }) {
           Collapse
         </Button>
       </div>
-      <AddVehicleForm onSaved={() => setOpen(false)} />
+      <AddVehicleForm returnTo={returnTo} onSaved={() => setOpen(false)} />
     </div>
   );
 }

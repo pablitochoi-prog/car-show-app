@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Footer } from "@/components/layout/footer";
+import { UnreadMessagesShell } from "@/components/layout/unread-messages-shell";
 import "./globals.css";
 
 const inter = Inter({
@@ -28,9 +29,11 @@ export default function RootLayout({
       className={`${inter.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <SiteHeader />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <UnreadMessagesShell>
+          <SiteHeader />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </UnreadMessagesShell>
       </body>
     </html>
   );

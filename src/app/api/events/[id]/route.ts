@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, canManageEvent, getOrgMembership } from "@/lib/auth";
+import {
+  getCurrentUser,
+  canManageEvent,
+  getOrgMembership,
+  writeAccessDeniedResponse,
+} from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocoding";
 import { updateEventSchema } from "@/lib/validation/event";
 import { deriveFieldsFromDailyHours } from "@/lib/daily-hours";
 import { resolveListingScheduledAtForPersistence } from "@/lib/listing-scheduled";
 import type { EventStatus, Prisma } from "@prisma/client";
+import { syncGeneralAdmissionTier } from "@/lib/general-admission-tier";
 
 type FeeType = "FREE" | "PAID" | "PAID_TIERED" | "DONATION";
 
@@ -70,6 +76,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const writeDenied = writeAccessDeniedResponse(user);
+  if (writeDenied) return writeDenied;
 
   const { id: eventId } = await params;
 
@@ -259,6 +267,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     );
   }
 
+  const shouldSyncGeneralAdmission =
+    feePatch != null || d.registrationFeeDollars !== undefined;
+
   const updated = await prisma.event.update({
     where: { id: eventId },
     data: {
@@ -315,6 +326,14 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         : {}),
     },
   });
+
+  if (shouldSyncGeneralAdmission) {
+    await syncGeneralAdmissionTier(
+      eventId,
+      updated.registrationFeeType,
+      updated.registrationFeeDollars,
+    );
+  }
 
   return NextResponse.json({
     id: updated.id,

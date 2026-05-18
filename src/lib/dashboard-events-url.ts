@@ -8,7 +8,7 @@ export function getEventsPageSize() {
 
 export function parseEventsTab(tab: string | string[] | undefined): EventsTab {
   const raw = Array.isArray(tab) ? tab[0] : tab;
-  return raw === "participating" ? "participating" : "managing";
+  return raw === "managing" ? "managing" : "participating";
 }
 
 export function parseEventsPage(page: string | string[] | undefined): number {
@@ -18,10 +18,26 @@ export function parseEventsPage(page: string | string[] | undefined): number {
   return n;
 }
 
+export function parseShowPastEvents(
+  past: string | string[] | undefined,
+): boolean {
+  const raw = Array.isArray(past) ? past[0] : past;
+  return raw === "1" || raw === "true";
+}
+
+export type DashboardEventsLinkOptions = {
+  showPast?: boolean;
+};
+
 /** Stable dashboard events URLs (omit defaults for cleaner links). */
-export function hrefDashboardEvents(tab: EventsTab, page: number): string {
+export function hrefDashboardEvents(
+  tab: EventsTab,
+  page: number,
+  options?: DashboardEventsLinkOptions,
+): string {
   const params = new URLSearchParams();
-  if (tab === "participating") params.set("tab", "participating");
+  if (tab === "managing") params.set("tab", "managing");
+  if (tab === "participating" && options?.showPast) params.set("past", "1");
   if (page > 1) params.set("page", String(page));
   const q = params.toString();
   return `/dashboard/events${q ? `?${q}` : ""}`;

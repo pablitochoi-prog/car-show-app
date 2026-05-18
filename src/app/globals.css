@@ -157,3 +157,448 @@
     @apply mx-auto flex w-full max-w-7xl shrink-0 px-4 sm:px-6 lg:px-8;
   }
 }
+
+/*
+ * Dash cards: US Letter 8.5" × 11", landscape (one card per sheet).
+ * Preview on screen uses the same aspect ratio; print uses explicit inch sizing.
+ */
+:root {
+  --dash-card-paper-width: 11in;
+  --dash-card-paper-height: 8.5in;
+  --dash-card-print-margin: 0.2in;
+  --dash-card-printable-width: calc(
+    var(--dash-card-paper-width) - 2 * var(--dash-card-print-margin)
+  );
+  --dash-card-printable-height: calc(
+    var(--dash-card-paper-height) - 2 * var(--dash-card-print-margin)
+  );
+  --dash-card-photo-height: 3in;
+  --dash-card-sidebar-width: 3.5in;
+  --dash-card-sponsor-logo-height: 1.75in;
+}
+
+/* Screen preview: letter landscape proportions */
+.dash-card-print-page {
+  width: min(100%, var(--dash-card-paper-width));
+  max-width: var(--dash-card-paper-width);
+  margin-left: auto;
+  margin-right: auto;
+  aspect-ratio: 11 / 8.5;
+  background: #fff;
+}
+
+.dash-card-print-page .dash-card-sheet {
+  height: 100%;
+  min-height: 100%;
+}
+
+.dash-card-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.dash-card-header-main {
+  min-width: 0;
+}
+
+.dash-card-header-meta {
+  text-align: right;
+}
+
+.dash-card-header-title {
+  font-size: max(1rem, 16pt);
+  font-weight: 800;
+}
+
+.dash-card-header-meta,
+.dash-card-header-host {
+  font-size: max(0.875rem, 14pt);
+}
+
+.dash-card-ymm-band {
+  flex-shrink: 0;
+}
+
+.dash-card-ymm-band .dash-card-ymm {
+  font-size: 36pt !important;
+  line-height: 1.06;
+  font-weight: 800;
+}
+
+.dash-card-ymm-band .dash-card-nickname-row {
+  font-size: 16pt !important;
+  line-height: 1.15;
+  font-style: italic;
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+.dash-card-body-grid {
+  display: grid;
+  grid-template-columns: minmax(11.88rem, 40%) minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "sidebar photo photo"
+    "sidebar story vote";
+  align-items: stretch;
+}
+
+.dash-card-col-sidebar {
+  grid-area: sidebar;
+}
+
+.dash-card-photo-span {
+  grid-area: photo;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  min-width: 0;
+}
+
+.dash-card-photo-span .dash-card-vehicle-photo {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: var(--dash-card-photo-height);
+  height: var(--dash-card-photo-height);
+  aspect-ratio: auto;
+}
+
+.dash-card-col-story {
+  grid-area: story;
+}
+
+.dash-card-col-vote {
+  grid-area: vote;
+}
+
+.dash-card-print-page .dash-card-body-grid {
+  grid-template-columns: var(--dash-card-sidebar-width) minmax(0, 1.2fr) minmax(0, 0.8fr);
+}
+
+.dash-card-sponsor-logo {
+  min-height: var(--dash-card-sponsor-logo-height);
+  height: var(--dash-card-sponsor-logo-height);
+}
+
+.dash-card-sponsor-logo .dash-card-sponsor-logo-img {
+  height: var(--dash-card-sponsor-logo-height);
+  width: 100%;
+  max-width: 100%;
+}
+
+.dash-card-vehicle-photo {
+  flex-shrink: 0;
+}
+
+.dash-card-print-page .dash-card-col-sidebar .dash-card-vehicle-id-value {
+  font-size: clamp(2rem, 5.5vw, 2.75rem);
+}
+
+.dash-card-print-page .dash-card-sidebar-value {
+  font-size: clamp(1.05rem, 2.8vw, 1.35rem);
+}
+
+.dash-card-print-page .dash-card-col-sidebar .dash-card-class-value,
+.dash-card-print-page .dash-card-col-sidebar .dash-card-owner-name,
+.dash-card-print-page .dash-card-col-sidebar .dash-card-owner-city {
+  font-size: max(1.15rem, 24pt);
+  font-weight: 700;
+}
+
+/* Category labels: 12–14pt at print */
+.dash-card-print-page .dash-card-field-label {
+  font-size: clamp(0.75rem, 1.8vw, 0.875rem);
+  line-height: 1.2;
+}
+
+/* Vehicle / owner data: minimum 14–16pt at print */
+.dash-card-print-page .dash-card-field-value {
+  font-size: clamp(0.875rem, 2.2vw, 1rem);
+  line-height: 1.2;
+}
+
+.dash-card-print-page .dash-card-vote {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+}
+
+.dash-card-print-page .dash-card-vehicle-id-value {
+  font-size: clamp(0.875rem, 2.2vw, 1rem);
+  line-height: 1.15;
+}
+
+.dash-card-print-page .dash-card-class-value {
+  font-weight: 700;
+}
+
+/*
+ * Note: `@page` applies to any print from this app; scope or remove if other
+ * routes need portrait Letter.
+ */
+@media print {
+  @page {
+    size: letter landscape;
+    margin: var(--dash-card-print-margin);
+  }
+
+  html,
+  body {
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  main,
+  .page-shell {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    background: #fff !important;
+  }
+
+  .dash-card-print-page {
+    box-sizing: border-box;
+    width: var(--dash-card-printable-width) !important;
+    height: var(--dash-card-printable-height) !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    aspect-ratio: auto;
+    overflow: hidden;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .dash-card-print-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .dash-card-sheet {
+    box-sizing: border-box;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-width: none !important;
+    max-height: 100% !important;
+    margin: 0 !important;
+    padding: 0.12in 0.15in !important;
+    overflow: hidden !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .dash-card-content {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .dash-card-ymm-band {
+    padding: 0.06in 0.1in !important;
+    text-align: center !important;
+  }
+
+  .dash-card-body-grid {
+    display: grid !important;
+    grid-template-columns: var(--dash-card-sidebar-width) minmax(0, 1.2fr) minmax(0, 0.8fr) !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    grid-template-areas:
+      "sidebar photo photo"
+      "sidebar story vote" !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .dash-card-col-sidebar {
+    grid-area: sidebar !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    padding: 0.07in !important;
+    border-right: 1px solid #e2e8f0 !important;
+  }
+
+  .dash-card-photo-span {
+    grid-area: photo !important;
+    padding: 0.06in 0.08in !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+  }
+
+  .dash-card-photo-span .dash-card-vehicle-photo {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 100% !important;
+    height: var(--dash-card-photo-height) !important;
+    min-height: var(--dash-card-photo-height) !important;
+    max-height: var(--dash-card-photo-height) !important;
+    aspect-ratio: auto !important;
+    flex-shrink: 0 !important;
+  }
+
+  .dash-card-col-story {
+    grid-area: story !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    padding: 0.07in !important;
+    border-right: 1px solid #e2e8f0 !important;
+  }
+
+  .dash-card-col-vote {
+    grid-area: vote !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    padding: 0.07in !important;
+    padding-top: 0 !important;
+  }
+
+  .dash-card-vote {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
+  }
+
+  .dash-card-col-sidebar .dash-card-vehicle-id-value {
+    font-size: 42pt !important;
+    line-height: 1 !important;
+    letter-spacing: 0.03em !important;
+  }
+
+  .dash-card-sidebar-value {
+    font-size: 20pt !important;
+    line-height: 1.2 !important;
+    font-weight: 700 !important;
+  }
+
+  .dash-card-col-sidebar .dash-card-class-value,
+  .dash-card-col-sidebar .dash-card-owner-name,
+  .dash-card-col-sidebar .dash-card-owner-city {
+    font-size: 24pt !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+  }
+
+  .dash-card-story-label {
+    font-size: 13pt !important;
+    line-height: 1.2 !important;
+    font-weight: 700 !important;
+    color: #64748b !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  .dash-card-sponsor-logo {
+    min-height: var(--dash-card-sponsor-logo-height) !important;
+    height: var(--dash-card-sponsor-logo-height) !important;
+  }
+
+  .dash-card-sponsor-logo .dash-card-sponsor-logo-img {
+    height: var(--dash-card-sponsor-logo-height) !important;
+    min-height: var(--dash-card-sponsor-logo-height) !important;
+    max-height: var(--dash-card-sponsor-logo-height) !important;
+  }
+
+  .dash-card-header {
+    padding: 0.05in 0.08in !important;
+  }
+
+  .dash-card-footer {
+    padding: 0.03in 0.08in !important;
+  }
+
+  .dash-card-logo {
+    width: 0.55in !important;
+    height: 0.55in !important;
+  }
+
+  .dash-card-field-label {
+    font-size: 13pt !important;
+    line-height: 1.2 !important;
+  }
+
+  .dash-card-field-value {
+    font-size: 16pt !important;
+    line-height: 1.22 !important;
+  }
+
+  .dash-card-ymm-band .dash-card-ymm {
+    font-size: 36pt !important;
+    line-height: 1.06 !important;
+    font-weight: 800 !important;
+  }
+
+  .dash-card-ymm-band .dash-card-nickname-row {
+    font-size: 16pt !important;
+    line-height: 1.15 !important;
+    font-style: italic !important;
+    color: #b91c1c !important;
+    font-weight: 500 !important;
+    margin-top: 0.08in !important;
+    padding-top: 0.08in !important;
+  }
+
+  .dash-card-header-title {
+    font-size: 16pt !important;
+    line-height: 1.2 !important;
+    font-weight: 800 !important;
+  }
+
+  .dash-card-header-meta,
+  .dash-card-header-host {
+    font-size: 14pt !important;
+    line-height: 1.25 !important;
+  }
+
+  .dash-card-vote-text {
+    font-size: 12pt !important;
+    line-height: 1.3 !important;
+  }
+
+  .dash-card-vote-inner {
+    gap: 0.1in !important;
+    padding: 0.1in !important;
+  }
+
+  .dash-card-qr-wrap {
+    max-width: 1.65in !important;
+    width: 100% !important;
+  }
+
+  .dash-card-story {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+  }
+
+  .dash-card-story-text {
+    font-size: 14pt !important;
+    line-height: 1.32 !important;
+    overflow: hidden !important;
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 6 !important;
+    line-clamp: 6 !important;
+  }
+
+  .dash-card-mobile-meta {
+    display: none !important;
+  }
+}

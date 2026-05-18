@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { redirect } from "next/navigation";
@@ -7,6 +8,7 @@ import {
   getUserEventRoles as getUserEventRolesFromStaff,
   userHasOrganizerStaffRole,
 } from "@/lib/event-staff";
+import { isUserBanned } from "@/lib/user-access";
 
 export async function getSession() {
   const supabase = await createClient();
@@ -112,7 +114,7 @@ async function ensurePrismaUser(supabaseUser: SupabaseAuthUser) {
   }
 }
 
-export async function getCurrentUser() {
+async function getCurrentUserUncached() {
   const supabaseUser = await getSession();
   if (!supabaseUser) return null;
 
@@ -139,13 +141,22 @@ export async function getCurrentUser() {
   return ensurePrismaUser(supabaseUser);
 }
 
+/** Dedupes auth + DB work when layout and page both call this in one request. */
+export const getCurrentUser = cache(getCurrentUserUncached);
+
 export async function requireUser() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
   }
+  if (isUserBanned(user)) {
+    redirect("/banned");
+  }
   return user;
 }
+
+/** For mutation API routes — returns 403 JSON if suspended (admins exempt). */
+export { writeAccessDeniedResponse, canUserWrite } from "@/lib/user-access";
 
 /** All permission-granting default roles (slug-backed) for this event. */
 export async function getUserEventRoles(userId: string, eventId: string) {
@@ -227,6 +238,7 @@ export async function canManageEvent(
 const managedEventSelect = {
   id: true,
   name: true,
+  showNumber: true,
   orgId: true,
   status: true,
 } as const;
@@ -234,6 +246,7 @@ const managedEventSelect = {
 type ManagedEvent = {
   id: string;
   name: string;
+  showNumber: number;
   orgId: string | null;
   status: string;
 };

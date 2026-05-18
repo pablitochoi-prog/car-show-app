@@ -23,6 +23,9 @@ export default async function AdminLayout({
         <Link href="/admin/awards" className="font-medium hover:underline">
           Awards
         </Link>
+        <Link href="/admin/messages" className="font-medium hover:underline">
+          Messages
+        </Link>
         <span className="ml-auto">
           <Link
             href="/dashboard"
