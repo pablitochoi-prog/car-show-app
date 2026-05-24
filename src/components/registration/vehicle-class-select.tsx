@@ -32,9 +32,12 @@ export function VehicleClassSelect({
     [categories],
   );
 
+  // Always pass a defined value so the Select stays controlled (never undefined).
+  const selectedValue = value ?? "";
+
   return (
     <Select
-      value={value ?? undefined}
+      value={selectedValue}
       items={items}
       onValueChange={(val) => {
         if (val) onChange(val);

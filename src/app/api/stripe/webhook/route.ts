@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
 import { syncAccountStatus } from "@/lib/stripe-connect";
 import { fulfillRegistrationFromCheckoutSession } from "@/lib/stripe-fulfill-checkout";
+import { fulfillPlatformSetupFeeFromCheckoutSession } from "@/lib/stripe-fulfill-platform-setup-fee";
 import { isFullStripeChargeRefund } from "@/lib/stripe-refund-status";
 
 export const runtime = "nodejs";
@@ -80,6 +81,11 @@ export async function POST(request: Request) {
 async function handleCheckoutCompleted(event: Stripe.Event) {
   const session = event.data.object as Stripe.Checkout.Session;
   if (!session.id) return;
+
+  if (session.metadata?.checkoutType === "platform_setup_fee") {
+    await fulfillPlatformSetupFeeFromCheckoutSession(session.id);
+    return;
+  }
 
   await fulfillRegistrationFromCheckoutSession(session.id, {
     stripeEventId: event.id,

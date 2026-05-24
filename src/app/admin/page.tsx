@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
+import { listSpecialAwardsForAdmin } from "@/lib/sms/sms-voting-eligible-awards";
 import { AdminClubsSection } from "@/components/admin/admin-clubs-section";
 import { AdminEventsSection } from "@/components/admin/admin-events-section";
 import { AdminAccountsSection } from "@/components/admin/admin-accounts-section";
@@ -10,6 +11,9 @@ import { AdminAwardList } from "@/components/admin/admin-award-list";
 import { AdminStaffRolesSection } from "@/components/admin/admin-staff-roles-section";
 import { AdminTierTemplatesSection } from "@/components/admin/admin-tier-templates-section";
 import { AdminConvenienceFee } from "@/components/admin/admin-convenience-fee";
+import { AdminEventSetupFee } from "@/components/admin/admin-event-setup-fee";
+import { AdminPlatformStripe } from "@/components/admin/admin-platform-stripe";
+import { AdminPlatformSponsor } from "@/components/admin/admin-platform-sponsor";
 import {
   adminAccountListSelect,
   serializeAdminAccountRow,
@@ -17,15 +21,25 @@ import {
 
 export default async function AdminDashboardPage() {
   const [awards, , users] = await Promise.all([
-    prisma.specialAward.findMany({ orderBy: { sortOrder: "asc" } }),
-    prisma.globalSetting.upsert({
-      where: { key: "platform_fee" },
-      update: {},
-      create: {
-        key: "platform_fee",
-        value: { type: "FIXED", amountCents: 50, percent: null },
-      },
-    }),
+    listSpecialAwardsForAdmin(),
+    Promise.all([
+      prisma.globalSetting.upsert({
+        where: { key: "platform_fee" },
+        update: {},
+        create: {
+          key: "platform_fee",
+          value: { type: "FIXED", amountCents: 50, percent: null },
+        },
+      }),
+      prisma.globalSetting.upsert({
+        where: { key: "event_setup_fee" },
+        update: {},
+        create: {
+          key: "event_setup_fee",
+          value: { amountCents: 7500 },
+        },
+      }),
+    ]),
     prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       take: 100,
@@ -38,7 +52,8 @@ export default async function AdminDashboardPage() {
   const serializedAwards = awards.map((a) => ({
     id: a.id,
     name: a.name,
-    isSystem: a.isSystem,
+    isSystem: true,
+    smsVotingEligible: a.smsVotingEligible,
   }));
 
   return (
@@ -73,13 +88,35 @@ export default async function AdminDashboardPage() {
 
         <CollapsibleCard title="Global Settings" defaultOpen={false}>
           <div className="space-y-4">
-            <CollapsibleCard title="Convenience Fee" defaultOpen={false}>
-              <p className="mb-3 text-xs text-muted-foreground">
-                Platform convenience fee applied to every paid registration.
-                This fee is collected by CarShowScout as an application fee on
-                Stripe Connect payments.
-              </p>
-              <AdminConvenienceFee />
+            <CollapsibleCard title="Fee Options" defaultOpen={false}>
+              <div className="space-y-8">
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold">
+                    Platform Stripe (CarShowScout.com)
+                  </h3>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Site admin account that receives convenience fees and flat
+                    platform fee payments from clubs.
+                  </p>
+                  <AdminPlatformStripe />
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold">Convenience fee</h3>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Per-vehicle platform fee applied when an organizer chooses
+                    convenience fee billing for an event.
+                  </p>
+                  <AdminConvenienceFee />
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold">Event setup fee</h3>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Flat platform fee per event when an organizer chooses event
+                    setup fee billing instead of per-vehicle convenience fee.
+                  </p>
+                  <AdminEventSetupFee />
+                </div>
+              </div>
             </CollapsibleCard>
 
             <CollapsibleCard title="Registration Categories" defaultOpen={false}>
@@ -97,12 +134,19 @@ export default async function AdminDashboardPage() {
             <CollapsibleCard title="Award Categories" defaultOpen={false}>
               <p className="mb-3 text-xs text-muted-foreground">
                 Master list of award names available to all events. Drag to reorder.
+                People&apos;s Choice and Kid&apos;s Choice are always public vote
+                categories (SMS or QR). All other awards are judge graded unless
+                marked as public vote.
               </p>
               <AdminAwardList initialAwards={serializedAwards} />
             </CollapsibleCard>
 
             <CollapsibleCard title="Default Staff Roles" defaultOpen={false}>
               <AdminStaffRolesSection />
+            </CollapsibleCard>
+
+            <CollapsibleCard title="Platform Sponsor" defaultOpen={false}>
+              <AdminPlatformSponsor />
             </CollapsibleCard>
           </div>
         </CollapsibleCard>

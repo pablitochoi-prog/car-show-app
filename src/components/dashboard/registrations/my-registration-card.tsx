@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { EventCardIdentity } from "@/components/events/event-card-identity";
+import { AddToCalendarMenu } from "@/components/events/add-to-calendar-menu";
 import { CancelRegistrationButton } from "@/components/dashboard/events/cancel-registration-button";
 import { formatEventDateAndTimeRange } from "@/components/dashboard/events/format-event-meta";
 import { cn } from "@/lib/utils";
@@ -83,6 +84,7 @@ export function MyRegistrationCard({ card }: { card: MyRegistrationCard }) {
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+          <AddToCalendarMenu links={card.calendarLinks} size="sm" />
           <Link
             href={`/events/${card.eventId}`}
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}

@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
-import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,11 +33,21 @@ export function AddVehicleForm({
   const [nickname, setNickname] = useState("");
   const [vin, setVin] = useState("");
   const [notes, setNotes] = useState("");
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [photoUploading, setPhotoUploading] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!pendingPhoto) {
+      setPhotoPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(pendingPhoto);
+    setPhotoPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingPhoto]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,22 +65,23 @@ export function AddVehicleForm({
 
       const res = await fetch("/api/vehicles", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          year: yearNum,
-          make: lookup.make.trim(),
-          model: lookup.model.trim(),
-          trim: lookup.trim.trim() || undefined,
-          nickname: nickname.trim() || undefined,
-          vin: vin.trim() || undefined,
-          photoUrl: photoUrl ?? undefined,
-          notes: notes.trim() ? notes.trim() : undefined,
-        }),
+        body: (() => {
+          const fd = new FormData();
+          fd.append("year", String(yearNum));
+          fd.append("make", lookup.make.trim());
+          fd.append("model", lookup.model.trim());
+          if (lookup.trim.trim()) fd.append("trim", lookup.trim.trim());
+          if (nickname.trim()) fd.append("nickname", nickname.trim());
+          if (vin.trim()) fd.append("vin", vin.trim());
+          if (notes.trim()) fd.append("notes", notes.trim());
+          if (pendingPhoto) fd.append("photo", pendingPhoto);
+          return fd;
+        })(),
       });
 
       const raw = await res.text();
-      let data: { error?: string; id?: string } = {};
+      let data: { error?: string; id?: string; photoError?: string } = {};
       try {
         data = raw.trim()
           ? (JSON.parse(raw) as { error?: string; id?: string })
@@ -88,8 +98,17 @@ export function AddVehicleForm({
         return;
       }
 
+      if (data.photoError) {
+        setError(
+          `Vehicle saved, but photo upload failed: ${data.photoError}. Use Edit to add a photo.`,
+        );
+      }
+
       const saved = data as SavedVehicle;
-      if (returnTo && saved.id) {
+
+      if (data.photoError) {
+        // Vehicle exists; still refresh the list below.
+      } else if (returnTo && saved.id) {
         const dest = `${returnTo}${returnTo.includes("?") ? "&" : "?"}addedVehicle=${encodeURIComponent(saved.id)}`;
         router.push(dest);
         return;
@@ -99,7 +118,7 @@ export function AddVehicleForm({
       setNickname("");
       setVin("");
       setNotes("");
-      setPhotoUrl(null);
+      setPendingPhoto(null);
       router.refresh();
       onSaved?.();
     } catch (err) {
@@ -112,43 +131,22 @@ export function AddVehicleForm({
     }
   }
 
-  async function onVehiclePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  function onVehiclePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
 
-    setPhotoUploading(true);
     setError("");
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/vehicles/upload", {
-        method: "POST",
-        body: fd,
-        credentials: "same-origin",
-      });
-      const raw = await res.text();
-      let data = {} as { error?: string; url?: string };
-      try {
-        data = raw.trim()
-          ? (JSON.parse(raw) as { error?: string; url?: string })
-          : {};
-      } catch {
-        setError(
-          `Upload failed (HTTP ${res.status}). Check that Supabase storage is configured.`,
-        );
-        return;
-      }
-      if (!res.ok) {
-        setError(data.error ?? "Could not upload photo");
-        return;
-      }
-      if (data.url) setPhotoUrl(data.url);
-    } catch {
-      setError("Could not upload photo");
-    } finally {
-      setPhotoUploading(false);
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      setError("Use a JPG, PNG, or WebP image.");
+      return;
     }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("File is too large (max 10MB).");
+      return;
+    }
+    setPendingPhoto(file);
   }
 
   return (
@@ -220,13 +218,12 @@ export function AddVehicleForm({
       {/* Photo upload */}
       <div className="flex flex-wrap items-start gap-4">
         <div className="relative h-28 w-40 shrink-0 overflow-hidden rounded-lg border bg-muted">
-          {photoUrl ? (
-            <Image
-              src={photoUrl}
+          {photoPreviewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={photoPreviewUrl}
               alt=""
-              fill
-              className="object-cover"
-              sizes="160px"
+              className="h-full w-full object-cover"
             />
           ) : (
             <div className="flex h-full items-center justify-center px-2 text-center text-xs text-muted-foreground">
@@ -240,7 +237,7 @@ export function AddVehicleForm({
             ref={fileInputRef}
             id="vehicle-photo-input"
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/jpeg,image/png,image/webp"
             className="sr-only"
             onChange={onVehiclePhotoSelected}
           />
@@ -249,23 +246,18 @@ export function AddVehicleForm({
               type="button"
               variant="outline"
               size="sm"
-              disabled={photoUploading}
               onClick={() => fileInputRef.current?.click()}
             >
-              {photoUploading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="mr-2 h-4 w-4" />
-              )}
-              {photoUploading ? "Uploading…" : "Upload photo"}
+              <Upload className="mr-2 h-4 w-4" />
+              Choose photo
             </Button>
-            {photoUrl ? (
+            {pendingPhoto ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="text-destructive"
-                onClick={() => setPhotoUrl(null)}
+                onClick={() => setPendingPhoto(null)}
               >
                 <X className="mr-1 h-4 w-4" />
                 Remove
@@ -273,7 +265,7 @@ export function AddVehicleForm({
             ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
-            JPG, PNG, WebP, or GIF · max 8MB
+            JPG, PNG, or WebP · max 10MB · stored privately in your garage
           </p>
         </div>
       </div>

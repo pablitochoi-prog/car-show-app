@@ -1,11 +1,21 @@
 import { prisma } from "@/lib/db";
 import { buildDashCardEventModel } from "@/lib/dash-card-event";
+import { ensureVehicleQrsForEntryCodes } from "@/lib/ensure-dash-card-vehicle-qrs";
 import {
   formatOwnerCityState,
   formatRegistrationMailingAddress,
 } from "@/lib/registration-address";
 import { resolveRegistrationContact } from "@/lib/registration-contact";
+import { getPlatformSponsor } from "@/lib/platform-sponsor";
 import type { DashCardModel } from "@/lib/dash-card-types";
+import {
+  guestVehicleStaffPhotoViewPath,
+  registrationRegistrantStaffPhotoViewPath,
+  registrationVehicleStaffPhotoViewPath,
+  syncAllRegistrationStaffPhotos,
+} from "@/lib/event-registration-staff-photos";
+import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
+import { getSharedSmsNumberDisplay, buildDashCardSmsLine } from "@/lib/sms/shared-sms-number";
 
 type GuestVehicleJson = {
   year?: number;
@@ -17,6 +27,7 @@ type GuestVehicleJson = {
   eventCategoryId?: string | null;
   publicVehicleId?: string;
   nickname?: string | null;
+  staffPhotoObjectKey?: string | null;
 };
 
 function appOrigin() {
@@ -25,6 +36,26 @@ function appOrigin() {
 
 function defaultSmsShortCode() {
   return process.env.NEXT_PUBLIC_SMS_VOTE_SHORT_CODE?.trim() || "22333";
+}
+
+function buildVotingBlock(params: {
+  vehicleId: string;
+  smsNumber: string;
+  votingHint: string;
+}): DashCardModel["voting"] {
+  const { vehicleId, smsNumber, votingHint } = params;
+  const displayNumber = smsNumber;
+  return {
+    smsShortCode: displayNumber,
+    vehicleIdForSms: vehicleId,
+    smsInstructionLine: vehicleId
+      ? buildDashCardSmsLine(vehicleId, displayNumber)
+      : "",
+    ratesDisclaimer: "Standard message rates apply.",
+    qrSectionTitle: "Scan to Vote or Judge",
+    qrDestinationHint: votingHint,
+    qrImageUrl: null,
+  };
 }
 
 function categoryLabelFromMap(
@@ -90,6 +121,36 @@ function ownerMailingAddress(reg: {
   return formatRegistrationMailingAddress(reg.user);
 }
 
+function resolveVehiclePhotoUrl(
+  eventId: string,
+  registrationId: string,
+  registrationVehicleId: string,
+  eventPhotoObjectKey: string | null,
+  legacyPhotoUrl: string | null | undefined,
+): string | null {
+  if (eventPhotoObjectKey) {
+    return registrationVehicleStaffPhotoViewPath(
+      eventId,
+      registrationId,
+      registrationVehicleId,
+    );
+  }
+  const url = legacyPhotoUrl?.trim();
+  if (url?.startsWith("http://") || url?.startsWith("https://")) {
+    return url;
+  }
+  return null;
+}
+
+function resolveRegistrantPhotoUrl(
+  eventId: string,
+  registrationId: string,
+  registrantPhotoObjectKey: string | null,
+): string | null {
+  if (!registrantPhotoObjectKey) return null;
+  return registrationRegistrantStaffPhotoViewPath(eventId, registrationId);
+}
+
 function parseGuestVehicles(raw: unknown): GuestVehicleJson[] {
   if (Array.isArray(raw)) {
     return raw.filter(
@@ -112,14 +173,16 @@ function parseGuestVehicles(raw: unknown): GuestVehicleJson[] {
 
 function placeholderCardForRegistration(
   eventBlock: DashCardModel["event"],
+  siteSponsor: DashCardModel["siteSponsor"],
   ownerName: string,
   ownerCityState: string,
   eventId: string,
-  smsShort: string,
+  smsNumber: string,
   origin: string,
 ): DashCardModel {
   return {
     event: eventBlock,
+    siteSponsor,
     vehicle: {
       publicVehicleId: null,
       year: 0,
@@ -136,14 +199,11 @@ function placeholderCardForRegistration(
     },
     vehicleStory:
       "No vehicles on this registration yet. Add vehicles before printing dash cards.",
-    voting: {
-      smsShortCode: smsShort,
-      vehicleIdForSms: "",
-      ratesDisclaimer: "Standard message rates may apply.",
-      qrSectionTitle: "Scan to Vote or Judge",
-      qrDestinationHint: `${origin.replace(/\/$/, "")}/events/${eventId}`,
-      qrImageUrl: null,
-    },
+    voting: buildVotingBlock({
+      vehicleId: "",
+      smsNumber,
+      votingHint: `${origin.replace(/\/$/, "")}/events/${eventId}`,
+    }),
   };
 }
 
@@ -159,7 +219,18 @@ export async function loadDashCardModelsForRegistrations(
   const uniqueRegIds = [...new Set(registrationIds.filter(Boolean))];
   if (uniqueRegIds.length === 0) return [];
 
-  const [event, categoryRows] = await Promise.all([
+  // Ensure staff snapshots exist for private garage / profile photos used on dash cards.
+  await Promise.all(
+    uniqueRegIds.map(async (registrationId) => {
+      try {
+        await syncAllRegistrationStaffPhotos(registrationId);
+      } catch (e) {
+        console.error("dash card staff photo sync:", registrationId, e);
+      }
+    }),
+  );
+
+  const [event, categoryRows, smsNumber, platformSponsor] = await Promise.all([
     prisma.event.findUnique({
       where: { id: eventId },
       select: {
@@ -174,6 +245,9 @@ export async function loadDashCardModelsForRegistrations(
         startTime: true,
         endTime: true,
         logoUrl: true,
+        sponsorLogoUrl: true,
+        sponsorWebsite: true,
+        sponsorName: true,
         organization: { select: { name: true, logo: true } },
       },
     }),
@@ -185,12 +259,19 @@ export async function loadDashCardModelsForRegistrations(
         category: { select: { name: true } },
       },
     }),
+    getSharedSmsNumberDisplay(),
+    getPlatformSponsor(),
   ]);
 
   if (!event) return [];
 
   const categoryLabelById = buildCategoryMap(categoryRows);
   const eventBlock = buildDashCardEventModel(event);
+  const siteSponsor = {
+    logoUrl: platformSponsor.logoUrl,
+    websiteUrl: platformSponsor.website,
+    name: platformSponsor.name,
+  };
 
   const registrations = await prisma.registration.findMany({
     where: { eventId, id: { in: uniqueRegIds } },
@@ -213,6 +294,7 @@ export async function loadDashCardModelsForRegistrations(
       registrantCity: true,
       registrantState: true,
       registrantZip: true,
+      registrantPhotoObjectKey: true,
       vehicles: {
         include: {
           vehicle: true,
@@ -240,7 +322,7 @@ export async function loadDashCardModelsForRegistrations(
   });
 
   const regById = new Map(registrations.map((r) => [r.id, r]));
-  const smsShort = defaultSmsShortCode();
+  const displaySmsNumber = smsNumber || defaultSmsShortCode();
   const origin = appOrigin();
   /** Stable ordering follows the checkbox / URL order. */
   const ordered = uniqueRegIds
@@ -253,6 +335,11 @@ export async function loadDashCardModelsForRegistrations(
     const resolved = resolveRegistrationContact(reg);
     const ownerName = resolved.name;
     const ownerCityState = ownerCityStateFromRegistration(reg);
+    const ownerPhotoUrl = resolveRegistrantPhotoUrl(
+      eventId,
+      reg.id,
+      reg.registrantPhotoObjectKey,
+    );
 
     for (const rv of reg.vehicles) {
       const v = rv.vehicle;
@@ -263,11 +350,20 @@ export async function loadDashCardModelsForRegistrations(
 
       const pid = rv.publicVehicleId;
       const votingHint = pid
-        ? `${origin.replace(/\/$/, "")}/events/${eventId}/vote/${encodeURIComponent(pid)}`
+        ? vehicleSmartRouteUrl(pid)
         : `${origin.replace(/\/$/, "")}/events/${eventId}`;
+
+      const vehiclePhotoUrl = resolveVehiclePhotoUrl(
+        eventId,
+        reg.id,
+        rv.id,
+        rv.eventPhotoObjectKey,
+        v.photoUrl,
+      );
 
       cards.push({
         event: eventBlock,
+        siteSponsor,
         vehicle: {
           publicVehicleId: pid,
           year: v.year,
@@ -276,24 +372,22 @@ export async function loadDashCardModelsForRegistrations(
           trim: v.trim,
           nickname: v.nickname,
           classLabel,
-          vehiclePhotoUrl: v.photoUrl,
+          vehiclePhotoUrl,
         },
         owner: {
           name: ownerName,
           cityState: ownerCityState,
+          ownerPhotoUrl,
         },
         vehicleStory:
           (v.notes?.trim() || "").length > 0
             ? v.notes!.trim()
             : "Vehicle notes will appear here when the owner adds them to their garage entry.",
-        voting: {
-          smsShortCode: smsShort,
-          vehicleIdForSms: pid ?? "",
-          ratesDisclaimer: "Standard message rates may apply.",
-          qrSectionTitle: "Scan to Vote or Judge",
-          qrDestinationHint: votingHint,
-          qrImageUrl: null,
-        },
+        voting: buildVotingBlock({
+          vehicleId: pid ?? "",
+          smsNumber: displaySmsNumber,
+          votingHint,
+        }),
       });
     }
 
@@ -307,11 +401,19 @@ export async function loadDashCardModelsForRegistrations(
         );
         const pid = gv.publicVehicleId?.trim() || null;
         const votingHint = pid
-          ? `${origin.replace(/\/$/, "")}/events/${eventId}/vote/${encodeURIComponent(pid)}`
+          ? vehicleSmartRouteUrl(pid)
           : `${origin.replace(/\/$/, "")}/events/${eventId}`;
+
+        const vehiclePhotoUrl =
+          gv.staffPhotoObjectKey && pid
+            ? guestVehicleStaffPhotoViewPath(eventId, reg.id, pid)
+            : gv.photoUrl?.trim().startsWith("http")
+              ? gv.photoUrl.trim()
+              : null;
 
         cards.push({
           event: eventBlock,
+          siteSponsor,
           vehicle: {
             publicVehicleId: pid,
             year: gv.year ?? 0,
@@ -320,24 +422,22 @@ export async function loadDashCardModelsForRegistrations(
             trim: gv.trim,
             nickname: gv.nickname?.trim() || null,
             classLabel,
-            vehiclePhotoUrl: gv.photoUrl ?? null,
+            vehiclePhotoUrl,
           },
           owner: {
             name: ownerName,
             cityState: ownerCityState,
+            ownerPhotoUrl: null,
           },
           vehicleStory:
             (gv.notes?.trim() || "").length > 0
               ? gv.notes!.trim()
               : "Vehicle details for this registration.",
-          voting: {
-            smsShortCode: smsShort,
-            vehicleIdForSms: pid ?? "",
-            ratesDisclaimer: "Standard message rates may apply.",
-            qrSectionTitle: "Scan to Vote or Judge",
-            qrDestinationHint: votingHint,
-            qrImageUrl: null,
-          },
+          voting: buildVotingBlock({
+            vehicleId: pid ?? "",
+            smsNumber: displaySmsNumber,
+            votingHint,
+          }),
         });
       }
 
@@ -345,14 +445,27 @@ export async function loadDashCardModelsForRegistrations(
         cards.push(
           placeholderCardForRegistration(
             eventBlock,
+            siteSponsor,
             ownerName,
             ownerCityState,
             eventId,
-            smsShort,
+            displaySmsNumber,
             origin,
           ),
         );
       }
+    }
+  }
+
+  const codes = cards
+    .map((c) => c.vehicle.publicVehicleId)
+    .filter((id): id is string => !!id?.trim());
+  const qrByCode = await ensureVehicleQrsForEntryCodes(codes);
+
+  for (const card of cards) {
+    const pid = card.vehicle.publicVehicleId;
+    if (pid && qrByCode.has(pid)) {
+      card.voting.qrImageUrl = qrByCode.get(pid)!;
     }
   }
 

@@ -13,6 +13,7 @@ import {
   calculateApplicationFee,
   type PlatformFeeConfig,
 } from "@/lib/platform-fee-config";
+import type { EventPlatformFeeMode } from "@/lib/event-platform-fee";
 
 export type RegistrationPaymentDisplay = {
   kind: "complete" | "due";
@@ -48,6 +49,9 @@ export function computeRegistrationTotalDueCents(input: {
   vehicleCount: number;
   platformFee: PlatformFeeConfig;
   suggestedDonationPerVehicleDollars?: number | null;
+  platformFeeMode?: EventPlatformFeeMode;
+  eventSetupFeeCents?: number;
+  platformSetupFeeCollected?: boolean;
 }): number {
   const {
     registrationFeeType,
@@ -55,24 +59,42 @@ export function computeRegistrationTotalDueCents(input: {
     vehicleCount,
     platformFee,
     suggestedDonationPerVehicleDollars,
+    platformFeeMode = "CONVENIENCE",
+    eventSetupFeeCents = 0,
+    platformSetupFeeCollected = false,
   } = input;
   const count = Math.max(vehicleCount, 1);
+  const perVehicleFeeConfig =
+    platformFeeMode === "FLAT_EVENT"
+      ? { type: "NONE" as const, amountCents: null, percent: null }
+      : platformFee;
 
+  let total = 0;
   if (registrationFeeType === "DONATION") {
     if (unitPriceCents <= 0) return 0;
     const { totalCents: platformTotal } = donationPlatformFeeTotalCents(
-      (unit) => calculateApplicationFee(platformFee, unit),
+      (unit) => calculateApplicationFee(perVehicleFeeConfig, unit),
       suggestedDonationPerVehicleDollars ?? 0,
       count,
     );
-    return unitPriceCents + platformTotal;
+    total = unitPriceCents + platformTotal;
+  } else {
+    total = computeRegistrationAmountDueCents(
+      unitPriceCents,
+      vehicleCount,
+      perVehicleFeeConfig,
+    );
   }
 
-  return computeRegistrationAmountDueCents(
-    unitPriceCents,
-    vehicleCount,
-    platformFee,
-  );
+  if (
+    platformFeeMode === "FLAT_EVENT" &&
+    !platformSetupFeeCollected &&
+    eventSetupFeeCents > 0
+  ) {
+    total += eventSetupFeeCents;
+  }
+
+  return total;
 }
 
 /** Per-vehicle charge (tier + convenience fee) for tiered paid events. */
@@ -89,9 +111,32 @@ export function derivePaidVehicleCount(input: {
   amountPaidCents: number;
   unitPriceCents: number;
   platformFee: PlatformFeeConfig;
+  platformFeeMode?: EventPlatformFeeMode;
+  eventSetupFeeCents?: number;
 }): number {
-  const { amountPaidCents, unitPriceCents, platformFee } = input;
+  const {
+    amountPaidCents,
+    unitPriceCents,
+    platformFee,
+    platformFeeMode = "CONVENIENCE",
+    eventSetupFeeCents = 0,
+  } = input;
   if (amountPaidCents <= 0) return 0;
+
+  if (platformFeeMode === "FLAT_EVENT" && unitPriceCents > 0) {
+    const setupFee = eventSetupFeeCents;
+    if (setupFee > 0 && amountPaidCents >= setupFee + unitPriceCents) {
+      const afterSetup = amountPaidCents - setupFee;
+      if (afterSetup % unitPriceCents === 0) {
+        return Math.max(1, afterSetup / unitPriceCents);
+      }
+    }
+    if (amountPaidCents % unitPriceCents === 0) {
+      return Math.max(1, amountPaidCents / unitPriceCents);
+    }
+    return Math.max(1, Math.round(amountPaidCents / unitPriceCents));
+  }
+
   const perVehicle = perVehicleRegistrationChargeCents(
     unitPriceCents,
     platformFee,
@@ -254,6 +299,9 @@ export function getRegistrationAmounts(input: {
   refundedCents?: number | null;
   platformFee: PlatformFeeConfig;
   suggestedDonationPerVehicleDollars?: number | null;
+  platformFeeMode?: EventPlatformFeeMode;
+  eventSetupFeeCents?: number;
+  platformSetupFeeCollected?: boolean;
 }): RegistrationAmounts {
   const {
     registrationStatus,
@@ -268,6 +316,11 @@ export function getRegistrationAmounts(input: {
   }
 
   let donationUnitCents = input.unitPriceCents;
+  const perVehicleFeeConfig =
+    input.platformFeeMode === "FLAT_EVENT"
+      ? { type: "NONE" as const, amountCents: null, percent: null }
+      : input.platformFee;
+
   if (
     input.registrationFeeType === "DONATION" &&
     paymentStatus === "PAID" &&
@@ -278,7 +331,7 @@ export function getRegistrationAmounts(input: {
       platformFeeCentsPaid: platformFeeCents,
       vehicleCount: input.vehicleCount,
       perVehiclePlatformFeeFn: (unit) =>
-        calculateApplicationFee(input.platformFee, unit),
+        calculateApplicationFee(perVehicleFeeConfig, unit),
       suggestedDonationPerVehicleDollars:
         input.suggestedDonationPerVehicleDollars,
     });
@@ -291,8 +344,14 @@ export function getRegistrationAmounts(input: {
   }
 
   const totalObligationCents = computeRegistrationTotalDueCents({
-    ...input,
+    registrationFeeType: input.registrationFeeType,
     unitPriceCents: donationUnitCents,
+    vehicleCount: input.vehicleCount,
+    platformFee: input.platformFee,
+    suggestedDonationPerVehicleDollars: input.suggestedDonationPerVehicleDollars,
+    platformFeeMode: input.platformFeeMode,
+    eventSetupFeeCents: input.eventSetupFeeCents,
+    platformSetupFeeCollected: input.platformSetupFeeCollected,
   });
 
   let amountPaidCents = 0;

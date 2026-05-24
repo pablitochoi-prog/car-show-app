@@ -11,10 +11,12 @@ import {
 } from "@/components/ui/card";
 import { US_STATE_CODES } from "@/lib/us-state-codes";
 import { cn } from "@/lib/utils";
+import { ClubLogoUpload } from "@/components/dashboard/clubs/club-logo-upload";
 import {
   CAR_CLUB_INPUT_CLASS as inputClass,
   type CarClubFormValues,
 } from "./car-club-form-values";
+
 export function CarClubDetailsMeetingSection({
   v,
   patch,
@@ -28,7 +30,7 @@ export function CarClubDetailsMeetingSection({
         <CardHeader>
           <CardTitle>Club details</CardTitle>
           <CardDescription>
-            Official name, home state, and when the club started.
+            Official name, logo, home state, and when the club started.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -77,6 +79,13 @@ export function CarClubDetailsMeetingSection({
               />
             </div>
           </div>
+          <ClubLogoUpload
+            className="mt-4"
+            logoUrl={v.logo}
+            logoFileName={v.logoFileName}
+            clubName={v.name}
+            onChange={patch}
+          />
         </CardContent>
       </Card>
     </>

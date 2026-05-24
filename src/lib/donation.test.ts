@@ -13,6 +13,7 @@ describe("donation helpers", () => {
 
   it("formats suggested donation total from per-vehicle rate", () => {
     expect(suggestedDonationDollarsInput(25, 1)).toBe("25.00");
+    expect(suggestedDonationDollarsInput(25.5, 1)).toBe("25.50");
     expect(suggestedDonationDollarsInput(25, 2)).toBe("50.00");
     expect(suggestedDonationDollarsInput(null)).toBe("");
   });

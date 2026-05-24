@@ -4,6 +4,7 @@ import { guestRegisterSchema } from "@/lib/validation/registration";
 import { validateGuestRegistrationVehiclesAndClasses } from "@/lib/registration-vehicle-classes";
 import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { assignPublicIdsToGuestVehiclePayloads } from "@/lib/event-sms-vehicle-id";
+import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -127,6 +128,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
     });
   });
+
+  try {
+    await syncAllRegistrationStaffPhotos(registration.id);
+  } catch (e) {
+    console.error("POST register-guest staff photo snapshot:", e);
+  }
 
   const vehiclePublicIds = (
     Array.isArray(registration.guestVehicles)

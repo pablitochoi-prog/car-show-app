@@ -57,6 +57,11 @@ enum PlatformFeeType {
   PERCENT
 }
 
+enum EventPlatformFeeMode {
+  CONVENIENCE
+  FLAT_EVENT
+}
+
 enum PaymentStatus {
   PENDING
   PAID
@@ -69,6 +74,22 @@ enum MessageType {
   GENERAL
   REFUND_REQUEST
   SYSTEM
+}
+
+enum SmsProvider {
+  TWILIO
+  TELNYX
+}
+
+enum SmsNumberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SmsVoteSessionStatus {
+  PENDING_CATEGORY
+  COMPLETED
+  EXPIRED
 }
 
 model User {
@@ -104,7 +125,10 @@ model User {
   orgMemberships OrganizationMember[]
   eventStaffMembers EventStaffMember[]
   vehicles       Vehicle[]
+  vehiclePhotos  VehiclePhoto[]
   registrations  Registration[]
+  publicVotes    VehiclePublicVote[]
+  vehicleJudgeScores VehicleJudgeScore[] @relation("VehicleJudgeScores")
   sentMessages     Message[] @relation("MessageSender")
   receivedMessages Message[] @relation("MessageRecipient")
   messageStates    MessageUserState[]
@@ -216,11 +240,29 @@ model Event {
   lng          Float?
   startDate    DateTime
   endDate      DateTime?
+  /// Optional backup date if weather postpones the show (calendar day, UTC noon storage).
+  rainDate     DateTime?
   startTime    String?
   endTime      String?
   isMultiDay   Boolean     @default(false)
   flyerUrl     String?
   logoUrl      String?
+  sponsorName            String?
+  sponsorPrimaryContact  String?
+  sponsorStreet          String?
+  sponsorCity            String?
+  sponsorState           String?
+  sponsorZip             String?
+  sponsorPhone           String?
+  sponsorEmail           String?
+  sponsorWebsite         String?
+  sponsorLogoUrl         String?
+  charityName            String?
+  charityDescription     String?
+  charityWebsite         String?
+  charityEmail           String?
+  charityPhone           String?
+  charityLogoUrl         String?
   contactName      String?
   contactFirstName String?
   contactLastName  String?
@@ -233,15 +275,18 @@ model Event {
   status       EventStatus @default(DRAFT)
   listingScheduledAt     DateTime?
   registrationFeeType    RegistrationFeeType?
-  registrationFeeDollars Int?
+  registrationFeeDollars Float?
   dailyHours             Json?
   clonedFromId String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   // ── Payment settings ──
-  paymentEnabled         Boolean         @default(false)
-  platformFeeType        PlatformFeeType @default(NONE)
+  paymentEnabled              Boolean              @default(false)
+  platformFeeMode             EventPlatformFeeMode @default(CONVENIENCE)
+  /// When true, the one-time flat event setup fee has been collected.
+  platformSetupFeeCollected   Boolean              @default(false)
+  platformFeeType             PlatformFeeType      @default(NONE)
   platformFeeAmountCents Int?
   platformFeePercent     Float?
   currency               String          @default("usd")
@@ -255,8 +300,15 @@ model Event {
   registrations     Registration[]
   eventCategories   EventCategory[]
   eventAwards       EventAward[]
+  votingCategories  VotingCategory[]
+  smsVoteSessions   SmsVoteSession[]
+  smsVotes          SmsVote[]
   messages          Message[]
 
+  /// When true, attendees may vote via SMS using vehicle entry codes.
+  smsVotingEnabled    Boolean   @default(false)
+  smsVotingStartsAt   DateTime?
+  smsVotingEndsAt     DateTime?
   @@index([status, startDate])
   @@index([city, state])
   @@index([orgId])
@@ -283,6 +335,12 @@ model RegistrationTier {
   @@map("registration_tiers")
 }
 
+enum VehiclePhotoStatus {
+  PENDING
+  READY
+  FAILED
+}
+
 model Vehicle {
   id        String   @id @default(uuid())
   year      Int
@@ -304,9 +362,33 @@ model Vehicle {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   registrationRows RegistrationVehicle[]
+  photos           VehiclePhoto[]
 
   @@index([userId])
   @@map("vehicles")
+}
+
+model VehiclePhoto {
+  id               String             @id @default(uuid())
+  userId           String
+  vehicleId        String
+  bucket           String
+  objectKey        String             @unique
+  visibility       String             @default("private")
+  publicUrl        String?
+  originalFilename String
+  contentType      String
+  sizeBytes        Int
+  isPrimary        Boolean            @default(false)
+  status           VehiclePhotoStatus @default(PENDING)
+  createdAt        DateTime           @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, createdAt])
+  @@index([userId])
+  @@map("vehicle_photos")
 }
 
 model Registration {
@@ -357,8 +439,12 @@ model Registration {
   guestCity      String?
   guestState     String?
   guestZip       String?
+  /// Snapshot of registrant profile photo for event staff (private R2 key).
+  registrantPhotoObjectKey String?
 
   vehicles RegistrationVehicle[]
+  publicVotes  VehiclePublicVote[]
+  judgeScores  VehicleJudgeScore[]
 
   @@unique([eventId, userId])
   @@index([eventId])
@@ -372,7 +458,16 @@ model RegistrationVehicle {
   /// Legacy optional display order; numeric part also matches the 3-digit suffix of publicVehicleId when set.
   displayNumber Int?
   /// Full display id for this vehicle at this event, e.g. AXY-004 (prefix unique per event; number unique among event vehicles).
+  /// Also used as vehicleEntryCode for QR codes and SMS voting.
   publicVehicleId String? @unique
+  /// Public R2 object key for the dash-card QR SVG.
+  vehicleQrObjectKey String?
+  /// Public URL for the dash-card QR SVG.
+  vehicleQrUrl       String?
+  /// Optional lifecycle label for public voting (e.g. OPEN, CLOSED).
+  votingStatus       String?
+  /// Optional lifecycle label for judging (e.g. OPEN, CLOSED).
+  judgingStatus      String?
 
   registrationId String
   registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
@@ -383,8 +478,55 @@ model RegistrationVehicle {
   eventCategoryId String?
   eventCategory   EventCategory? @relation(fields: [eventCategoryId], references: [id], onDelete: SetNull)
 
+  eventPhotoObjectKey String?
+
+  publicVotes   VehiclePublicVote[]
+  judgeScores   VehicleJudgeScore[]
+
   @@unique([registrationId, vehicleId])
   @@map("registration_vehicles")
+}
+
+/// One public vote per visitor fingerprint per vehicle entry at an event.
+model VehiclePublicVote {
+  id                 String   @id @default(uuid())
+  eventId            String
+  vehicleEntryCode   String
+  registrationId     String
+  registrationVehicleId String?
+  voterKey           String
+  userId             String?
+  createdAt          DateTime @default(now())
+
+  registration         Registration          @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registrationVehicle  RegistrationVehicle?  @relation(fields: [registrationVehicleId], references: [id], onDelete: SetNull)
+  user                 User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, vehicleEntryCode, voterKey])
+  @@index([eventId, vehicleEntryCode])
+  @@map("vehicle_public_votes")
+}
+
+/// Judge score for a vehicle entry (one row per judge per entry).
+model VehicleJudgeScore {
+  id                    String   @id @default(uuid())
+  eventId               String
+  vehicleEntryCode      String
+  registrationId        String
+  registrationVehicleId String?
+  judgeUserId           String
+  score                 Int
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  registration         Registration          @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registrationVehicle  RegistrationVehicle?  @relation(fields: [registrationVehicleId], references: [id], onDelete: SetNull)
+  judge                User                  @relation("VehicleJudgeScores", fields: [judgeUserId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, vehicleEntryCode, judgeUserId])
+  @@index([eventId, vehicleEntryCode])
+  @@map("vehicle_judge_scores")
 }
 
 /// One membership row per user per event; roles are linked via EventStaffRoleLink.
@@ -494,11 +636,13 @@ model EventCategory {
 
 /// Master list of special awards (managed by Site Admin).
 model SpecialAward {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  isSystem  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
+  id                 String   @id @default(uuid())
+  name               String   @unique
+  isSystem           Boolean  @default(true)
+  sortOrder          Int      @default(0)
+  /// When true, events may offer this award for public SMS / QR voting.
+  smsVotingEligible  Boolean  @default(false)
+  createdAt          DateTime @default(now())
 
   eventAwards EventAward[]
 
@@ -577,4 +721,85 @@ model MessageUserState {
   @@unique([userId, messageId])
   @@index([userId])
   @@map("message_user_states")
+}
+
+/// Platform-shared inbound SMS number (all events use the same number).
+model SmsNumber {
+  id           String          @id @default(uuid())
+  provider     SmsProvider     @default(TWILIO)
+  phoneNumber  String          @unique
+  status       SmsNumberStatus @default(ACTIVE)
+  webhookUrl   String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@map("sms_numbers")
+}
+
+/// SMS voting award category for an event (max 3 active; up to 1 custom).
+model VotingCategory {
+  id               String   @id @default(uuid())
+  eventId          String
+  name             String
+  smsOptionNumber  Int
+  isActive         Boolean  @default(true)
+  isCustom         Boolean  @default(false)
+  votingStartsAt   DateTime?
+  votingEndsAt     DateTime?
+  maxVotesPerPhone Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  event    Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  smsVotes SmsVote[]
+
+  @@unique([eventId, smsOptionNumber])
+  @@index([eventId, isActive])
+  @@map("voting_categories")
+}
+
+/// Pending multi-category SMS vote (expires after 10 minutes).
+model SmsVoteSession {
+  id                    String               @id @default(uuid())
+  eventId               String
+  vehicleEntryCode      String
+  registrationId        String?
+  registrationVehicleId String?
+  fromPhoneHash         String
+  provider              SmsProvider
+  providerMessageId     String?
+  status                SmsVoteSessionStatus @default(PENDING_CATEGORY)
+  expiresAt             DateTime
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([fromPhoneHash, status, expiresAt])
+  @@index([eventId, fromPhoneHash])
+  @@map("sms_vote_sessions")
+}
+
+/// Recorded SMS vote (one per phone hash per category per event).
+model SmsVote {
+  id                    String      @id @default(uuid())
+  eventId               String
+  votingCategoryId      String
+  vehicleEntryCode      String
+  registrationId        String?
+  registrationVehicleId String?
+  fromPhoneHash         String
+  provider              SmsProvider
+  providerMessageId     String?
+  rawBody               String
+  normalizedVoteCode    String?
+  createdAt             DateTime    @default(now())
+
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  votingCategory VotingCategory @relation(fields: [votingCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, votingCategoryId, fromPhoneHash])
+  @@index([eventId, vehicleEntryCode])
+  @@index([provider, providerMessageId])
+  @@map("sms_votes")
 }

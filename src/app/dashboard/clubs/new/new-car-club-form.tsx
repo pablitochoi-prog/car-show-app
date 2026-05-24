@@ -63,6 +63,7 @@ function NewCarClubFormInner() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
 
   const patch = (p: Partial<CarClubFormValues>) =>
     setV((s) => ({ ...s, ...p }));
@@ -137,6 +138,7 @@ function NewCarClubFormInner() {
         }
       }
 
+      setCreatedOrgId(orgId);
       setSuccessOpen(true);
     } catch (e) {
       setError(
@@ -149,13 +151,25 @@ function NewCarClubFormInner() {
     }
   }
 
-  function handleSuccessOk() {
+  function handleSuccessOk(createdOrgId?: string) {
     setSuccessOpen(false);
-    const dest =
+    let dest =
       returnToParam ??
       (linkEventId
         ? `/organizer/events/${encodeURIComponent(linkEventId)}/edit`
         : "/dashboard/clubs");
+
+    if (createdOrgId && returnToParam) {
+      const isNewEventForm =
+        returnToParam === "/organizer/events/new" ||
+        returnToParam.startsWith("/organizer/events/new?");
+      if (isNewEventForm) {
+        const q = new URLSearchParams();
+        q.set("orgId", createdOrgId);
+        dest = `/organizer/events/new?${q.toString()}`;
+      }
+    }
+
     router.push(dest);
     router.refresh();
   }
@@ -237,7 +251,10 @@ function NewCarClubFormInner() {
               </p>
             </div>
             <div className="mt-6 flex justify-center">
-              <Button type="button" onClick={handleSuccessOk}>
+              <Button
+                type="button"
+                onClick={() => handleSuccessOk(createdOrgId ?? undefined)}
+              >
                 OK
               </Button>
             </div>

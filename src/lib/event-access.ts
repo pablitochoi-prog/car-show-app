@@ -13,6 +13,7 @@ export async function getEventForViewer(
         select: {
           id: true,
           name: true,
+          logo: true,
           stripeAccountId: true,
           stripeChargesEnabled: true,
         },

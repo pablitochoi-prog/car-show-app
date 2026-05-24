@@ -29,7 +29,9 @@ import {
 import { InlineLogin } from "./inline-login";
 import { EventInfoSidebar, type SidebarEvent } from "./event-info-sidebar";
 import { GuestRegistrationForm } from "./guest-registration-form";
-import { isTierOpen, formatMoney, formatDate, convenienceFeePerVehicle } from "./reg-utils";
+import { isTierOpen, formatMoney, formatDate } from "./reg-utils";
+import { totalPlatformFeeForCheckout, type EventPlatformFeeMode } from "@/lib/event-platform-fee";
+import { dollarsToCents } from "@/lib/money";
 import { RequiredFieldMark } from "./required-field-mark";
 import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
 import {
@@ -55,7 +57,6 @@ import {
 import type { ExistingRegistrationForEvent } from "@/lib/registration-for-event-types";
 import { resolvePayableTier } from "@/lib/tiers";
 import {
-  donationPlatformFeeTotalCents,
   formatDonationDollarsFromCents,
   parseDonationDollarsInput,
   resolveDonationUnitCents,
@@ -112,6 +113,9 @@ type EventRegistrationPageProps = {
     description: string | null;
     status: string;
     paymentEnabled: boolean;
+    platformFeeMode?: EventPlatformFeeMode;
+    platformSetupFeeCollected?: boolean;
+    eventSetupFeeCents?: number;
   };
   stripeConnectReady: boolean;
   stripeCheckoutAvailable: boolean;
@@ -451,22 +455,30 @@ function EventRegistrationPageContent({
       unitCents = donationCents ?? 0;
       tierLabel = "Donation amount";
     } else {
-      unitCents = (event.registrationFeeDollars ?? 0) * 100;
+      unitCents = dollarsToCents(event.registrationFeeDollars ?? 0);
       tierLabel = "Registration fee";
     }
     const regTotal = ft === "DONATION" ? unitCents : unitCents * totalVehicles;
-    let convFeeCents = convenienceFeePerVehicle(platformFee, unitCents);
-    let totalConvFee =
-      ft === "DONATION" ? 0 : convFeeCents * totalVehicles;
-    if (ft === "DONATION") {
-      const platform = donationPlatformFeeTotalCents(
-        (cents) => convenienceFeePerVehicle(platformFee, cents),
-        suggestedPerVehicleDollars,
-        totalVehicles,
-      );
-      convFeeCents = platform.perVehicleCents;
-      totalConvFee = platform.totalCents;
-    }
+    const feeUnitCents =
+      ft === "DONATION"
+        ? Math.round(suggestedPerVehicleDollars * 100)
+        : unitCents;
+    const platformFees = totalPlatformFeeForCheckout({
+      mode: event.platformFeeMode ?? "CONVENIENCE",
+      platformFee: platformFee ?? {
+        type: "NONE",
+        amountCents: null,
+        percent: null,
+      },
+      unitPriceCents: feeUnitCents,
+      vehicleCount: totalVehicles,
+      setupFeeCents: event.eventSetupFeeCents ?? 0,
+      setupFeeCollected: event.platformSetupFeeCollected ?? false,
+    });
+    const convFeeCents = platformFees.perVehiclePlatformFeeCents;
+    const totalConvFee =
+      platformFees.perVehiclePlatformFeeCents * Math.max(totalVehicles, 1);
+    const flatSetupFeeCents = platformFees.flatSetupFeeCents;
     let adjustedRegTotal = regTotal;
     const refundedCents = existingRegistration?.refundedCents ?? 0;
     if (
@@ -483,12 +495,13 @@ function EventRegistrationPageContent({
       adjustedRegTotal = adjusted.clubFeeCents;
     }
 
-    const grandTotal = adjustedRegTotal + totalConvFee;
+    const grandTotal = adjustedRegTotal + totalConvFee + flatSetupFeeCents;
     return {
       unitCents,
       regTotal: adjustedRegTotal,
       convFeeCents,
       totalConvFee,
+      flatSetupFeeCents,
       grandTotal,
       tierLabel,
     };
@@ -540,6 +553,9 @@ function EventRegistrationPageContent({
       percent: null,
     },
     suggestedDonationPerVehicleDollars: event.registrationFeeDollars,
+    platformFeeMode: event.platformFeeMode,
+    eventSetupFeeCents: event.eventSetupFeeCents,
+    platformSetupFeeCollected: event.platformSetupFeeCollected,
   });
 
   const paymentAlreadyComplete = registrationBalance.amountDueCents <= 0;
@@ -555,6 +571,8 @@ function EventRegistrationPageContent({
             amountCents: null,
             percent: null,
           },
+          platformFeeMode: event.platformFeeMode,
+          eventSetupFeeCents: event.eventSetupFeeCents,
         })
       : 0;
   const vehiclesIncreasedSincePayment =
@@ -835,6 +853,9 @@ function EventRegistrationPageContent({
                 feeDollars={event.registrationFeeDollars}
                 stripeConnectReady={stripeConnectReady}
                 platformFee={platformFee}
+                platformFeeMode={event.platformFeeMode}
+                platformSetupFeeCollected={event.platformSetupFeeCollected}
+                eventSetupFeeCents={event.eventSetupFeeCents}
                 eventCategories={registrationCategories}
               />
             </>
@@ -1041,7 +1062,7 @@ function EventRegistrationPageContent({
                             {editingRegisteredVehicles ? (
                               <th className="w-10 px-3 py-2" />
                             ) : null}
-                            <th className="w-16 px-3 py-2">Photo</th>
+                            <th className="w-[5.5rem] px-3 py-2">Photo</th>
                             <th className="px-3 py-2">Vehicle</th>
                             <th className="px-3 py-2">Vehicle nickname</th>
                             <th className="px-3 py-2">
@@ -1091,7 +1112,9 @@ function EventRegistrationPageContent({
                               <td className="px-3 py-2.5">
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
-                                    <Car className="size-4 shrink-0 text-muted-foreground" />
+                                    {!vehiclePhotos[v.id] ? (
+                                      <Car className="size-4 shrink-0 text-muted-foreground" />
+                                    ) : null}
                                     <span className="font-medium">
                                       {v.year} {v.make} {v.model}
                                     </span>
@@ -1294,7 +1317,9 @@ function EventRegistrationPageContent({
                     <ul className="space-y-1 text-sm">
                       {garageVehicles.map((v) => (
                         <li key={v.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <Car className="size-3.5 shrink-0 text-muted-foreground" />
+                          {!vehiclePhotos[v.id] ? (
+                            <Car className="size-3.5 shrink-0 text-muted-foreground" />
+                          ) : null}
                           <span>
                             {v.year} {v.make} {v.model}
                             {v.trim ? (
@@ -1352,15 +1377,25 @@ function EventRegistrationPageContent({
                           </span>
                         </div>
                       )}
+                      {feeSummary.flatSetupFeeCents > 0 && (
+                        <div className="flex items-center justify-between gap-2 border-t pt-2">
+                          <span>Platform setup fee:</span>
+                          <span className="text-right font-medium">
+                            {formatMoney(feeSummary.flatSetupFeeCents)}
+                          </span>
+                        </div>
+                      )}
                       {(feeSummary.regTotal > 0 ||
-                        feeSummary.totalConvFee > 0) && (
+                        feeSummary.totalConvFee > 0 ||
+                        feeSummary.flatSetupFeeCents > 0) && (
                         <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
                           <span>Total:</span>
                           <span>{formatMoney(feeSummary.grandTotal)}</span>
                         </div>
                       )}
                       {feeSummary.regTotal === 0 &&
-                        feeSummary.totalConvFee === 0 && (
+                        feeSummary.totalConvFee === 0 &&
+                        feeSummary.flatSetupFeeCents === 0 && (
                           <p className="text-muted-foreground">
                             Enter a donation amount to see your total. You can save
                             your registration without paying.
@@ -1374,11 +1409,16 @@ function EventRegistrationPageContent({
                       regTotal,
                       convFeeCents,
                       totalConvFee,
+                      flatSetupFeeCents,
                       grandTotal,
                       tierLabel,
                     } = feeSummary;
 
-                    if (regTotal === 0 && totalConvFee === 0) {
+                    if (
+                      regTotal === 0 &&
+                      totalConvFee === 0 &&
+                      flatSetupFeeCents === 0
+                    ) {
                       return (
                         <div className="flex items-center gap-2 text-sm">
                           <CreditCard className="size-4 text-muted-foreground" />
@@ -1409,7 +1449,17 @@ function EventRegistrationPageContent({
                             </span>
                           </div>
                         )}
-                        {(totalConvFee > 0 || regTotal > 0) && (
+                        {flatSetupFeeCents > 0 && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Platform setup fee:</span>
+                            <span className="text-right font-medium">
+                              {formatMoney(flatSetupFeeCents)}
+                            </span>
+                          </div>
+                        )}
+                        {(totalConvFee > 0 ||
+                          flatSetupFeeCents > 0 ||
+                          regTotal > 0) && (
                           <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
                             <span>Total:</span>
                             <span>{formatMoney(grandTotal)}</span>

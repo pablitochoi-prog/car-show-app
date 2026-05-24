@@ -194,7 +194,7 @@ export function StripeConnectCard({
             </span>
             , click{" "}
             <span className="font-medium text-foreground">
-              Return to CarShowScout
+              Return to CarShowScout.com
             </span>{" "}
             on that screen so we can sync your account.
           </p>

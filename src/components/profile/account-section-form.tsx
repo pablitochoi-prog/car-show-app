@@ -1,8 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Pencil } from "lucide-react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react";
+import { useSearchParams } from "next/navigation";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +18,7 @@ import {
 } from "@/components/profile/address-confirm-sheet";
 import type { MailingFields } from "@/lib/standardize-mailing-address";
 
-type ProfileInitial = {
+export type ProfileInitial = {
   firstName: string;
   lastName: string;
   birthYear: number | null;
@@ -24,346 +29,577 @@ type ProfileInitial = {
   zip: string;
 };
 
-export function AccountSectionForm({
-  email,
-  pendingEmail,
-  username,
-  initial,
-}: {
+export type AccountSectionFormHandle = {
+  save: () => Promise<boolean>;
+  cancel: () => void;
+};
+
+type Props = {
   email: string;
   pendingEmail?: string | null;
   username: string | null;
   initial: ProfileInitial;
-}) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [editing, setEditing] = useState(false);
-  const [firstName, setFirstName] = useState(initial.firstName);
-  const [lastName, setLastName] = useState(initial.lastName);
-  const [birthYear, setBirthYear] = useState(
-    initial.birthYear != null ? String(initial.birthYear) : ""
+  onDirtyChange?: (dirty: boolean) => void;
+  onSaveSuccess?: () => void;
+};
+
+function valuesMatchInitial(
+  initial: ProfileInitial,
+  values: {
+    firstName: string;
+    lastName: string;
+    birthYear: string;
+    phone: string;
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  },
+) {
+  const birthYearInitial =
+    initial.birthYear != null ? String(initial.birthYear) : "";
+  return (
+    values.firstName === initial.firstName &&
+    values.lastName === initial.lastName &&
+    values.birthYear === birthYearInitial &&
+    values.phone === initial.phone &&
+    values.street === initial.street &&
+    values.city === initial.city &&
+    values.state === initial.state &&
+    values.zip === initial.zip
   );
-  const [phone, setPhone] = useState(initial.phone);
-  const [street, setStreet] = useState(initial.street);
-  const [city, setCity] = useState(initial.city);
-  const [state, setState] = useState(initial.state);
-  const [zip, setZip] = useState(initial.zip);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [addressModal, setAddressModal] = useState<AddressConfirmModal>(null);
+}
 
-  /* Email change state */
-  const [editingEmail, setEditingEmail] = useState(false);
-  const [newEmail, setNewEmail] = useState("");
-  const [emailLoading, setEmailLoading] = useState(false);
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [emailSent, setEmailSent] = useState(false);
-  const emailJustUpdated = searchParams.get("email_updated") === "1";
+export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
+  function AccountSectionForm(
+    { email, pendingEmail, username, initial, onDirtyChange, onSaveSuccess },
+    ref,
+  ) {
+    const searchParams = useSearchParams();
+    const [firstName, setFirstName] = useState(initial.firstName);
+    const [lastName, setLastName] = useState(initial.lastName);
+    const [birthYear, setBirthYear] = useState(
+      initial.birthYear != null ? String(initial.birthYear) : "",
+    );
+    const [phone, setPhone] = useState(initial.phone);
+    const [street, setStreet] = useState(initial.street);
+    const [city, setCity] = useState(initial.city);
+    const [state, setState] = useState(initial.state);
+    const [zip, setZip] = useState(initial.zip);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [addressModal, setAddressModal] = useState<AddressConfirmModal>(null);
 
-  const cancelEditing = useCallback(() => {
-    setFirstName(initial.firstName);
-    setLastName(initial.lastName);
-    setBirthYear(initial.birthYear != null ? String(initial.birthYear) : "");
-    setPhone(initial.phone);
-    setStreet(initial.street);
-    setCity(initial.city);
-    setState(initial.state);
-    setZip(initial.zip);
-    setError(null);
-    setSaved(false);
-    setEditing(false);
-  }, [initial]);
+    const [editingEmail, setEditingEmail] = useState(false);
+    const [newEmail, setNewEmail] = useState("");
+    const [emailLoading, setEmailLoading] = useState(false);
+    const [emailError, setEmailError] = useState<string | null>(null);
+    const [emailSent, setEmailSent] = useState(false);
+    const emailJustUpdated = searchParams.get("email_updated") === "1";
 
-  async function handleEmailChange(e: React.FormEvent) {
-    e.preventDefault();
-    setEmailError(null);
-    setEmailSent(false);
+    const resetFields = useCallback(() => {
+      setFirstName(initial.firstName);
+      setLastName(initial.lastName);
+      setBirthYear(initial.birthYear != null ? String(initial.birthYear) : "");
+      setPhone(initial.phone);
+      setStreet(initial.street);
+      setCity(initial.city);
+      setState(initial.state);
+      setZip(initial.zip);
+      setError(null);
+    }, [initial]);
 
-    const trimmed = newEmail.trim();
-    if (!trimmed) {
-      setEmailError("Please enter your new email address.");
-      return;
-    }
-    if (trimmed.toLowerCase() === email.toLowerCase()) {
-      setEmailError("That is already your current email address.");
-      return;
-    }
+    useEffect(() => {
+      resetFields();
+    }, [resetFields]);
 
-    setEmailLoading(true);
-    try {
-      const res = await fetch("/api/me/change-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ email: trimmed }),
-      });
-      const data = (await res.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-      if (!res.ok) {
-        setEmailError(
-          typeof data?.error === "string"
-            ? data.error
-            : "Could not change email. Please try again."
-        );
+    useEffect(() => {
+      onDirtyChange?.(
+        !valuesMatchInitial(initial, {
+          firstName,
+          lastName,
+          birthYear,
+          phone,
+          street,
+          city,
+          state,
+          zip,
+        }),
+      );
+    }, [
+      birthYear,
+      city,
+      firstName,
+      initial,
+      lastName,
+      onDirtyChange,
+      phone,
+      state,
+      street,
+      zip,
+    ]);
+
+    async function handleEmailChange(e: React.FormEvent) {
+      e.preventDefault();
+      setEmailError(null);
+      setEmailSent(false);
+
+      const trimmed = newEmail.trim();
+      if (!trimmed) {
+        setEmailError("Please enter your new email address.");
         return;
       }
-      setEmailSent(true);
-    } catch {
-      setEmailError("Network error. Please try again.");
-    } finally {
-      setEmailLoading(false);
+      if (trimmed.toLowerCase() === email.toLowerCase()) {
+        setEmailError("That is already your current email address.");
+        return;
+      }
+
+      setEmailLoading(true);
+      try {
+        const res = await fetch("/api/me/change-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email: trimmed }),
+        });
+        const data = (await res.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!res.ok) {
+          setEmailError(
+            typeof data?.error === "string"
+              ? data.error
+              : "Could not change email. Please try again.",
+          );
+          return;
+        }
+        setEmailSent(true);
+      } catch {
+        setEmailError("Network error. Please try again.");
+      } finally {
+        setEmailLoading(false);
+      }
     }
-  }
 
-  function birthYearPayload(): number | undefined {
-    const t = birthYear.trim();
-    if (t === "") return undefined;
-    const y = Number.parseInt(t.replace(/\D/g, "").slice(0, 4), 10);
-    return Number.isFinite(y) ? y : undefined;
-  }
-
-  function buildPatchBody(addr: {
-    street: string;
-    city: string;
-    state: string;
-    zip: string;
-  }) {
-    return {
-      firstName,
-      lastName,
-      birthYear: birthYearPayload(),
-      phone: phone.trim() ? phone : undefined,
-      street: addr.street,
-      city: addr.city,
-      state: addr.state,
-      zip: addr.zip,
-    };
-  }
-
-  function readSaveError(raw: unknown, status: number): string {
-    if (typeof raw === "object" && raw !== null) {
-      const o = raw as Record<string, unknown>;
-      if (typeof o.error === "string" && o.error.trim()) return o.error;
-      if (typeof o.message === "string" && o.message.trim()) return o.message;
+    function birthYearPayload(): number | undefined {
+      const t = birthYear.trim();
+      if (t === "") return undefined;
+      const y = Number.parseInt(t.replace(/\D/g, "").slice(0, 4), 10);
+      return Number.isFinite(y) ? y : undefined;
     }
-    if (status === 401) return "You must be signed in.";
-    return `Could not save profile (${status}).`;
-  }
 
-  async function saveProfile(addr: {
-    street: string;
-    city: string;
-    state: string;
-    zip: string;
-  }) {
-    const res = await fetch("/api/me", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(buildPatchBody(addr)),
-    });
-    const raw: unknown = await res.json().catch(() => null);
-    if (!res.ok) {
-      setError(readSaveError(raw ?? {}, res.status));
-      return false;
+    function buildPatchBody(addr: {
+      street: string;
+      city: string;
+      state: string;
+      zip: string;
+    }) {
+      return {
+        firstName,
+        lastName,
+        birthYear: birthYearPayload(),
+        phone: phone.trim() ? phone : undefined,
+        street: addr.street,
+        city: addr.city,
+        state: addr.state,
+        zip: addr.zip,
+      };
     }
-    setStreet(addr.street);
-    setCity(addr.city);
-    setState(addr.state);
-    setZip(addr.zip);
-    setSaved(true);
-    setEditing(false);
-    router.refresh();
-    return true;
-  }
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSaved(false);
+    function readSaveError(raw: unknown, status: number): string {
+      if (typeof raw === "object" && raw !== null) {
+        const o = raw as Record<string, unknown>;
+        if (typeof o.error === "string" && o.error.trim()) return o.error;
+        if (typeof o.message === "string" && o.message.trim()) return o.message;
+      }
+      if (status === 401) return "You must be signed in.";
+      return `Could not save profile (${status}).`;
+    }
 
-    const addr: MailingFields = {
-      street: street.trim(),
-      city: city.trim(),
-      state: state.trim(),
-      zip: zip.trim(),
-    };
+    async function saveProfile(addr: {
+      street: string;
+      city: string;
+      state: string;
+      zip: string;
+    }) {
+      const res = await fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(buildPatchBody(addr)),
+      });
+      const raw: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(readSaveError(raw ?? {}, res.status));
+        return false;
+      }
+      setStreet(addr.street);
+      setCity(addr.city);
+      setState(addr.state);
+      setZip(addr.zip);
+      return true;
+    }
 
-    if (!addr.street) {
+    async function submitSave(): Promise<boolean> {
+      if (
+        valuesMatchInitial(initial, {
+          firstName,
+          lastName,
+          birthYear,
+          phone,
+          street,
+          city,
+          state,
+          zip,
+        })
+      ) {
+        return true;
+      }
+
+      setError(null);
+
+      const addr: MailingFields = {
+        street: street.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zip: zip.trim(),
+      };
+
+      if (!addr.street) {
+        setLoading(true);
+        try {
+          return await saveProfile({
+            street: "",
+            city: addr.city,
+            state: addr.state,
+            zip: addr.zip,
+          });
+        } finally {
+          setLoading(false);
+        }
+      }
+
       setLoading(true);
       try {
-        await saveProfile({
-          street: "",
-          city: addr.city,
-          state: addr.state,
-          zip: addr.zip,
+        const verifyRes = await fetch("/api/me/verify-address", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            street: addr.street,
+            city: addr.city,
+            state: addr.state,
+            zip: addr.zip,
+          }),
+        });
+        const v = (await verifyRes.json()) as {
+          status?: string;
+          suggested?: MailingFields;
+          input?: MailingFields;
+          formattedAddress?: string;
+        };
+
+        if (!verifyRes.ok) {
+          setError(
+            "Could not verify address. Try again or save without verifying.",
+          );
+          return false;
+        }
+
+        if (v.status === "suggestion" && v.suggested && v.input) {
+          setAddressModal({
+            kind: "suggestion",
+            input: v.input,
+            suggested: v.suggested,
+            formattedAddress: v.formattedAddress ?? "",
+          });
+          return false;
+        }
+
+        if (v.status === "not_found") {
+          setAddressModal({ kind: "not_found" });
+          return false;
+        }
+
+        return await saveProfile({
+          street,
+          city,
+          state,
+          zip,
         });
       } finally {
         setLoading(false);
       }
-      return;
     }
 
-    setLoading(true);
-    try {
-      const verifyRes = await fetch("/api/me/verify-address", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          street: addr.street,
-          city: addr.city,
-          state: addr.state,
-          zip: addr.zip,
-        }),
-      });
-      const v = (await verifyRes.json()) as {
-        status?: string;
-        suggested?: MailingFields;
-        input?: MailingFields;
-        formattedAddress?: string;
-      };
-
-      if (!verifyRes.ok) {
-        setError("Could not verify address. Try again or save without verifying.");
-        return;
-      }
-
-      if (v.status === "suggestion" && v.suggested && v.input) {
-        setAddressModal({
-          kind: "suggestion",
-          input: v.input,
-          suggested: v.suggested,
-          formattedAddress: v.formattedAddress ?? "",
+    async function confirmSuggestedAddress(suggested: MailingFields) {
+      setLoading(true);
+      setAddressModal(null);
+      try {
+        const ok = await saveProfile({
+          street: suggested.street,
+          city: suggested.city,
+          state: suggested.state,
+          zip: suggested.zip,
         });
-        return;
+        if (ok) onSaveSuccess?.();
+      } finally {
+        setLoading(false);
       }
+    }
 
-      if (v.status === "not_found") {
-        setAddressModal({ kind: "not_found" });
-        return;
+    async function confirmKeepOriginalAddress() {
+      setLoading(true);
+      setAddressModal(null);
+      try {
+        const ok = await saveProfile({ street, city, state, zip });
+        if (ok) onSaveSuccess?.();
+      } finally {
+        setLoading(false);
       }
-
-      /* match | unavailable | no_street — save with current fields */
-      await saveProfile({
-        street,
-        city,
-        state,
-        zip,
-      });
-    } finally {
-      setLoading(false);
     }
-  }
 
-  async function confirmSuggestedAddress(suggested: MailingFields) {
-    setLoading(true);
-    setAddressModal(null);
-    try {
-      await saveProfile({
-        street: suggested.street,
-        city: suggested.city,
-        state: suggested.state,
-        zip: suggested.zip,
-      });
-    } finally {
-      setLoading(false);
+    async function saveDespiteNotFound() {
+      setLoading(true);
+      setAddressModal(null);
+      try {
+        const ok = await saveProfile({ street, city, state, zip });
+        if (ok) onSaveSuccess?.();
+      } finally {
+        setLoading(false);
+      }
     }
-  }
 
-  async function confirmKeepOriginalAddress() {
-    setLoading(true);
-    setAddressModal(null);
-    try {
-      await saveProfile({ street, city, state, zip });
-    } finally {
-      setLoading(false);
-    }
-  }
+    useImperativeHandle(ref, () => ({
+      save: submitSave,
+      cancel: resetFields,
+    }));
 
-  async function saveDespiteNotFound() {
-    setLoading(true);
-    setAddressModal(null);
-    try {
-      await saveProfile({ street, city, state, zip });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  /* ---- Read-only display helper ---- */
-  function ReadOnlyField({ label, value }: { label: string; value: string }) {
-    return (
-      <div className="grid gap-1 text-sm">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{value || "—"}</span>
-      </div>
-    );
-  }
-
-  const addressLine = [city, state].filter(Boolean).join(", ") + (zip ? ` ${zip}` : "");
-
-  /* ---- Read-only view ---- */
-  if (!editing) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <span className="sr-only">Account info</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="ml-auto size-8"
-            aria-label="Edit account information"
-            onClick={() => setEditing(true)}
-          >
-            <Pencil className="size-4" />
-          </Button>
-        </div>
-
         {username ? (
-          <ReadOnlyField label="Username" value={`@${username}`} />
+          <div className="grid gap-1 text-sm">
+            <span className="text-muted-foreground">Username</span>
+            <span className="font-medium">@{username}</span>
+          </div>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]">
-          <ReadOnlyField label="First name" value={firstName} />
-          <ReadOnlyField label="Last name" value={lastName} />
-          <ReadOnlyField label="Birth year" value={birthYear || "—"} />
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+          <div className="grid gap-2">
+            <Label htmlFor="profile-first-name">First name</Label>
+            <Input
+              id="profile-first-name"
+              name="firstName"
+              autoComplete="given-name"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              required
+              maxLength={80}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="profile-last-name">Last name</Label>
+            <Input
+              id="profile-last-name"
+              name="lastName"
+              autoComplete="family-name"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              required
+              maxLength={80}
+            />
+          </div>
+          <div className="grid w-full max-w-[4.5rem] gap-2 sm:w-auto">
+            <Label htmlFor="profile-birth-year">Birth year</Label>
+            <Input
+              id="profile-birth-year"
+              name="birthYear"
+              inputMode="numeric"
+              autoComplete="bday-year"
+              placeholder="YYYY"
+              value={birthYear}
+              onChange={(e) =>
+                setBirthYear(e.target.value.replace(/\D/g, "").slice(0, 4))
+              }
+              maxLength={4}
+              className="tabular-nums"
+            />
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">Email</span>
-            <span className="font-medium">{email}</span>
-            {pendingEmail && (
-              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-                Change to <strong>{pendingEmail}</strong> pending.
+          <div className="grid gap-2">
+            <span className="text-sm font-medium text-muted-foreground">
+              Email
+            </span>
+
+            {emailJustUpdated && !pendingEmail && (
+              <p
+                className="text-sm text-emerald-600 dark:text-emerald-400"
+                role="status"
+              >
+                Your email address has been updated.
               </p>
             )}
-            {emailJustUpdated && !pendingEmail && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                Email updated.
+
+            {pendingEmail && (
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                Email change to <strong>{pendingEmail}</strong> is pending.
+                Check both your old and new email inboxes for confirmation
+                links. Both must be clicked to complete the change.
               </p>
+            )}
+
+            {!editingEmail ? (
+              <>
+                <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
+                  {email}
+                </p>
+                {!pendingEmail && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto justify-start p-0 text-xs"
+                    onClick={() => {
+                      setEditingEmail(true);
+                      setNewEmail("");
+                      setEmailError(null);
+                      setEmailSent(false);
+                    }}
+                  >
+                    Change email address
+                  </Button>
+                )}
+              </>
+            ) : emailSent ? (
+              <div className="space-y-2">
+                <p className="text-sm text-emerald-600 dark:text-emerald-400">
+                  Confirmation link sent to <strong>{newEmail.trim()}</strong>.
+                  Check your inbox and click the link to finalize the change.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingEmail(false);
+                    setEmailSent(false);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  placeholder="new@example.com"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  disabled={emailLoading}
+                />
+                {emailError && (
+                  <p className="text-xs text-destructive">{emailError}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  A confirmation link will be sent to the new address.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={emailLoading}
+                    onClick={(e) =>
+                      void handleEmailChange(
+                        e as unknown as React.FormEvent,
+                      )
+                    }
+                  >
+                    {emailLoading ? "Sending…" : "Send confirmation"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={emailLoading}
+                    onClick={() => {
+                      setEditingEmail(false);
+                      setEmailError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
-          <ReadOnlyField label="Phone" value={phone || "—"} />
+          <div className="grid gap-2">
+            <Label htmlFor="profile-phone">Phone</Label>
+            <UsPhoneInput
+              id="profile-phone"
+              value={phone}
+              onChange={setPhone}
+              className="font-mono tabular-nums"
+            />
+            <p className="text-xs text-muted-foreground">
+              Format (###) ###-#### — optional.
+            </p>
+          </div>
         </div>
 
-        {(street || addressLine.trim()) ? (
-          <div className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">Address</span>
-            <span className="font-medium">
-              {street && <>{street}<br /></>}
-              {addressLine.trim() || "—"}
-            </span>
-          </div>
-        ) : null}
+        <div className="grid gap-2">
+          <Label htmlFor="profile-street">Street address</Label>
+          <Input
+            id="profile-street"
+            name="street"
+            autoComplete="street-address"
+            value={street}
+            onChange={(e) => setStreet(e.target.value)}
+            maxLength={200}
+          />
+        </div>
 
-        {saved ? (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400" role="status">
-            Profile saved.
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-[minmax(0,7fr)_minmax(0,2fr)_minmax(0,3fr)]">
+          <div className="grid min-w-0 gap-2">
+            <Label htmlFor="profile-city">City</Label>
+            <Input
+              id="profile-city"
+              name="city"
+              autoComplete="address-level2"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              maxLength={100}
+            />
+          </div>
+          <div className="grid min-w-0 gap-2">
+            <Label htmlFor="profile-state">State</Label>
+            <Input
+              id="profile-state"
+              name="state"
+              autoComplete="address-level1"
+              placeholder="NJ"
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+              maxLength={50}
+            />
+          </div>
+          <div className="grid min-w-0 gap-2">
+            <Label htmlFor="profile-zip">ZIP code</Label>
+            <Input
+              id="profile-zip"
+              name="zip"
+              autoComplete="postal-code"
+              value={zip}
+              onChange={(e) => setZip(e.target.value)}
+              maxLength={20}
+            />
+          </div>
+        </div>
+
+        {error ? (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
           </p>
         ) : null}
 
@@ -371,273 +607,18 @@ export function AccountSectionForm({
           To change your password, use the password reset flow from the login
           page.
         </p>
-      </div>
-    );
-  }
 
-  /* ---- Editable form view ---- */
-  return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      {username ? (
-        <div className="grid gap-1 text-sm">
-          <span className="text-muted-foreground">Username</span>
-          <span className="font-medium">@{username}</span>
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-        <div className="grid gap-2">
-          <Label htmlFor="profile-first-name">First name</Label>
-          <Input
-            id="profile-first-name"
-            name="firstName"
-            autoComplete="given-name"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            required
-            maxLength={80}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="profile-last-name">Last name</Label>
-          <Input
-            id="profile-last-name"
-            name="lastName"
-            autoComplete="family-name"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            required
-            maxLength={80}
-          />
-        </div>
-        <div className="grid w-full max-w-[4.5rem] gap-2 sm:w-auto">
-          <Label htmlFor="profile-birth-year">Birth year</Label>
-          <Input
-            id="profile-birth-year"
-            name="birthYear"
-            inputMode="numeric"
-            autoComplete="bday-year"
-            placeholder="YYYY"
-            value={birthYear}
-            onChange={(e) =>
-              setBirthYear(e.target.value.replace(/\D/g, "").slice(0, 4))
-            }
-            maxLength={4}
-            className="tabular-nums"
-          />
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <span className="text-sm font-medium text-muted-foreground">
-            Email
-          </span>
-
-          {emailJustUpdated && !pendingEmail && (
-            <p
-              className="text-sm text-emerald-600 dark:text-emerald-400"
-              role="status"
-            >
-              Your email address has been updated.
-            </p>
-          )}
-
-          {pendingEmail && (
-            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-              Email change to <strong>{pendingEmail}</strong> is pending.
-              Check both your old and new email inboxes for confirmation links.
-              Both must be clicked to complete the change.
-            </p>
-          )}
-
-          {!editingEmail ? (
-            <>
-              <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
-                {email}
-              </p>
-              {!pendingEmail && (
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto justify-start p-0 text-xs"
-                  onClick={() => {
-                    setEditingEmail(true);
-                    setNewEmail("");
-                    setEmailError(null);
-                    setEmailSent(false);
-                  }}
-                >
-                  Change email address
-                </Button>
-              )}
-            </>
-          ) : emailSent ? (
-            <div className="space-y-2">
-              <p className="text-sm text-emerald-600 dark:text-emerald-400">
-                Confirmation link sent to <strong>{newEmail.trim()}</strong>.
-                Check your inbox and click the link to finalize the change.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setEditingEmail(false);
-                  setEmailSent(false);
-                }}
-              >
-                Done
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Input
-                type="email"
-                autoComplete="email"
-                placeholder="new@example.com"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                disabled={emailLoading}
-              />
-              {emailError && (
-                <p className="text-xs text-destructive">{emailError}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                A confirmation link will be sent to the new address.
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={emailLoading}
-                  onClick={(e) =>
-                    void handleEmailChange(
-                      e as unknown as React.FormEvent
-                    )
-                  }
-                >
-                  {emailLoading ? "Sending…" : "Send confirmation"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={emailLoading}
-                  onClick={() => {
-                    setEditingEmail(false);
-                    setEmailError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="profile-phone">Phone</Label>
-          <UsPhoneInput
-            id="profile-phone"
-            value={phone}
-            onChange={setPhone}
-            className="font-mono tabular-nums"
-          />
-          <p className="text-xs text-muted-foreground">
-            Format (###) ###-#### — optional.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="profile-street">Street address</Label>
-        <Input
-          id="profile-street"
-          name="street"
-          autoComplete="street-address"
-          value={street}
-          onChange={(e) => setStreet(e.target.value)}
-          maxLength={200}
+        <AddressConfirmSheet
+          modal={addressModal}
+          onOpenChange={(open) => {
+            if (!open) setAddressModal(null);
+          }}
+          loading={loading}
+          onUseSuggested={(suggested) => void confirmSuggestedAddress(suggested)}
+          onKeepOriginal={() => void confirmKeepOriginalAddress()}
+          onSaveDespiteNotFound={() => void saveDespiteNotFound()}
         />
       </div>
-
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-[minmax(0,7fr)_minmax(0,2fr)_minmax(0,3fr)]">
-        <div className="grid min-w-0 gap-2">
-          <Label htmlFor="profile-city">City</Label>
-          <Input
-            id="profile-city"
-            name="city"
-            autoComplete="address-level2"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            maxLength={100}
-          />
-        </div>
-        <div className="grid min-w-0 gap-2">
-          <Label htmlFor="profile-state">State</Label>
-          <Input
-            id="profile-state"
-            name="state"
-            autoComplete="address-level1"
-            placeholder="NJ"
-            value={state}
-            onChange={(e) => setState(e.target.value)}
-            maxLength={50}
-          />
-        </div>
-        <div className="grid min-w-0 gap-2">
-          <Label htmlFor="profile-zip">ZIP code</Label>
-          <Input
-            id="profile-zip"
-            name="zip"
-            autoComplete="postal-code"
-            value={zip}
-            onChange={(e) => setZip(e.target.value)}
-            maxLength={20}
-          />
-        </div>
-      </div>
-
-      {error ? (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {saved ? (
-        <p className="text-sm text-emerald-600 dark:text-emerald-400" role="status">
-          Profile saved.
-        </p>
-      ) : null}
-
-      <div className="flex gap-3">
-        <Button type="submit" disabled={loading}>
-          {loading ? "Saving…" : "Save changes"}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={loading}
-          onClick={cancelEditing}
-        >
-          Cancel
-        </Button>
-      </div>
-
-      <p className="text-xs italic text-muted-foreground">
-        To change your password, use the password reset flow from the login
-        page.
-      </p>
-
-      <AddressConfirmSheet
-        modal={addressModal}
-        onOpenChange={(open) => {
-          if (!open) setAddressModal(null);
-        }}
-        loading={loading}
-        onUseSuggested={(suggested) => void confirmSuggestedAddress(suggested)}
-        onKeepOriginal={() => void confirmKeepOriginalAddress()}
-        onSaveDespiteNotFound={() => void saveDespiteNotFound()}
-      />
-    </form>
-  );
-}
+    );
+  },
+);

@@ -12,6 +12,9 @@ type EventForDashCard = {
   city: string | null;
   state: string | null;
   logoUrl: string | null;
+  sponsorLogoUrl: string | null;
+  sponsorWebsite: string | null;
+  sponsorName: string | null;
   organization: { name: string; logo: string | null } | null;
 };
 
@@ -63,5 +66,8 @@ export function buildDashCardEventModel(event: EventForDashCard): DashCardEventM
     timeLabel: formatTimeLabel(event.startTime, event.endTime),
     venue: formatVenueLine(event),
     logoUrl,
+    sponsorLogoUrl: event.sponsorLogoUrl?.trim() || null,
+    sponsorWebsiteUrl: event.sponsorWebsite?.trim() || null,
+    sponsorName: event.sponsorName?.trim() || null,
   };
 }

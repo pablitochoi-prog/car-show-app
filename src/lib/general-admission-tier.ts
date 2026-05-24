@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { dollarsToCents } from "@/lib/money";
 import type { RegistrationFeeType } from "@prisma/client";
 
 export const GENERAL_ADMISSION_TIER_NAME = "General Admission";
@@ -24,7 +25,7 @@ export function generalAdmissionPriceCents(
   registrationFeeDollars: number | null,
 ): number {
   if (feeType === "PAID" && registrationFeeDollars != null) {
-    return registrationFeeDollars * 100;
+    return dollarsToCents(registrationFeeDollars);
   }
   return 0;
 }

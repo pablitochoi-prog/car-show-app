@@ -264,3 +264,181 @@ Three changes to the event registration flow:
 | `src/components/dash-card/dash-card-preview.tsx` | “Assigned at check-in” + SMS fallback when no public ID; vehicle title omits year `0` |
 | `src/lib/dash-card-types.ts` | `publicVehicleId: string \| null`; `vehicleIdForSms` may be empty |
 | `src/app/globals.css` | Print: `page-break-after` on `.dash-card-print-page` between cards |
+
+---
+
+# SMS Voting (Twilio-first, provider-agnostic)
+
+## Summary
+
+Allow attendees to vote by texting a vehicle entry code (e.g. `AXY-004`) to a shared SMS number. Start with **Twilio** webhook + signature validation; keep all voting logic in a provider-agnostic service so **Telnyx** can be added later.
+
+## Existing project context (from inspection)
+
+| Area | Current state |
+|------|----------------|
+| Vehicle entry codes | `RegistrationVehicle.publicVehicleId` (also `vehicleEntryCode` in app code); guest vehicles store `publicVehicleId` in `Registration.guestVehicles` JSON |
+| Code validation | `PUBLIC_VEHICLE_ID_REGEX` in `event-sms-vehicle-id.ts`; strict `normalizeVehicleEntryCode` in `vehicle-entry-code.ts` |
+| Web voting | `VehiclePublicVote` — one vote per browser fingerprint per vehicle (`voterKey` cookie hash) |
+| SMS on dash cards | Hardcoded short code `22333` via `NEXT_PUBLIC_SMS_VOTE_SHORT_CODE`; vehicle ID is the only variable in the Vote panel |
+| Event model | Has `smsVotePrefix` but **no** SMS voting settings, categories, or phone assignment yet |
+| Registration categories | `EventCategory` = vehicle **class** at registration — **not** the same as SMS award categories |
+| Tests | Vitest in `src/lib/*.test.ts` |
+| Webhooks | Stripe pattern in `app/api/stripe/webhook/route.ts` (signature verify → handler) |
+
+## Design decisions
+
+1. **Separate SMS vote tables** — Do not reuse `VehiclePublicVote` (different duplicate rule: per phone hash per **category** per event, not per vehicle).
+2. **New `VotingCategory` model** — Distinct from `EventCategory` / `EventAward`. Maps to SMS option numbers (`1`, `2`, …).
+3. **`SmsNumber` platform table** — Shared inbound numbers; events link via `Event.smsNumberId`.
+4. **Phone privacy** — Store only `fromPhoneHash` (HMAC-SHA256 + `SMS_PHONE_HASH_SECRET`); never raw numbers in DB or admin UI.
+5. **Pending sessions** — 10-minute TTL for multi-category flows; status `pending_category | completed | expired`.
+6. **Provider abstraction** — Core service accepts `InboundSmsMessage`; Twilio route parses/validates/responds with TwiML only.
+
+## Implementation todos
+
+### Phase 1 — Schema & migration
+- [x] Add Prisma enums: `SmsProvider`, `SmsNumberStatus`, `SmsVoteSessionStatus`
+- [x] Add models: `SmsNumber`, `VotingCategory`, `SmsVoteSession`, `SmsVote`
+- [x] Extend `Event`: `smsVotingEnabled`, `smsVotingStartsAt`, `smsVotingEndsAt`
+- [x] Create migration `20260523170000_sms_voting`
+
+### Phase 2 — Core SMS libs (provider-agnostic)
+- [x] `src/lib/sms/types.ts`
+- [x] `src/lib/sms/hash-phone.ts`
+- [x] `src/lib/sms/normalize-vote-code.ts`
+- [x] `src/lib/sms/voting-service.ts`
+- [x] `src/lib/sms/voting-window.ts`
+
+### Phase 3 — Twilio provider
+- [x] `src/lib/sms/providers/twilio.ts` (no SDK — HMAC signature + TwiML)
+- [x] `src/app/api/sms/twilio/inbound/route.ts`
+
+### Phase 4 — Admin / event settings API + UI
+- [x] `GET/PATCH /api/events/[id]/sms-voting`
+- [x] `EventSmsVotingSettings` on event edit page (up to 3 categories, 1 custom max)
+- [x] Shared SMS number seeded from `TWILIO_PHONE_NUMBER`
+
+### Phase 5 — Dash card integration
+- [x] Dynamic SMS instruction lines on dash cards
+
+### Phase 6 — Tests
+- [x] Normalization, hash, instruction builder tests
+
+### Phase 7 — Env & docs
+- [x] `.env.example` updated
+
+## Response messages (exact copy)
+
+| Case | Message |
+|------|---------|
+| Single category vote recorded | `Thank you for voting for {vehicleEntryCode}.` |
+| Multi category — pending | `Your vote has been received for {vehicleEntryCode}.\n\nReply 1 for {cat1}.\nReply 2 for {cat2}.` |
+| Category reply recorded | `Thank you. Your {categoryName} vote for {vehicleEntryCode} has been recorded.` |
+| Duplicate | `We already received your {categoryName} vote for this event.` |
+| Invalid | `We could not understand your vote. Please text the vehicle code shown on the dash card, such as AXY-004.` |
+| Expired session | Graceful re-prompt or invalid message |
+| Voting closed | `SMS voting is not open for this event.` |
+
+## Security checklist
+
+- [ ] Twilio signature validation when auth token configured
+- [ ] Server-only secrets (never `NEXT_PUBLIC_*` for Twilio or hash salt)
+- [ ] Idempotency on `providerMessageId` where possible
+- [ ] Validate vehicle belongs to event with SMS voting enabled and open window
+- [ ] Expire pending sessions after 10 minutes
+
+## Review (fill in after implementation)
+
+Implemented Twilio-first SMS voting with provider abstraction. All events share one platform SMS number (`sms_numbers` seeded from `TWILIO_PHONE_NUMBER`). Event is inferred from the vehicle entry code prefix (`smsVotePrefix`). Organizers choose up to 3 voting categories (presets + optional 1 custom) on the event edit page.
+
+| Area | Files |
+|------|--------|
+| Schema | `prisma/schema.prisma`, migration `20260523170000_sms_voting` |
+| Core SMS | `src/lib/sms/*`, `src/lib/validation/sms-voting.ts` |
+| Twilio webhook | `POST /api/sms/twilio/inbound` |
+| Admin UI | `EventSmsVotingSettings` on event edit page |
+| Dash cards | `dash-cards-for-registrations.ts`, `dash-card-preview.tsx` |
+| Tests | `normalize-vote-code.test.ts`, `hash-phone.test.ts`, `sms-voting.test.ts` |
+
+**Deploy steps:** `npm run db:migrate:deploy`, set `SMS_PHONE_HASH_SECRET` + Twilio env vars, point Twilio inbound webhook to `{APP_URL}/api/sms/twilio/inbound`.
+
+**Follow-ups:** Telnyx provider stub, voting-service integration tests with DB, site-admin UI for multiple SMS numbers (not needed while all events share one number).
+
+**Award categories (public vote):** People's Choice and Kid's Choice are locked as **Public vote** (not judge graded) in Global Settings → Award Categories. Admin UI shows a fixed badge, blocks rename/delete/toggle-off, and the API enforces the same. See `src/lib/sms/public-vote-awards.ts` and `admin-award-list.tsx`.
+
+---
+
+# Event Sponsor & Charitable Organization — Plan
+
+## Summary
+
+Expand event sponsor details and add a charitable organization section on Edit Event. Sponsor logo upload already exists (public R2 storage, shown on dash cards); this plan fills in missing contact/address fields, adds charity fields, and surfaces both on the public event page.
+
+## Current state
+
+| Area | Status |
+|------|--------|
+| Sponsor logo upload | **Done** — `EventSponsorSection` → `POST /api/events/[id]/upload` (`sponsorLogo`) → public bucket → `sponsorLogoUrl` |
+| Dash card "Show sponsored by" | **Done** — renders `event.sponsorLogoUrl` |
+| Sponsor text fields | **Partial** — name, phone, website only |
+| Charity section | **Missing** |
+| Public event page | **Missing** — sponsor/charity not shown |
+
+## Schema changes (Prisma `Event`)
+
+**Sponsor — add columns** (keep existing `sponsorName`, `sponsorPhone`, `sponsorWebsite`, `sponsorLogoUrl`):
+
+- `sponsorPrimaryContact String?`
+- `sponsorStreet String?`
+- `sponsorCity String?`
+- `sponsorState String?`
+- `sponsorZip String?`
+- `sponsorEmail String?`
+
+**Charity — new columns:**
+
+- `charityName String?`
+- `charityDescription String?` (text)
+- `charityWebsite String?`
+- `charityEmail String?`
+- `charityPhone String?`
+
+One migration: `20260523200000_event_sponsor_charity_fields`.
+
+## Implementation todos
+
+### Phase 1 — Schema & validation
+- [x] Add Prisma fields + migration
+- [x] Extend `eventSponsorSchema` (`src/lib/validation/sponsor.ts`) with new sponsor fields + email/URL validation
+- [x] Add `eventCharitySchema` (`src/lib/validation/charity.ts`)
+- [x] Update `clone-event.ts` to copy all sponsor + charity fields
+
+### Phase 2 — API
+- [x] Extend `GET/PATCH /api/events/[id]/sponsor` with new sponsor fields
+- [x] Add `GET/PATCH /api/events/[id]/charity` (mirror sponsor route pattern)
+- [x] Confirm sponsor logo upload stays on existing public upload route (no presign change needed)
+
+### Phase 3 — Edit Event UI
+- [x] Expand `EventSponsorSection` — rename card title to **Sponsor Details**; fields: Name, Primary Contact, Address (street), City, State, Zip, Phone, Email, Website, Logo upload
+- [x] Add `EventCharitySection` — Charity Name, Description (textarea), Website, Email, Phone
+- [x] Wire charity card into `EventSetupListCards` (collapsible, configured indicator)
+
+### Phase 4 — Public visibility
+- [x] Pass sponsor + charity data to public event page (`events/[id]/page.tsx`)
+- [x] Show sponsor logo + name/website on public sidebar or info block (staff-visible data from public URLs)
+- [x] Optional: show sponsor name under logo on dash card if logo missing but name set
+
+### Phase 5 — Tests
+- [x] Validation tests for sponsor + charity schemas (email, website normalize)
+
+## Design notes
+
+- **Storage:** Reuse existing public upload path `events/{eventId}/sponsor-logos/` — already accessible to staff and dash cards.
+- **Permissions:** Sponsor/charity PATCH routes stay organizer-only (`canManageEvent`); public page reads non-sensitive display fields only.
+- **Scope:** No charity logo in v1 (not requested). No separate `Sponsor` table — flat fields on `Event` like today.
+
+## Review (fill in after implementation)
+
+Migration `20260523200000_event_sponsor_charity_fields` adds sponsor contact/address/email columns and charity fields on `Event`. Edit Event setup cards: **Sponsor Details** (expanded fields + public logo upload) and **Charitable Organization**. Public event sidebar shows sponsor logo/name/website and charity info. Dash cards show sponsor logo or name fallback in “Show sponsored by”.
+

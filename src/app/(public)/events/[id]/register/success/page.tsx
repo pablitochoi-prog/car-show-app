@@ -5,6 +5,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Clock, Car, ArrowRight } from "lucide-react";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
+import { AddToCalendarMenu } from "@/components/events/add-to-calendar-menu";
+import { buildAddToCalendarLinks } from "@/lib/event-calendar";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -18,15 +20,43 @@ export default async function RegistrationSuccessPage({ params, searchParams }: 
   const event = await prisma.event.findUnique({
     where: { id },
     select: {
+      id: true,
       name: true,
       showNumber: true,
-      startDate: true,
+      description: true,
+      venue: true,
+      street: true,
       city: true,
       state: true,
+      zip: true,
+      startDate: true,
+      endDate: true,
+      startTime: true,
+      endTime: true,
+      dailyHours: true,
+      eventWebsite: true,
     },
   });
 
   if (!event) notFound();
+
+  const calendarLinks = buildAddToCalendarLinks({
+    eventId: event.id,
+    name: event.name,
+    showNumber: event.showNumber,
+    description: event.description,
+    venue: event.venue,
+    street: event.street,
+    city: event.city,
+    state: event.state,
+    zip: event.zip,
+    startDate: event.startDate,
+    endDate: event.endDate,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    dailyHours: event.dailyHours,
+    eventWebsite: event.eventWebsite,
+  });
 
   const status = sp.status ?? "CONFIRMED";
   const tierName = sp.tier ?? "Standard";
@@ -112,7 +142,9 @@ export default async function RegistrationSuccessPage({ params, searchParams }: 
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <AddToCalendarMenu links={calendarLinks} />
+          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <Link
             href="/dashboard/registrations"
             className={cn(buttonVariants(), "gap-2")}
@@ -126,6 +158,7 @@ export default async function RegistrationSuccessPage({ params, searchParams }: 
           >
             Back to event
           </Link>
+          </div>
         </div>
       </div>
     </div>

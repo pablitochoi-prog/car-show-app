@@ -9,6 +9,7 @@ import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 import { validateDonationNotDecreasedAfterPayment } from "@/lib/registration-payment-display";
 import { syncRegistrationVehiclesWithPublicIds } from "@/lib/event-sms-vehicle-id";
 import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
+import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 
 type RouteParams = {
   params: Promise<{ id: string; registrationId: string }>;
@@ -257,6 +258,12 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     return reg;
   });
+
+  try {
+    await syncAllRegistrationStaffPhotos(registration.id);
+  } catch (e) {
+    console.error("PATCH registration staff photo snapshot:", e);
+  }
 
   const paymentComplete = registration.paymentStatus === "PAID";
 

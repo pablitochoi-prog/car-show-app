@@ -15,8 +15,18 @@ export type DashCardEventModel = {
   venue: string;
   /** Event logo, falling back to organization logo; placeholder when null */
   logoUrl?: string | null;
-  /** Optional sponsor logo in the left column footer; placeholder when null */
+  /** Optional event sponsor logo (left in “Show sponsored by”) */
   sponsorLogoUrl?: string | null;
+  /** Event sponsor website for clickable logo */
+  sponsorWebsiteUrl?: string | null;
+  /** Shown when event logo is missing */
+  sponsorName?: string | null;
+};
+
+export type DashCardSponsorModel = {
+  logoUrl?: string | null;
+  websiteUrl?: string | null;
+  name?: string | null;
 };
 
 export type DashCardVehicleModel = {
@@ -39,16 +49,20 @@ export type DashCardOwnerModel = {
   name: string;
   /** City and state on the card, e.g. "San Diego, CA" */
   cityState: string;
+  /** Registrant profile photo for event staff dash cards */
+  ownerPhotoUrl?: string | null;
 };
 
 export type DashCardVotingModel = {
-  /** SMS destination number as printed, e.g. "22333" */
+  /** Shared platform SMS number as printed, e.g. "22333" */
   smsShortCode: string;
   /**
    * MUST be the full public vehicle id (e.g. AXY-004) so voters at concurrent shows
    * disambiguate by event prefix. Empty when the ID is not assigned yet — UI omits SMS wording.
    */
   vehicleIdForSms: string;
+  /** Full SMS instruction line for the dash card Vote panel. */
+  smsInstructionLine?: string;
   ratesDisclaimer?: string;
   /** Shown under QR, e.g. "Scan to Vote or Judge" */
   qrSectionTitle: string;
@@ -60,6 +74,8 @@ export type DashCardVotingModel = {
 
 export type DashCardModel = {
   event: DashCardEventModel;
+  /** Platform site sponsor (right in “Show sponsored by”) */
+  siteSponsor: DashCardSponsorModel;
   vehicle: DashCardVehicleModel;
   owner: DashCardOwnerModel;
   vehicleStory: string;

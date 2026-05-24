@@ -10,6 +10,10 @@ import {
 } from "@/lib/registration-payment-display";
 import { calculateApplicationFee } from "@/lib/platform-fee-config";
 import { resolvePayableTier } from "@/lib/tiers";
+import {
+  buildAddToCalendarLinks,
+  type AddToCalendarLinks,
+} from "@/lib/event-calendar";
 
 export type MyRegistrationVehicle = {
   id: string;
@@ -39,6 +43,7 @@ export type MyRegistrationCard = {
   amountDue: string;
   hasAmountDue: boolean;
   vehicles: MyRegistrationVehicle[];
+  calendarLinks: AddToCalendarLinks;
 };
 
 export async function loadMyRegistrationCards(
@@ -61,11 +66,18 @@ export async function loadMyRegistrationCards(
           name: true,
           showNumber: true,
           logoUrl: true,
-          startDate: true,
-          startTime: true,
-          endTime: true,
+          description: true,
+          venue: true,
+          street: true,
           city: true,
           state: true,
+          zip: true,
+          startDate: true,
+          endDate: true,
+          startTime: true,
+          endTime: true,
+          dailyHours: true,
+          eventWebsite: true,
           registrationFeeType: true,
           registrationFeeDollars: true,
           organization: { select: { name: true, logo: true } },
@@ -143,6 +155,24 @@ export async function loadMyRegistrationCards(
 
     const branding = eventBrandingFromEvent(r.event);
 
+    const calendarLinks = buildAddToCalendarLinks({
+      eventId: r.event.id,
+      name: r.event.name,
+      showNumber: r.event.showNumber,
+      description: r.event.description,
+      venue: r.event.venue,
+      street: r.event.street,
+      city: r.event.city,
+      state: r.event.state,
+      zip: r.event.zip,
+      startDate: r.event.startDate,
+      endDate: r.event.endDate,
+      startTime: r.event.startTime,
+      endTime: r.event.endTime,
+      dailyHours: r.event.dailyHours,
+      eventWebsite: r.event.eventWebsite,
+    });
+
     return {
       id: r.id,
       eventId: r.event.id,
@@ -168,6 +198,7 @@ export async function loadMyRegistrationCards(
           rv.vehicle.trim ? ` ${rv.vehicle.trim}` : ""
         }`,
       })),
+      calendarLinks,
     };
   });
 }

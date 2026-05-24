@@ -11,6 +11,14 @@ export const SAMPLE_DASH_CARD_DATA: DashCardModel = {
     timeLabel: "9:00 AM – 5:00 PM",
     venue: "Las Vegas Convention Center",
     logoUrl: null,
+    sponsorLogoUrl: null,
+    sponsorWebsiteUrl: null,
+    sponsorName: null,
+  },
+  siteSponsor: {
+    logoUrl: null,
+    websiteUrl: null,
+    name: null,
   },
   vehicle: {
     publicVehicleId: "AXY-005",
@@ -31,7 +39,7 @@ export const SAMPLE_DASH_CARD_DATA: DashCardModel = {
   voting: {
     smsShortCode: "22333",
     vehicleIdForSms: "AXY-005",
-    ratesDisclaimer: "Standard message rates may apply.",
+    ratesDisclaimer: "Standard message rates apply.",
     qrSectionTitle: "Scan to Vote or Judge",
     qrDestinationHint: "carshow.vote/AXY-004",
     qrImageUrl: null,

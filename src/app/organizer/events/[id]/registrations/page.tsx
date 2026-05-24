@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { getPlatformFee } from "@/lib/platform-fee";
+import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
 import type { OrganizerRegistrationInput } from "@/lib/organizer-registration-rows";
 import { OrganizerRegistrationsClient } from "@/components/organizer/organizer-registrations-client";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
@@ -36,7 +37,7 @@ export default async function EventRegistrationsPage({
   });
   if (!event) notFound();
 
-  const [rawRows, platformFee, eventMeta] = await Promise.all([
+  const [rawRows, platformFee, eventMeta, platformFeeStatus] = await Promise.all([
     prisma.registration.findMany({
       where: { eventId },
       select: {
@@ -80,6 +81,7 @@ export default async function EventRegistrationsPage({
         registrationFeeDollars: true,
       },
     }),
+    getEventPlatformFeeStatus(eventId),
   ]);
 
   if (!eventMeta) notFound();
@@ -166,6 +168,8 @@ export default async function EventRegistrationsPage({
         suggestedDonationDollars={eventMeta.registrationFeeDollars}
         platformFee={platformFee}
         isDonationEvent={registrationFeeType === "DONATION"}
+        dashCardsAllowed={platformFeeStatus?.paid ?? true}
+        dashCardsBlockedMessage={platformFeeStatus?.dashCardsBlockedMessage}
       />
     </div>
   );

@@ -17,31 +17,23 @@ export function DashboardMessagesTile() {
         "flex flex-col rounded-xl border p-6 text-card-foreground shadow-sm transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         hasUnread
-          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+          ? "border-primary/50 bg-primary/10 ring-1 ring-primary/20 hover:border-primary hover:bg-primary/15"
           : "border-border bg-card hover:bg-accent/45 hover:border-primary/35",
       )}
     >
       <div className="flex flex-row items-start gap-3">
         <MessageSquare
-          className={cn(
-            "mt-0.5 h-6 w-6 shrink-0",
-            hasUnread ? "text-primary-foreground" : "text-primary",
-          )}
+          className="mt-0.5 h-6 w-6 shrink-0 text-primary"
           aria-hidden
         />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold leading-snug tracking-tight">
+            <h2 className="text-lg font-semibold leading-snug tracking-tight text-foreground">
               My Messages
             </h2>
-            <DashboardMessagesBadge onPrimary={hasUnread} />
+            <DashboardMessagesBadge />
           </div>
-          <p
-            className={cn(
-              "text-sm leading-relaxed",
-              hasUnread ? "text-primary-foreground/85" : "text-muted-foreground",
-            )}
-          >
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Messages between you and event organizers.
           </p>
         </div>

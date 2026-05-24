@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { ImageLightbox, ThumbnailWithEye } from "@/components/ui/image-lightbox";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
+import { resolveEventCardLogoUrl } from "@/lib/event-card-branding";
+import { formatUsdDollars } from "@/lib/money";
 
 export type SidebarEvent = {
   name: string;
@@ -21,7 +23,11 @@ export type SidebarEvent = {
   orgName: string | null;
   flyerUrl: string | null;
   logoUrl: string | null;
+  /** Hosting club logo when the event has no dedicated logo. */
+  orgLogoUrl?: string | null;
   startDate: string;
+  /** ISO date for optional weather backup day (`YYYY-MM-DD` display). */
+  rainDate?: string | null;
   startTime: string | null;
   endTime: string | null;
   registrationFeeType: string | null;
@@ -38,14 +44,77 @@ export type SidebarEvent = {
   socialHashtag: string | null;
   /** Who receives in-app messages from logged-in registrants. */
   organizerMessageNote?: string | null;
+  sponsorName?: string | null;
+  sponsorLogoUrl?: string | null;
+  sponsorWebsite?: string | null;
+  charityName?: string | null;
+  charityDescription?: string | null;
+  charityWebsite?: string | null;
+  charityEmail?: string | null;
+  charityPhone?: string | null;
+  charityLogoUrl?: string | null;
 };
 
 function feeLabel(type: string | null, dollars: number | null): string {
   if (!type || type === "FREE") return "Free";
   if (type === "DONATION")
-    return dollars != null ? `${dollars} suggested donation` : "Donation";
+    return dollars != null
+      ? `${formatUsdDollars(dollars)} suggested donation`
+      : "Donation";
   if (type === "PAID_TIERED") return "Tiered pricing";
-  return dollars != null ? String(dollars) : "Paid";
+  return dollars != null ? formatUsdDollars(dollars) : "Paid";
+}
+
+function SidebarPartnerBlock({
+  title,
+  name,
+  logoUrl,
+  websiteUrl,
+}: {
+  title: string;
+  name?: string | null;
+  logoUrl?: string | null;
+  websiteUrl?: string | null;
+}) {
+  const displayName = name?.trim() || "";
+  const logo = logoUrl?.trim() || "";
+  const website = websiteUrl?.trim() || "";
+
+  if (!displayName && !logo) return null;
+
+  const logoAlt = displayName ? `${displayName} logo` : "Logo";
+  const logoImage = logo ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={logo}
+      alt={logoAlt}
+      className="max-h-16 max-w-full rounded border object-contain transition-opacity hover:opacity-90"
+    />
+  ) : null;
+
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </p>
+      {logo ? (
+        website ? (
+          <a
+            href={website}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block"
+            aria-label={`Visit ${displayName || "website"}`}
+          >
+            {logoImage}
+          </a>
+        ) : (
+          logoImage
+        )
+      ) : null}
+      {displayName ? <p className="font-medium">{displayName}</p> : null}
+    </div>
+  );
 }
 
 export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
@@ -58,6 +127,15 @@ export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
     year: "numeric",
   });
 
+  const rainDateStr = event.rainDate
+    ? new Date(event.rainDate).toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
+
   const location = [event.venue, event.city, event.state]
     .filter(Boolean)
     .join(", ");
@@ -69,20 +147,25 @@ export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
 
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`;
 
+  const displayLogoUrl = resolveEventCardLogoUrl({
+    logoUrl: event.logoUrl,
+    orgLogoUrl: event.orgLogoUrl,
+  });
+
   return (
     <>
       <div className="space-y-5">
         {/* Club logo + Club name / Event name + Date & time */}
         <div className="flex gap-3">
-          {event.logoUrl && (
-            <ThumbnailWithEye onClick={() => setLightboxSrc(event.logoUrl)}>
+          {displayLogoUrl ? (
+            <ThumbnailWithEye onClick={() => setLightboxSrc(displayLogoUrl)}>
               <img
-                src={event.logoUrl}
-                alt="Club logo"
+                src={displayLogoUrl}
+                alt={event.orgName ? `${event.orgName} logo` : "Event logo"}
                 className="size-14 shrink-0 rounded-lg border object-contain p-1"
               />
             </ThumbnailWithEye>
-          )}
+          ) : null}
           <div className="min-w-0 flex-1">
             {event.orgName && (
               <p className="text-xs font-medium text-muted-foreground">
@@ -108,6 +191,11 @@ export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
                   </span>
                 </div>
               )}
+              {rainDateStr ? (
+                <p className="text-xs text-muted-foreground">
+                  Rain date: {rainDateStr}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -205,6 +293,30 @@ export function EventInfoSidebar({ event }: { event: SidebarEvent }) {
             <p>{event.organizerMessageNote}</p>
           </div>
         ) : null}
+
+        {(event.sponsorName || event.sponsorLogoUrl) && (
+          <>
+            <hr className="border-border" />
+            <SidebarPartnerBlock
+              title="Show Sponsor"
+              name={event.sponsorName}
+              logoUrl={event.sponsorLogoUrl}
+              websiteUrl={event.sponsorWebsite}
+            />
+          </>
+        )}
+
+        {(event.charityName || event.charityLogoUrl) && (
+          <>
+            <hr className="border-border" />
+            <SidebarPartnerBlock
+              title="Charity Supported"
+              name={event.charityName}
+              logoUrl={event.charityLogoUrl}
+              websiteUrl={event.charityWebsite}
+            />
+          </>
+        )}
       </div>
 
       {lightboxSrc && (

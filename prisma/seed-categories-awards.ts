@@ -51,10 +51,13 @@ async function main() {
 
   console.log("Seeding special awards…");
   for (let i = 0; i < DEFAULT_SPECIAL_AWARDS.length; i++) {
+    const name = DEFAULT_SPECIAL_AWARDS[i]!;
+    const smsVotingEligible =
+      name === "People's Choice" || name === "Kid's Choice";
     await prisma.specialAward.upsert({
-      where: { name: DEFAULT_SPECIAL_AWARDS[i] },
-      update: { sortOrder: i },
-      create: { name: DEFAULT_SPECIAL_AWARDS[i], isSystem: true, sortOrder: i },
+      where: { name },
+      update: { sortOrder: i, smsVotingEligible },
+      create: { name, isSystem: true, sortOrder: i, smsVotingEligible },
     });
   }
   console.log(`  ${DEFAULT_SPECIAL_AWARDS.length} special awards seeded.`);

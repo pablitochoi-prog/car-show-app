@@ -1,24 +1,41 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Car, Search, Trophy, Calendar, MapPin, Users } from "lucide-react";
+import { Search, Trophy, Calendar, MapPin, Users } from "lucide-react";
 
 export default function HomePage() {
   return (
     <div className="flex flex-col">
       {/* Hero Section */}
-      <section className="relative py-20 md:py-32">
+      <section className="relative py-10 md:py-14">
         <div className="page-shell max-w-3xl text-center">
-          <div className="flex justify-center mb-6">
-            <div className="rounded-full bg-primary/10 p-4">
-              <Car className="h-12 w-12 text-primary" />
+          <div className="mb-4 flex justify-center">
+            {/*
+              Safari ignores max-width on Next/Image when width/height attrs are large
+              and w-full is set — use a fixed box + fill instead.
+            */}
+            <div className="relative mx-auto aspect-[1024/819] w-[205px] max-w-[72vw] shrink-0">
+              <Image
+                src="/brand/carshowscout-mark.png"
+                alt="CarShowScout.com"
+                fill
+                sizes="205px"
+                className="object-contain"
+                priority
+                unoptimized
+              />
             </div>
           </div>
-          <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
-            Discover Amazing
-            <span className="text-primary"> Car Shows</span>
+          <h1 className="mb-4 font-bold tracking-tight">
+            <span className="block text-[calc(1.125rem*1.75*0.8)] font-semibold leading-tight text-foreground sm:text-[calc(1.25rem*1.75*0.8)] md:text-[calc(1.5rem*1.75*0.8)] md:whitespace-nowrap">
+              Discover or Plan Amazing
+            </span>
+            <span className="mt-1 block text-[2.4rem] text-primary sm:text-[3rem] md:text-[3.6rem]">
+              Car Shows
+            </span>
           </h1>
-          <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
+          <p className="text-base md:text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
             Find car shows near you, register your vehicles, vote for your
             favorites, and connect with the enthusiast community.
           </p>

@@ -11,6 +11,14 @@ export const DEFAULT_PLATFORM_FEE: PlatformFeeConfig = {
   percent: null,
 };
 
+export type EventSetupFeeConfig = {
+  amountCents: number;
+};
+
+export const DEFAULT_EVENT_SETUP_FEE: EventSetupFeeConfig = {
+  amountCents: 7500,
+};
+
 /** Calculate the application fee in cents for a given registration price. */
 export function calculateApplicationFee(
   fee: PlatformFeeConfig,

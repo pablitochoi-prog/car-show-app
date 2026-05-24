@@ -3,8 +3,10 @@ import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
 import { createCheckoutSchema } from "@/lib/validation/stripe";
-import { getPlatformFee, calculateApplicationFee } from "@/lib/platform-fee";
+import { getPlatformFee, getEventSetupFee, totalPlatformFeeForCheckout } from "@/lib/platform-fee";
+import type { PlatformFeeConfig } from "@/lib/platform-fee-config";
 import { formatEventShowNumber } from "@/lib/event-show-number";
+import { dollarsToCents } from "@/lib/money";
 import { resolvePayableTier } from "@/lib/tiers";
 import {
   computeAdditionalBalanceCheckout,
@@ -49,6 +51,8 @@ export async function POST(request: Request) {
           paymentEnabled: true,
           registrationFeeType: true,
           registrationFeeDollars: true,
+          platformFeeMode: true,
+          platformSetupFeeCollected: true,
           registrationTiers: {
             orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
           },
@@ -96,6 +100,12 @@ export async function POST(request: Request) {
   }
 
   const feeConfig = await getPlatformFee();
+  const eventSetupFee = await getEventSetupFee();
+  const perVehicleFeeConfig: PlatformFeeConfig =
+    event.platformFeeMode === "FLAT_EVENT"
+      ? { type: "NONE", amountCents: null, percent: null }
+      : feeConfig;
+  let flatSetupFeeCharged = false;
   const isDonationEvent = event.registrationFeeType === "DONATION";
 
   let lineItems: NonNullable<
@@ -138,7 +148,7 @@ export async function POST(request: Request) {
         vehicleCount,
         amountPaidCents: registration.amountCents ?? 0,
         platformFeeCentsPaid: registration.platformFeeCents,
-        platformFee: feeConfig,
+        platformFee: perVehicleFeeConfig,
         suggestedDonationPerVehicleDollars: event.registrationFeeDollars,
       });
 
@@ -210,12 +220,16 @@ export async function POST(request: Request) {
     if (vehicleCount === 0) vehicleCount = 1;
 
     const suggestedPerVehicleCents =
-      (event.registrationFeeDollars ?? 0) * 100;
-    const perVehiclePlatformFee = calculateApplicationFee(
-      feeConfig,
-      suggestedPerVehicleCents,
-    );
-    totalApplicationFee = perVehiclePlatformFee * vehicleCount;
+      dollarsToCents(event.registrationFeeDollars ?? 0);
+    const donationFees = totalPlatformFeeForCheckout({
+      mode: event.platformFeeMode,
+      platformFee: feeConfig,
+      unitPriceCents: suggestedPerVehicleCents,
+      vehicleCount,
+      setupFeeCents: eventSetupFee.amountCents,
+      setupFeeCollected: event.platformSetupFeeCollected,
+    });
+    totalApplicationFee = donationFees.totalApplicationFeeCents;
     totalAmountCents = donationCents + totalApplicationFee;
 
     lineItems = [
@@ -232,17 +246,32 @@ export async function POST(request: Request) {
       },
     ];
 
-    if (perVehiclePlatformFee > 0) {
+    if (donationFees.perVehiclePlatformFeeCents > 0) {
       lineItems.push({
         price_data: {
           currency: event.currency,
-          unit_amount: perVehiclePlatformFee,
+          unit_amount: donationFees.perVehiclePlatformFeeCents,
           product_data: {
             name: "Registration fee",
             description: "Platform registration fee (per vehicle)",
           },
         },
         quantity: vehicleCount,
+      });
+    }
+
+    if (donationFees.flatSetupFeeCents > 0) {
+      flatSetupFeeCharged = true;
+      lineItems.push({
+        price_data: {
+          currency: event.currency,
+          unit_amount: donationFees.flatSetupFeeCents,
+          product_data: {
+            name: "Platform event setup fee",
+            description: "One-time platform fee for this event",
+          },
+        },
+        quantity: 1,
       });
     }
     }
@@ -286,7 +315,7 @@ export async function POST(request: Request) {
         unitPriceCents: priceCents,
         vehicleCount,
         amountPaidCents: registration.amountCents ?? 0,
-        platformFee: feeConfig,
+        platformFee: perVehicleFeeConfig,
       });
       if (!additional) {
         return NextResponse.json(
@@ -333,8 +362,15 @@ export async function POST(request: Request) {
         });
       }
     } else {
-      const perVehicleFeeCents = calculateApplicationFee(feeConfig, priceCents);
-      totalApplicationFee = perVehicleFeeCents * vehicleCount;
+      const checkoutFees = totalPlatformFeeForCheckout({
+        mode: event.platformFeeMode,
+        platformFee: feeConfig,
+        unitPriceCents: priceCents,
+        vehicleCount,
+        setupFeeCents: eventSetupFee.amountCents,
+        setupFeeCollected: event.platformSetupFeeCollected,
+      });
+      totalApplicationFee = checkoutFees.totalApplicationFeeCents;
       totalAmountCents = priceCents * vehicleCount + totalApplicationFee;
 
       lineItems = [
@@ -351,17 +387,32 @@ export async function POST(request: Request) {
         },
       ];
 
-      if (perVehicleFeeCents > 0) {
+      if (checkoutFees.perVehiclePlatformFeeCents > 0) {
         lineItems.push({
           price_data: {
             currency: event.currency,
-            unit_amount: perVehicleFeeCents,
+            unit_amount: checkoutFees.perVehiclePlatformFeeCents,
             product_data: {
               name: "Convenience Fee",
               description: "Platform convenience fee per vehicle",
             },
           },
           quantity: vehicleCount,
+        });
+      }
+
+      if (checkoutFees.flatSetupFeeCents > 0) {
+        flatSetupFeeCharged = true;
+        lineItems.push({
+          price_data: {
+            currency: event.currency,
+            unit_amount: checkoutFees.flatSetupFeeCents,
+            product_data: {
+              name: "Platform event setup fee",
+              description: "One-time platform fee for this event",
+            },
+          },
+          quantity: 1,
         });
       }
     }
@@ -383,6 +434,7 @@ export async function POST(request: Request) {
           organizerId: org.id,
           connectedAccountId: org.stripeAccountId,
           checkoutType,
+          ...(flatSetupFeeCharged ? { flatSetupFeeCharged: "true" } : {}),
           ...(user ? { registrantUserId: user.id } : {}),
         },
       },
@@ -390,6 +442,7 @@ export async function POST(request: Request) {
         eventId: event.id,
         registrationId: registration.id,
         checkoutType,
+        ...(flatSetupFeeCharged ? { flatSetupFeeCharged: "true" } : {}),
         ...(checkoutType === "additional_balance"
           ? { additionalPlatformFeeCents: String(totalApplicationFee) }
           : {}),

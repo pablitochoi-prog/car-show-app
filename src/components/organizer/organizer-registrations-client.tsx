@@ -168,6 +168,8 @@ export function OrganizerRegistrationsClient({
   suggestedDonationDollars,
   platformFee,
   isDonationEvent = false,
+  dashCardsAllowed = true,
+  dashCardsBlockedMessage,
 }: {
   eventId: string;
   eventLabel: string;
@@ -176,6 +178,8 @@ export function OrganizerRegistrationsClient({
   suggestedDonationDollars: number | null;
   platformFee: PlatformFeeConfig;
   isDonationEvent?: boolean;
+  dashCardsAllowed?: boolean;
+  dashCardsBlockedMessage?: string;
 }) {
   const router = useRouter();
   const rows = useMemo(
@@ -553,6 +557,8 @@ export function OrganizerRegistrationsClient({
               <CreateDashCardsLink
                 eventId={eventId}
                 registrationIds={[...selected]}
+                disabled={!dashCardsAllowed}
+                disabledTitle={dashCardsBlockedMessage}
               />
               <Button
                 type="button"

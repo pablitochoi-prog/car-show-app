@@ -56,7 +56,9 @@ export default async function NewEventPage({
   const memberships = await prisma.organizationMember.findMany({
     where: { userId: user.id },
     include: {
-      organization: { select: { id: true, name: true, clubState: true } },
+      organization: {
+        select: { id: true, name: true, clubState: true, logo: true },
+      },
     },
     orderBy: { organization: { name: "asc" } },
   });
@@ -64,6 +66,7 @@ export default async function NewEventPage({
     id: m.organization.id,
     name: m.organization.name,
     clubState: m.organization.clubState ?? null,
+    logo: m.organization.logo,
   }));
 
   const sp = await searchParams;

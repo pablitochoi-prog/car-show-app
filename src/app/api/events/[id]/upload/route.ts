@@ -34,14 +34,18 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, orgId: true, flyerUrl: true, logoUrl: true },
+    select: {
+      id: true,
+      flyerUrl: true,
+      logoUrl: true,
+      sponsorLogoUrl: true,
+      charityLogoUrl: true,
+    },
   });
 
   if (!event) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-
-  const orgIdForUpload = event.orgId;
 
   let formData: FormData;
   try {
@@ -52,12 +56,19 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const flyer = formData.get("flyer");
   const logo = formData.get("logo");
+  const sponsorLogo = formData.get("sponsorLogo");
+  const charityLogo = formData.get("charityLogo");
 
-  const updates: { flyerUrl?: string; logoUrl?: string } = {};
+  const updates: {
+    flyerUrl?: string;
+    logoUrl?: string;
+    sponsorLogoUrl?: string;
+    charityLogoUrl?: string;
+  } = {};
 
   async function handleFile(
     entry: FormDataEntryValue | null,
-    kind: "flyer" | "logo"
+    kind: "flyer" | "logo" | "sponsorLogo" | "charityLogo"
   ) {
     if (!entry || !(entry instanceof File) || entry.size === 0) return;
 
@@ -72,11 +83,18 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const buf = Buffer.from(await entry.arrayBuffer());
     const rawExt = (entry.name.split(".").pop() || "").toLowerCase();
-    const fallback = kind === "flyer" ? "jpg" : "png";
+    const fallback =
+      kind === "flyer" ? "jpg" : kind === "logo" ? "png" : "png";
     const ext = SAFE_EXT.test(rawExt) ? rawExt : fallback;
-    /** Stable path when org is unset (new events); URLs stored on `Event` for public pages. */
-    const folder = orgIdForUpload ?? "pending-org";
-    const path = `${folder}/${eventId}/${kind}.${ext}`;
+    const fileId = crypto.randomUUID();
+    const path =
+      kind === "flyer"
+        ? `events/${eventId}/flyers/${fileId}.${ext}`
+        : kind === "logo"
+          ? `events/${eventId}/logos/${fileId}.${ext}`
+          : kind === "sponsorLogo"
+            ? `events/${eventId}/sponsor-logos/${fileId}.${ext}`
+            : `events/${eventId}/charity-logos/${fileId}.${ext}`;
 
     const result = await uploadEventAsset(path, buf, type);
     if ("error" in result) {
@@ -84,12 +102,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     if (kind === "flyer") updates.flyerUrl = result.publicUrl;
-    else updates.logoUrl = result.publicUrl;
+    else if (kind === "logo") updates.logoUrl = result.publicUrl;
+    else if (kind === "sponsorLogo") updates.sponsorLogoUrl = result.publicUrl;
+    else updates.charityLogoUrl = result.publicUrl;
   }
 
   try {
     await handleFile(flyer, "flyer");
     await handleFile(logo, "logo");
+    await handleFile(sponsorLogo, "sponsorLogo");
+    await handleFile(charityLogo, "charityLogo");
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Upload failed";
     return NextResponse.json({ error: msg }, { status: 400 });
@@ -97,7 +119,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json(
-      { error: "No flyer or logo file provided" },
+      { error: "No flyer, logo, sponsor logo, or charity logo file provided" },
       { status: 400 }
     );
   }
@@ -110,5 +132,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   return NextResponse.json({
     flyerUrl: updates.flyerUrl ?? event.flyerUrl,
     logoUrl: updates.logoUrl ?? event.logoUrl,
+    sponsorLogoUrl: updates.sponsorLogoUrl ?? event.sponsorLogoUrl,
+    charityLogoUrl: updates.charityLogoUrl ?? event.charityLogoUrl,
   });
 }

@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function CollapsibleCard({
   title,
+  badge,
   defaultOpen = false,
   keepMounted = false,
   children,
 }: {
   title: string;
+  badge?: React.ReactNode;
   defaultOpen?: boolean;
   /** When true, children stay mounted while collapsed (hidden) so client data can load. */
   keepMounted?: boolean;
@@ -40,6 +42,7 @@ export function CollapsibleCard({
             <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
           )}
           <CardTitle className="text-lg">{title}</CardTitle>
+          {badge ? <div className="ml-auto shrink-0">{badge}</div> : null}
         </div>
       </CardHeader>
       {keepMounted ? (

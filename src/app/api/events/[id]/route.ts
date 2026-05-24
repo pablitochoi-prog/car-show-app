@@ -8,10 +8,14 @@ import {
 } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocoding";
 import { updateEventSchema } from "@/lib/validation/event";
-import { deriveFieldsFromDailyHours } from "@/lib/daily-hours";
+import { deriveFieldsFromDailyHours, utcDateFromYmd } from "@/lib/daily-hours";
 import { resolveListingScheduledAtForPersistence } from "@/lib/listing-scheduled";
 import type { EventStatus, Prisma } from "@prisma/client";
 import { syncGeneralAdmissionTier } from "@/lib/general-admission-tier";
+import {
+  FLAT_PLATFORM_FEE_UNPAID_LISTING_MESSAGE,
+  requiresFlatPlatformFeePaymentBeforeListing,
+} from "@/lib/event-platform-fee";
 
 type FeeType = "FREE" | "PAID" | "PAID_TIERED" | "DONATION";
 
@@ -243,6 +247,37 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     status = d.status as EventStatus;
   }
 
+  const effectiveStatus = (status ?? existing.status) as EventStatus;
+  if (
+    (effectiveStatus === "PUBLISHED" || effectiveStatus === "SCHEDULED") &&
+    existing.orgId
+  ) {
+    const org = await prisma.organization.findUnique({
+      where: { id: existing.orgId },
+      select: { stripeChargesEnabled: true },
+    });
+    if (org?.stripeChargesEnabled && !existing.paymentEnabled) {
+      return NextResponse.json(
+        {
+          error:
+            "Choose and save your platform fee billing option in Payment Settings before publishing or scheduling this event.",
+        },
+        { status: 400 },
+      );
+    }
+    if (
+      requiresFlatPlatformFeePaymentBeforeListing({
+        platformFeeMode: existing.platformFeeMode,
+        platformSetupFeeCollected: existing.platformSetupFeeCollected,
+      })
+    ) {
+      return NextResponse.json(
+        { error: FLAT_PLATFORM_FEE_UNPAID_LISTING_MESSAGE },
+        { status: 400 },
+      );
+    }
+  }
+
   let listingScheduledAtPatch: Date | null | undefined = undefined;
   if (d.status !== undefined || d.listingScheduledAt !== undefined) {
     const effectiveStatus = (status ?? existing.status) as EventStatus;
@@ -293,6 +328,14 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       endTime,
       isMultiDay,
       ...(d.dailyHours !== undefined ? { dailyHours: dailyHoursPatch } : {}),
+      ...(d.rainDate !== undefined
+        ? {
+            rainDate:
+              d.rainDate && String(d.rainDate).trim()
+                ? utcDateFromYmd(String(d.rainDate).trim())
+                : null,
+          }
+        : {}),
       ...(feePatch
         ? {
             registrationFeeType: feePatch.registrationFeeType,

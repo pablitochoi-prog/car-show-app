@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getEventForViewer } from "@/lib/event-access";
 import { displayContactName } from "@/lib/contact-display";
 import { EventRegistrationPage } from "@/components/registration/event-registration-page";
-import { getPlatformFee } from "@/lib/platform-fee";
+import { getPlatformFee, getEventSetupFee } from "@/lib/platform-fee";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import {
   isStripeCheckoutAvailable,
@@ -41,7 +41,7 @@ export default async function EditRegistrationPage({ params }: Props) {
   const event = await getEventForViewer(id, viewer.id);
   if (!event) notFound();
 
-  const [tierRows, existingRegistration, platformFee, categoryRows, organizerNames] =
+  const [tierRows, existingRegistration, platformFee, eventSetupFee, categoryRows, organizerNames] =
     await Promise.all([
       prisma.registrationTier.findMany({
         where: { eventId: id },
@@ -49,6 +49,7 @@ export default async function EditRegistrationPage({ params }: Props) {
       }),
       getExistingRegistrationForEvent(id, viewer.id),
       getPlatformFee(),
+      getEventSetupFee(),
       prisma.eventCategory.findMany({
         where: { eventId: id },
         include: { category: { select: { name: true } } },
@@ -145,11 +146,16 @@ export default async function EditRegistrationPage({ params }: Props) {
           orgName: event.organization?.name ?? null,
           flyerUrl: event.flyerUrl,
           logoUrl: event.logoUrl,
+          orgLogoUrl: event.organization?.logo ?? null,
           startDate: event.startDate.toISOString(),
+          rainDate: event.rainDate?.toISOString() ?? null,
           startTime: event.startTime,
           endTime: event.endTime,
           registrationFeeType: event.registrationFeeType,
           registrationFeeDollars: event.registrationFeeDollars,
+          platformFeeMode: event.platformFeeMode,
+          platformSetupFeeCollected: event.platformSetupFeeCollected,
+          eventSetupFeeCents: eventSetupFee.amountCents,
           venue: event.venue,
           city: event.city,
           state: event.state,

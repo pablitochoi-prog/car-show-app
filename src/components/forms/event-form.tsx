@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { TierManager, type TierRow } from "@/components/forms/tier-manager";
@@ -45,10 +45,13 @@ import {
 import { readResponseJson } from "@/lib/read-response-json";
 import { QuarterHourTimePickers } from "@/components/inputs/quarter-hour-time-pickers";
 import { formatOrgNameWithClubState } from "@/lib/format-org-display-name";
+import { EventLogo } from "@/components/events/event-logo";
 import {
   isYmdBeforeLocalToday,
   todayLocalYmd,
 } from "@/lib/event-schedule-date";
+import { timeZoneForUsState } from "@/lib/us-state-time-zone";
+import { FLAT_PLATFORM_FEE_UNPAID_LISTING_MESSAGE } from "@/lib/event-platform-fee";
 
 /** 12:00 AM in stored `HH:MM` form (QuarterHourTimePickers show 12-hour labels). */
 const DEFAULT_SCHEDULE_TIME = normalizeTimeToFiveMinutes("00:00");
@@ -58,6 +61,8 @@ export type OrgOption = {
   name: string;
   /** Club state postal code from organization profile, e.g. `"NJ"`. */
   clubState?: string | null;
+  /** Hosting club public logo URL. */
+  logo?: string | null;
 };
 
 /** Select value that triggers creating a new org on save, then linking it to the event. */
@@ -79,6 +84,7 @@ export type EventInitial = {
   startTime: string | null;
   endTime: string | null;
   isMultiDay: boolean;
+  rainDate?: string | null;
   dailyHours?: DailyHourRow[] | null;
   registrationFeeType?: "FREE" | "PAID" | "PAID_TIERED" | "DONATION" | null;
   registrationFeeDollars?: number | null;
@@ -95,6 +101,8 @@ export type EventInitial = {
   persistedEventStatus?: string;
   statusReadOnly?: boolean;
   listingScheduledAt?: string | null;
+  platformFeeMode?: "CONVENIENCE" | "FLAT_EVENT";
+  platformSetupFeeCollected?: boolean;
   lat?: number | null;
   lng?: number | null;
   flyerUrl?: string | null;
@@ -120,7 +128,10 @@ function toDateInput(iso: string) {
   }
 }
 
-function scheduleRowsFromInitial(initial?: EventInitial): ScheduleRow[] {
+function scheduleRowsFromInitial(
+  initial?: EventInitial,
+  defaultTimeZone: EventTimeZoneIana = DEFAULT_EVENT_TIME_ZONE
+): ScheduleRow[] {
   if (!initial) {
     return [
       {
@@ -128,7 +139,7 @@ function scheduleRowsFromInitial(initial?: EventInitial): ScheduleRow[] {
         date: "",
         startTime: DEFAULT_SCHEDULE_TIME,
         endTime: DEFAULT_SCHEDULE_TIME,
-        timeZone: DEFAULT_EVENT_TIME_ZONE,
+        timeZone: defaultTimeZone,
       },
     ];
   }
@@ -388,6 +399,19 @@ export function EventForm({
   const [hostingOrgId, setHostingOrgId] = useState(
     () => initial?.orgId ?? prefillHostingOrgId ?? ""
   );
+
+  function timeZoneForOrgId(orgId: string): EventTimeZoneIana {
+    if (!orgId || orgId === ADD_ORGANIZATION_SELECT_VALUE) {
+      return DEFAULT_EVENT_TIME_ZONE;
+    }
+    const org = organizations?.find((o) => o.id === orgId);
+    return timeZoneForUsState(org?.clubState);
+  }
+
+  function applyOrganizationTimeZone(orgId: string) {
+    const tz = timeZoneForOrgId(orgId);
+    setScheduleRows((prev) => prev.map((r) => ({ ...r, timeZone: tz })));
+  }
   const [name, setName] = useState(initial?.name ?? "");
   const [estimatedCarCount, setEstimatedCarCount] = useState<number | null>(
     initial?.estimatedCarCount ?? null
@@ -480,8 +504,31 @@ export function EventForm({
   );
 
   const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>(() =>
-    scheduleRowsFromInitial(initial)
+    scheduleRowsFromInitial(
+      initial,
+      !initial
+        ? timeZoneForUsState(
+            organizations?.find(
+              (o) => o.id === (prefillHostingOrgId ?? "")
+            )?.clubState
+          )
+        : DEFAULT_EVENT_TIME_ZONE
+    )
   );
+
+  const [rainDateEnabled, setRainDateEnabled] = useState(() =>
+    Boolean(initial?.rainDate)
+  );
+  const [rainDateYmd, setRainDateYmd] = useState(() =>
+    initial?.rainDate ? toDateInput(initial.rainDate) : ""
+  );
+
+  useEffect(() => {
+    if (!isEdit && prefillHostingOrgId) {
+      applyOrganizationTimeZone(prefillHostingOrgId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply club state TZ once on create with ?orgId=
+  }, []);
 
   const [contactFirstName, setContactFirstName] = useState(legacyContact.first);
   const [contactLastName, setContactLastName] = useState(legacyContact.last);
@@ -508,6 +555,9 @@ export function EventForm({
 
   const [scheduledListingDialogOpen, setScheduledListingDialogOpen] =
     useState(false);
+  const [flatPlatformFeeDialogOpen, setFlatPlatformFeeDialogOpen] =
+    useState(false);
+  const [payingFlatPlatformFee, setPayingFlatPlatformFee] = useState(false);
 
   const [flyer, setFlyer] = useState<File | null>(null);
   const [logo, setLogo] = useState<File | null>(null);
@@ -554,6 +604,7 @@ export function EventForm({
 
   function onHostingOrganizationChange(value: string) {
     setHostingOrgId(value);
+    if (!isEdit) applyOrganizationTimeZone(value);
   }
 
   function onListingStatusChange(next: "DRAFT" | "SCHEDULED" | "PUBLISHED") {
@@ -640,6 +691,52 @@ export function EventForm({
     );
   }
 
+  async function fetchFlatPlatformFeeUnpaid(eventId: string): Promise<boolean> {
+    const res = await fetch(`/api/events/${eventId}/payment-settings`, {
+      credentials: "same-origin",
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as {
+      platformFeeMode?: string;
+      platformSetupFeeCollected?: boolean;
+    };
+    return (
+      data.platformFeeMode === "FLAT_EVENT" &&
+      data.platformSetupFeeCollected !== true
+    );
+  }
+
+  async function handlePayFlatPlatformFee() {
+    if (!initial?.id) return;
+    setPayingFlatPlatformFee(true);
+    try {
+      const res = await fetch(
+        `/api/events/${initial.id}/platform-setup-fee/checkout`,
+        { method: "POST", credentials: "same-origin" }
+      );
+      const parsed = await readResponseJson<{ error?: string; checkoutUrl?: string }>(
+        res
+      );
+      if (!parsed.bodyIsJson || !parsed.data) {
+        throw new Error("Could not start platform fee payment");
+      }
+      const data = parsed.data;
+      if (!res.ok) throw new Error(data.error ?? "Failed to start checkout");
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+      throw new Error("No checkout URL returned");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not start platform fee payment"
+      );
+      setFlatPlatformFeeDialogOpen(false);
+    } finally {
+      setPayingFlatPlatformFee(false);
+    }
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -696,6 +793,19 @@ export function EventForm({
         }
       }
 
+      if (
+        !statusReadOnly &&
+        (status === "PUBLISHED" || status === "SCHEDULED") &&
+        isEdit &&
+        initial?.id
+      ) {
+        const flatFeeUnpaid = await fetchFlatPlatformFeeUnpaid(initial.id);
+        if (flatFeeUnpaid) {
+          setFlatPlatformFeeDialogOpen(true);
+          return;
+        }
+      }
+
       for (const row of scheduleRows) {
         if (!row.date?.trim()) {
           setError("Each event day needs a date.");
@@ -710,18 +820,20 @@ export function EventForm({
             return;
           }
         }
+        if (rainDateEnabled && rainDateYmd.trim() && isYmdBeforeLocalToday(rainDateYmd)) {
+          setError("Rain date cannot be in the past.");
+          return;
+        }
+      }
+
+      if (rainDateEnabled && !rainDateYmd.trim()) {
+        setError("Enter a rain date or turn off Add Rain Date.");
+        return;
       }
 
       let resolvedHostingOrgId: string | null = null;
-      /** Save event first, then open full Add Car Club; link org id on return (see new-car-club-form). */
-      let deferAddCarClubFlow = false;
-      if (!hostingLocked) {
-        if (hostingOrgId === ADD_ORGANIZATION_SELECT_VALUE) {
-          deferAddCarClubFlow = true;
-          resolvedHostingOrgId = null;
-        } else if (hostingOrgId) {
-          resolvedHostingOrgId = hostingOrgId;
-        }
+      if (!hostingLocked && hostingOrgId) {
+        resolvedHostingOrgId = hostingOrgId;
       }
 
       const contactFull = [contactFirstName, contactLastName]
@@ -752,6 +864,8 @@ export function EventForm({
           ? { lat: previewLat, lng: previewLng }
           : {}),
         dailyHours: dailyHoursPayload,
+        rainDate:
+          rainDateEnabled && rainDateYmd.trim() ? rainDateYmd.trim() : null,
         registrationFeeType: feeType,
         registrationFeeDollars:
           feeType === "FREE" || feeType === "PAID_TIERED"
@@ -814,6 +928,11 @@ export function EventForm({
             msg.includes("Scheduled Listing must have")
           ) {
             setScheduledListingDialogOpen(true);
+          } else if (
+            typeof msg === "string" &&
+            msg.includes(FLAT_PLATFORM_FEE_UNPAID_LISTING_MESSAGE.slice(0, 40))
+          ) {
+            setFlatPlatformFeeDialogOpen(true);
           } else {
             setError(msg + extra);
           }
@@ -883,14 +1002,6 @@ export function EventForm({
           router.replace(`/organizer/events/${eventId}/edit`);
           return;
         }
-      }
-
-      if (deferAddCarClubFlow && eventId) {
-        const returnPath = `/organizer/events/${eventId}/edit`;
-        window.location.assign(
-          `/dashboard/clubs/new?linkEventId=${encodeURIComponent(eventId)}&returnTo=${encodeURIComponent(returnPath)}`
-        );
-        return;
       }
 
       if (isEdit && initial) {
@@ -998,6 +1109,18 @@ export function EventForm({
     }
   }
 
+  const createClubReturnTo =
+    isEdit && initial
+      ? `/organizer/events/${initial.id}/edit`
+      : "/organizer/events/new";
+  const createClubHref = `/dashboard/clubs/new?returnTo=${encodeURIComponent(createClubReturnTo)}`;
+
+  const selectedHostingOrg =
+    hostingOrgId && hostingOrgId !== ADD_ORGANIZATION_SELECT_VALUE
+      ? organizations?.find((o) => o.id === hostingOrgId)
+      : undefined;
+  const selectedClubLogoUrl = selectedHostingOrg?.logo?.trim() || null;
+
   return (
     <>
     <form onSubmit={onSubmit} className="mx-auto max-w-2xl space-y-8 pb-12">
@@ -1011,6 +1134,98 @@ export function EventForm({
         loading={loading}
         destructiveBusy={destructiveAction !== null}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Event organizer</CardTitle>
+          <CardDescription>
+            {isEdit
+              ? "Hosting club or organization for this event."
+              : "Choose one of your clubs or create a new one. Only clubs on your profile appear here. The club's home state sets the event time zone."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="hostingOrgId">Hosting organization</Label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <select
+                id="hostingOrgId"
+                className="flex h-10 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none disabled:cursor-not-allowed disabled:opacity-70 sm:h-11"
+                value={hostingOrgId}
+                onChange={(e) => onHostingOrganizationChange(e.target.value)}
+                disabled={hostingLocked}
+              >
+                <option value="">Select hosting organization…</option>
+                {(organizations ?? []).map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {formatOrgNameWithClubState(o.name, o.clubState)}
+                  </option>
+                ))}
+              </select>
+              {selectedClubLogoUrl ? (
+                <EventLogo
+                  src={selectedClubLogoUrl}
+                  alt={
+                    selectedHostingOrg?.name
+                      ? `${selectedHostingOrg.name} logo`
+                      : "Club logo"
+                  }
+                  size="clubForm"
+                  shape="square"
+                  className="shrink-0"
+                  title={
+                    selectedHostingOrg?.name
+                      ? `Hosting club: ${selectedHostingOrg.name}`
+                      : undefined
+                  }
+                />
+              ) : null}
+              {!hostingLocked ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 shrink-0 whitespace-nowrap sm:h-11"
+                  asChild
+                >
+                  <Link href={createClubHref}>Create New Club</Link>
+                </Button>
+              ) : null}
+            </div>
+            {hostingLocked ? (
+              <p className="text-xs italic text-muted-foreground">
+                Hosting organization can&apos;t be changed here after it&apos;s set.
+              </p>
+            ) : null}
+          </div>
+          {isEdit && eventOrganizerContacts !== undefined ? (
+            <div className="rounded-md border border-border bg-muted/25 px-3 py-2.5 text-xs">
+              <p className="font-medium text-foreground">Message &amp; refund inbox</p>
+              <p className="mt-1 text-muted-foreground">
+                Logged-in registrants can message the event organizer about this
+                show or request a refund. Those messages go to the organizer
+                account(s) listed here (same as the{" "}
+                <strong>Organizer</strong> role under Event Staffing).
+              </p>
+              {eventOrganizerContacts.length > 0 ? (
+                <ul className="mt-2 space-y-1.5">
+                  {eventOrganizerContacts.map((c) => (
+                    <li key={c.email} className="text-foreground">
+                      <span className="font-medium">{c.name}</span>
+                      <span className="text-muted-foreground"> · {c.email}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-amber-800 dark:text-amber-200">
+                  No organizer is assigned yet. Add at least one person with the
+                  Organizer role under <strong>Event Staffing</strong> so
+                  registrants can reach you.
+                </p>
+              )}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -1200,6 +1415,177 @@ export function EventForm({
 
       <Card>
         <CardHeader>
+          <CardTitle>Event date/time</CardTitle>
+          <CardDescription>
+            Use the calendar control for each event day (new events cannot use past
+            dates). Add a row when hours differ by day; new rows start the day after
+            the previous row—set the first date before adding another day.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {(() => {
+            const lastScheduleRow = scheduleRows[scheduleRows.length - 1];
+            const canAddAnotherDay =
+              !!lastScheduleRow?.date?.trim() &&
+              /^\d{4}-\d{2}-\d{2}$/.test(lastScheduleRow.date);
+            return scheduleRows.map((row, index) => {
+            const isLast = index === scheduleRows.length - 1;
+            return (
+              <div
+                key={row.id}
+                className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-2"
+              >
+                <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(9.45rem,1.04625fr)_minmax(0,calc(13.75rem/0.9))_minmax(0,calc(13.75rem/0.9))] sm:gap-2">
+                  <div className="min-w-0 space-y-2 sm:min-w-[9.45rem]">
+                    <Label
+                      htmlFor={`event-date-${row.id}`}
+                      className={index > 0 ? "sr-only" : undefined}
+                    >
+                      Event date
+                      <CreateRequiredMark show={!isEdit} />
+                    </Label>
+                    <Input
+                      id={`event-date-${row.id}`}
+                      type="date"
+                      autoComplete="off"
+                      aria-required={!isEdit ? true : undefined}
+                      min={!isEdit ? todayLocalYmd() : undefined}
+                      value={row.date}
+                      onChange={(e) =>
+                        updateScheduleRow(row.id, {
+                          date: e.target.value,
+                        })
+                      }
+                      className="min-w-0 font-mono text-sm tabular-nums sm:min-w-[9.45rem]"
+                    />
+                  </div>
+                  <QuarterHourTimePickers
+                    idPrefix={`start-${row.id}`}
+                    label="Start time"
+                    labelSrOnly={index > 0}
+                    showRequiredAsterisk={!isEdit}
+                    inputRequired={!isEdit}
+                    value={row.startTime}
+                    onChange={(startTime) =>
+                      updateScheduleRow(row.id, {
+                        startTime: normalizeTimeToFiveMinutes(startTime),
+                      })
+                    }
+                  />
+                  <QuarterHourTimePickers
+                    idPrefix={`end-${row.id}`}
+                    label="End time"
+                    labelSrOnly={index > 0}
+                    value={row.endTime}
+                    onChange={(endTime) =>
+                      updateScheduleRow(row.id, {
+                        endTime: normalizeTimeToFiveMinutes(endTime),
+                      })
+                    }
+                  />
+                </div>
+                <div className="w-full max-w-[7.75rem] shrink-0 space-y-2 sm:w-[7.75rem]">
+                  <Label
+                    htmlFor={`tz-${row.id}`}
+                    className={index > 0 ? "sr-only" : undefined}
+                  >
+                    Time zone
+                    <CreateRequiredMark show={!isEdit} />
+                  </Label>
+                  <select
+                    id={`tz-${row.id}`}
+                    className="flex h-9 w-full max-w-[7.75rem] rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-xs outline-none sm:h-10 sm:text-[13px]"
+                    required={!isEdit}
+                    aria-required={!isEdit ? true : undefined}
+                    value={row.timeZone}
+                    onChange={(e) =>
+                      updateScheduleRow(row.id, {
+                        timeZone: e.target.value as EventTimeZoneIana,
+                      })
+                    }
+                  >
+                    {EVENT_TIME_ZONE_OPTIONS.map((z) => (
+                      <option key={z.value} value={z.value}>
+                        {z.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex shrink-0 justify-end gap-1 sm:pb-0.5">
+                  {scheduleRows.length > 1 && index > 0 ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+                      onClick={() => removeScheduleRow(row.id)}
+                      aria-label="Remove this day"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                  {isLast ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+                      onClick={addScheduleRow}
+                      disabled={!canAddAnotherDay}
+                      aria-label="Add another day"
+                      title={
+                        canAddAnotherDay
+                          ? undefined
+                          : "Enter a valid event date on this row first"
+                      }
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          });
+          })()}
+
+          <div className="mt-6 border-t border-border pt-4">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={rainDateEnabled}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setRainDateEnabled(checked);
+                  if (!checked) setRainDateYmd("");
+                }}
+                className="size-4 rounded border border-input"
+              />
+              Add Rain Date
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Optional backup date if weather postpones the show (common in spring
+              and fall).
+            </p>
+            {rainDateEnabled ? (
+              <div className="mt-3 max-w-[9.45rem] space-y-2">
+                <Label htmlFor="rain-date">Rain Date</Label>
+                <Input
+                  id="rain-date"
+                  type="date"
+                  autoComplete="off"
+                  value={rainDateYmd}
+                  min={!isEdit ? todayLocalYmd() : undefined}
+                  onChange={(e) => setRainDateYmd(e.target.value)}
+                  className="min-w-0 font-mono text-sm tabular-nums"
+                />
+              </div>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Venue &amp; address</CardTitle>
           <CardDescription>
             Search to fill fields from Google Places, or enter an address manually.
@@ -1370,143 +1756,6 @@ export function EventForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>Event date/time</CardTitle>
-          <CardDescription>
-            Use the calendar control for each event day (new events cannot use past
-            dates). Add a row when hours differ by day; new rows start the day after
-            the previous row—set the first date before adding another day.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {(() => {
-            const lastScheduleRow = scheduleRows[scheduleRows.length - 1];
-            const canAddAnotherDay =
-              !!lastScheduleRow?.date?.trim() &&
-              /^\d{4}-\d{2}-\d{2}$/.test(lastScheduleRow.date);
-            return scheduleRows.map((row, index) => {
-            const isLast = index === scheduleRows.length - 1;
-            return (
-              <div
-                key={row.id}
-                className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-2"
-              >
-                <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(9.45rem,1.04625fr)_minmax(0,calc(13.75rem/0.9))_minmax(0,calc(13.75rem/0.9))] sm:gap-2">
-                  <div className="min-w-0 space-y-2 sm:min-w-[9.45rem]">
-                    <Label
-                      htmlFor={`event-date-${row.id}`}
-                      className={index > 0 ? "sr-only" : undefined}
-                    >
-                      Event date
-                      <CreateRequiredMark show={!isEdit} />
-                    </Label>
-                    <Input
-                      id={`event-date-${row.id}`}
-                      type="date"
-                      autoComplete="off"
-                      aria-required={!isEdit ? true : undefined}
-                      min={!isEdit ? todayLocalYmd() : undefined}
-                      value={row.date}
-                      onChange={(e) =>
-                        updateScheduleRow(row.id, {
-                          date: e.target.value,
-                        })
-                      }
-                      className="min-w-0 font-mono text-sm tabular-nums sm:min-w-[9.45rem]"
-                    />
-                  </div>
-                  <QuarterHourTimePickers
-                    idPrefix={`start-${row.id}`}
-                    label="Start time"
-                    labelSrOnly={index > 0}
-                    showRequiredAsterisk={!isEdit}
-                    inputRequired={!isEdit}
-                    value={row.startTime}
-                    onChange={(startTime) =>
-                      updateScheduleRow(row.id, {
-                        startTime: normalizeTimeToFiveMinutes(startTime),
-                      })
-                    }
-                  />
-                  <QuarterHourTimePickers
-                    idPrefix={`end-${row.id}`}
-                    label="End time"
-                    labelSrOnly={index > 0}
-                    value={row.endTime}
-                    onChange={(endTime) =>
-                      updateScheduleRow(row.id, {
-                        endTime: normalizeTimeToFiveMinutes(endTime),
-                      })
-                    }
-                  />
-                </div>
-                <div className="w-full max-w-[7.75rem] shrink-0 space-y-2 sm:w-[7.75rem]">
-                  <Label
-                    htmlFor={`tz-${row.id}`}
-                    className={index > 0 ? "sr-only" : undefined}
-                  >
-                    Time zone
-                    <CreateRequiredMark show={!isEdit} />
-                  </Label>
-                  <select
-                    id={`tz-${row.id}`}
-                    className="flex h-9 w-full max-w-[7.75rem] rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-xs outline-none sm:h-10 sm:text-[13px]"
-                    required={!isEdit}
-                    aria-required={!isEdit ? true : undefined}
-                    value={row.timeZone}
-                    onChange={(e) =>
-                      updateScheduleRow(row.id, {
-                        timeZone: e.target.value as EventTimeZoneIana,
-                      })
-                    }
-                  >
-                    {EVENT_TIME_ZONE_OPTIONS.map((z) => (
-                      <option key={z.value} value={z.value}>
-                        {z.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex shrink-0 justify-end gap-1 sm:pb-0.5">
-                  {scheduleRows.length > 1 && index > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
-                      onClick={() => removeScheduleRow(row.id)}
-                      aria-label="Remove this day"
-                    >
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                  {isLast ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
-                      onClick={addScheduleRow}
-                      disabled={!canAddAnotherDay}
-                      aria-label="Add another day"
-                      title={
-                        canAddAnotherDay
-                          ? undefined
-                          : "Enter a valid event date on this row first"
-                      }
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          });
-          })()}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Event contact</CardTitle>
           <CardDescription>Primary contact for exhibitors and attendees.</CardDescription>
         </CardHeader>
@@ -1577,9 +1826,9 @@ export function EventForm({
         <CardHeader>
           <CardTitle>Event marketing</CardTitle>
           <CardDescription>
-            Files upload to secure storage and appear on the public event page (flyer
-            and logo). JPEG, PNG, WebP, GIF, or PDF for flyer (max 8 MB). Logo images
-            only for brand mark.
+            Flyer and logo upload to this event&apos;s public folder and appear on
+            the registration page. JPEG, PNG, WebP, GIF, or PDF for flyer (max 8 MB).
+            Logo images only for the event brand mark.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1619,22 +1868,20 @@ export function EventForm({
               />
             </div>
             <div className="flex min-w-0 flex-col gap-1">
-              <span className="text-sm font-medium leading-none">
-                Event / club logo
-              </span>
+              <span className="text-sm font-medium leading-none">Event Logo</span>
               <div className="flex items-center gap-3">
                 {logoThumb && (
                   <ThumbnailWithEye onClick={() => openLightbox(logoThumb, "logo")}>
                     <img
                       src={logoThumb}
-                      alt="Event logo preview"
-                      className="h-12 w-12 rounded-md border object-cover"
+                      alt="Event Logo preview"
+                      className="h-12 w-[calc(3rem*1.5)] rounded-md border object-contain p-0.5"
                     />
                   </ThumbnailWithEye>
                 )}
                 <label
                   htmlFor="event-logo-file"
-                  aria-label="Choose event or club logo file"
+                  aria-label="Choose Event Logo file"
                   className="group flex min-h-9 min-w-0 cursor-pointer items-center gap-2 rounded-md border border-transparent px-0 py-0.5 hover:border-input hover:bg-muted/50"
                 >
                   <Upload
@@ -1678,81 +1925,6 @@ export function EventForm({
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Event organizer</CardTitle>
-          <CardDescription>
-            Optional hosting car club / organization. New events are always saved
-            under your organizer account first; link a club later if you use one.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="hostingOrgId">Hosting organization</Label>
-            <select
-              id="hostingOrgId"
-              className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none disabled:cursor-not-allowed disabled:opacity-70"
-              value={hostingOrgId}
-              onChange={(e) => onHostingOrganizationChange(e.target.value)}
-              disabled={hostingLocked}
-            >
-              <option value="">
-                Select hosting organization…
-              </option>
-              {organizations.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {formatOrgNameWithClubState(o.name, o.clubState)}
-                </option>
-              ))}
-              <option value={ADD_ORGANIZATION_SELECT_VALUE}>
-                Add Car Club / Organization
-              </option>
-            </select>
-            {hostingLocked ? (
-              <p className="text-xs italic text-muted-foreground">
-                Hosting organization can&apos;t be changed here after it&apos;s set.
-              </p>
-            ) : null}
-          </div>
-          {isEdit && eventOrganizerContacts !== undefined ? (
-            <div className="rounded-md border border-border bg-muted/25 px-3 py-2.5 text-xs">
-              <p className="font-medium text-foreground">Message &amp; refund inbox</p>
-              <p className="mt-1 text-muted-foreground">
-                Logged-in registrants can message the event organizer about this
-                show or request a refund. Those messages go to the organizer
-                account(s) listed here (same as the{" "}
-                <strong>Organizer</strong> role under Event Staffing).
-              </p>
-              {eventOrganizerContacts.length > 0 ? (
-                <ul className="mt-2 space-y-1.5">
-                  {eventOrganizerContacts.map((c) => (
-                    <li key={c.email} className="text-foreground">
-                      <span className="font-medium">{c.name}</span>
-                      <span className="text-muted-foreground"> · {c.email}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-amber-800 dark:text-amber-200">
-                  No organizer is assigned yet. Add at least one person with the
-                  Organizer role under <strong>Event Staffing</strong> so
-                  registrants can reach you.
-                </p>
-              )}
-            </div>
-          ) : null}
-          {!hostingLocked &&
-          hostingOrgId === ADD_ORGANIZATION_SELECT_VALUE ? (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              When you save this event, you&apos;ll go to the full{" "}
-              <strong>Add New Car Club</strong> screen. After you create the club,
-              it will be set as the hosting organization for this event (same event
-              ID).
-            </p>
-          ) : null}
         </CardContent>
       </Card>
 
@@ -1863,6 +2035,55 @@ export function EventForm({
                 onClick={() => setScheduledListingDialogOpen(false)}
               >
                 OK
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {flatPlatformFeeDialogOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="flat-platform-fee-dialog-title"
+        >
+          <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
+            <p
+              id="flat-platform-fee-dialog-title"
+              className="text-sm leading-relaxed text-foreground"
+            >
+              You selected the Flat Platform Fee option for your event. Before
+              publishing the event or scheduling it to be published, you must
+              make the Platform Fee payment.{" "}
+              <button
+                type="button"
+                className="font-medium text-primary underline underline-offset-2 hover:text-primary/90 disabled:opacity-50"
+                disabled={payingFlatPlatformFee || !initial?.id}
+                onClick={() => void handlePayFlatPlatformFee()}
+              >
+                {payingFlatPlatformFee ? (
+                  <>
+                    <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
+                    Opening Stripe…
+                  </>
+                ) : (
+                  "Please click here to make the one-time payment for the event through Stripe."
+                )}
+              </button>
+            </p>
+            <p className="mt-3 text-xs text-muted-foreground">
+              You can also pay from Payment Settings below on this page after
+              closing this dialog.
+            </p>
+            <div className="mt-6 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={payingFlatPlatformFee}
+                onClick={() => setFlatPlatformFeeDialogOpen(false)}
+              >
+                Close
               </Button>
             </div>
           </div>

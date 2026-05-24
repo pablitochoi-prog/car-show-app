@@ -1,15 +1,14 @@
-import { prisma } from "@/lib/db";
+import { listSpecialAwardsForAdmin } from "@/lib/sms/sms-voting-eligible-awards";
 import { AdminAwardList } from "@/components/admin/admin-award-list";
 
 export default async function AdminAwardsPage() {
-  const awards = await prisma.specialAward.findMany({
-    orderBy: { sortOrder: "asc" },
-  });
+  const awards = await listSpecialAwardsForAdmin();
 
   const serialized = awards.map((a) => ({
     id: a.id,
     name: a.name,
-    isSystem: a.isSystem,
+    isSystem: true,
+    smsVotingEligible: a.smsVotingEligible,
   }));
 
   return (

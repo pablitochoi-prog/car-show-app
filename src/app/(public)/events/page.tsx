@@ -20,9 +20,13 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EventCardIdentity } from "@/components/events/event-card-identity";
+import {
+  EventCardIdentity,
+  EVENT_CARD_META_INDENT_CLASS,
+} from "@/components/events/event-card-identity";
 import { eventBrandingFromEvent } from "@/lib/event-card-branding";
 import { US_STATES } from "@/lib/us-states";
+import { formatUsdDollars } from "@/lib/money";
 
 function parseDate(v: string | undefined): Date | undefined {
   if (!v?.trim()) return undefined;
@@ -41,10 +45,12 @@ const EVENT_TYPES: Record<string, string> = {
 function feeLabel(type: string | null, dollars: number | null): string {
   if (!type || type === "FREE") return "Free";
   if (type === "DONATION") {
-    return dollars != null ? `Donation · $${dollars} suggested` : "Donation";
+    return dollars != null
+      ? `Donation · ${formatUsdDollars(dollars)} suggested`
+      : "Donation";
   }
   if (type === "PAID_TIERED") return "Tiered pricing";
-  return dollars != null ? `$${dollars}` : "Paid";
+  return dollars != null ? formatUsdDollars(dollars) : "Paid";
 }
 
 function eventTypeBadge(type: string) {
@@ -282,7 +288,12 @@ export default async function EventsPage({
                         }
                       />
 
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground sm:ml-[3.75rem]">
+                      <div
+                        className={cn(
+                          "flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground",
+                          EVENT_CARD_META_INDENT_CLASS,
+                        )}
+                      >
                         <span className="flex items-center gap-1">
                           <Calendar className="size-3.5" />
                           {dateStr}

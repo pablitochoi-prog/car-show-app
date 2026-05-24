@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, requireOrgMember, writeAccessDeniedResponse } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocoding";
 import { createEventSchema } from "@/lib/validation/event";
-import { deriveFieldsFromDailyHours } from "@/lib/daily-hours";
+import { deriveFieldsFromDailyHours, utcDateFromYmd } from "@/lib/daily-hours";
 import { resolveListingScheduledAtForPersistence } from "@/lib/listing-scheduled";
 import { canCreateEvent } from "@/lib/permissions";
 import { allocateUniqueVotePrefixForNewEvent } from "@/lib/event-sms-vehicle-id";
@@ -208,6 +208,10 @@ export async function POST(request: Request) {
       endTime,
       isMultiDay,
       ...(dailyHoursCreate !== undefined ? { dailyHours: dailyHoursCreate } : {}),
+      rainDate:
+        d.rainDate && String(d.rainDate).trim()
+          ? utcDateFromYmd(String(d.rainDate).trim())
+          : null,
       registrationFeeType: fee.registrationFeeType,
       registrationFeeDollars: fee.registrationFeeDollars,
       contactName: d.contactName || null,

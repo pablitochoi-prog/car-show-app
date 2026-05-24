@@ -13,7 +13,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "CarShowApp - Discover & Manage Car Shows",
+  title: "CarShowScout.com - Discover & Manage Car Shows",
   description:
     "Find car shows near you, register your vehicles, and connect with the car enthusiast community.",
 };

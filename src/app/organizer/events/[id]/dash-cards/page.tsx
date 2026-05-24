@@ -8,6 +8,7 @@ import { DashCardPreview } from "@/components/dash-card/dash-card-preview";
 import { DashCardPrintButton } from "@/components/dash-card/dash-card-print-button";
 import { prisma } from "@/lib/db";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
+import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
 
 export const metadata: Metadata = {
   title: "Dash cards | Organizer",
@@ -34,16 +35,64 @@ export default async function OrganizerDashCardsPage({
   );
   if (!allowed) notFound();
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: { name: true, showNumber: true },
-  });
+  const [event, platformFeeStatus] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id: eventId },
+      select: { name: true, showNumber: true },
+    }),
+    getEventPlatformFeeStatus(eventId),
+  ]);
   if (!event) notFound();
 
   const registrationIds = (idsParam ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+
+  if (!platformFeeStatus?.paid) {
+    return (
+      <div className="page-shell max-w-6xl space-y-6">
+        <div className="space-y-1">
+          <Link
+            href={`/organizer/events/${eventId}/registrations`}
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
+            ← Registrations
+          </Link>
+          <h1 className="text-xl font-semibold">
+            Dash cards —{" "}
+            <EventNameWithNumber
+              name={event.name}
+              showNumber={event.showNumber}
+            />
+          </h1>
+        </div>
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-6 text-sm">
+          <p className="font-medium text-amber-950 dark:text-amber-100">
+            Platform fee required
+          </p>
+          <p className="mt-2 text-muted-foreground">
+            {platformFeeStatus?.dashCardsBlockedMessage ??
+              "The platform licensing fee for this event must be paid before you can print dash cards."}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link
+              href={`/organizer/events/${eventId}/edit`}
+              className="font-medium text-primary hover:underline"
+            >
+              Review payment settings
+            </Link>
+            <Link
+              href={`/organizer/events/${eventId}/registrations`}
+              className="font-medium text-primary hover:underline"
+            >
+              ← Back to registrations
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const cards = await loadDashCardModelsForRegistrations(
     eventId,

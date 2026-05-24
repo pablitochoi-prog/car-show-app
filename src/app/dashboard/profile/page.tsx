@@ -1,14 +1,9 @@
-import { Suspense } from "react";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser, getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { AccountSectionForm } from "@/components/profile/account-section-form";
-import { MyClubsSection } from "@/components/profile/my-clubs-section";
+import { MyProfileClient } from "@/components/profile/my-profile-client";
 import { splitUserDisplayName } from "@/lib/profile-display-name";
+import { userHasProfilePhoto } from "@/lib/profile-photo-access";
 import { canCreateOrganization } from "@/lib/permissions";
 
 export default async function MyProfilePage() {
@@ -16,7 +11,6 @@ export default async function MyProfilePage() {
   if (!user) redirect("/login");
 
   const supabaseUser = await getSession();
-  /* Supabase sets `new_email` on the auth user while an email change is pending. */
   const rawNewEmail = (supabaseUser as unknown as Record<string, unknown>)
     ?.new_email;
   const pendingEmail =
@@ -29,7 +23,7 @@ export default async function MyProfilePage() {
   const { firstName, lastName } = splitUserDisplayName(
     user.name,
     user.firstName,
-    user.lastName
+    user.lastName,
   );
 
   const rawMemberships = await prisma.organizationMember.findMany({
@@ -44,7 +38,9 @@ export default async function MyProfilePage() {
           motto: true,
           members: {
             where: { role: "owner" },
-            select: { user: { select: { firstName: true, lastName: true, name: true } } },
+            select: {
+              user: { select: { firstName: true, lastName: true, name: true } },
+            },
             take: 1,
           },
         },
@@ -56,7 +52,8 @@ export default async function MyProfilePage() {
   const memberships = rawMemberships.map((m) => {
     const owner = m.organization.members[0]?.user;
     const organizerName = owner
-      ? [owner.firstName, owner.lastName].filter(Boolean).join(" ") || owner.name
+      ? [owner.firstName, owner.lastName].filter(Boolean).join(" ") ||
+        owner.name
       : null;
     return {
       id: m.id,
@@ -73,61 +70,24 @@ export default async function MyProfilePage() {
   });
 
   return (
-    <div className="page-shell max-w-2xl space-y-8">
-      <div className="page-head flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">My profile</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Account details from your CarShowApp profile.
-          </p>
-        </div>
-        <Link
-          href="/dashboard"
-          className={cn(
-            buttonVariants({ variant: "outline" }),
-            "w-full justify-center sm:w-auto"
-          )}
-        >
-          Back to dashboard
-        </Link>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Account information</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm">
-          <Suspense fallback={<p className="text-muted-foreground">Loading…</p>}>
-            <AccountSectionForm
-              email={user.email}
-              pendingEmail={pendingEmail}
-              username={user.username}
-              initial={{
-                firstName,
-                lastName,
-                birthYear: user.birthYear ?? null,
-                phone: user.phone ?? "",
-                street: user.street ?? "",
-                city: user.city ?? "",
-                state: user.state ?? "",
-                zip: user.zip ?? "",
-              }}
-            />
-          </Suspense>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">My clubs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <MyClubsSection
-            memberships={memberships}
-            canCreate={canCreateOrganization(user)}
-          />
-        </CardContent>
-      </Card>
-    </div>
+    <MyProfileClient
+      email={user.email}
+      pendingEmail={pendingEmail}
+      username={user.username}
+      name={user.name}
+      hasPhoto={userHasProfilePhoto(user.avatarUrl)}
+      initial={{
+        firstName,
+        lastName,
+        birthYear: user.birthYear ?? null,
+        phone: user.phone ?? "",
+        street: user.street ?? "",
+        city: user.city ?? "",
+        state: user.state ?? "",
+        zip: user.zip ?? "",
+      }}
+      memberships={memberships}
+      canCreateClub={canCreateOrganization(user)}
+    />
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ClipboardList, Mail } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { EventForm, type EventInitial } from "@/components/forms/event-form";
@@ -14,21 +15,33 @@ import {
   type StripeConnectInfo,
 } from "@/components/stripe/stripe-connect-card";
 import { EventPaymentSettings } from "@/components/stripe/event-payment-settings";
-import { getPlatformFee, formatFeeLabel } from "@/lib/platform-fee";
+import { getPlatformFee, formatFeeLabel, getEventSetupFee, formatEventSetupFeeLabel } from "@/lib/platform-fee";
+import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
+import { CompletedBadge } from "@/components/ui/completed-badge";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Suspense } from "react";
 import { StripeReturnBanner } from "@/components/stripe/stripe-return-banner";
+import { fulfillPlatformSetupFeeFromCheckoutSession } from "@/lib/stripe-fulfill-platform-setup-fee";
 
 export default async function EditEventPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ session_id?: string; platform_fee_paid?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const { id } = await params;
+  const sp = await searchParams;
+
+  if (sp.session_id && sp.platform_fee_paid === "1") {
+    await fulfillPlatformSetupFeeFromCheckoutSession(sp.session_id);
+  }
 
   const event = await prisma.event.findUnique({
     where: { id },
@@ -58,14 +71,19 @@ export default async function EditEventPage({
     staffRoleDefinitions,
     tierRows,
     platformFee,
+    eventSetupFee,
     eventCategoryRows,
     eventAwardRows,
+    platformFeeStatus,
+    activeVotingCategoryCount,
   ] = await Promise.all([
     prisma.organizationMember.findMany({
       where: { userId: user.id },
       select: {
         role: true,
-        organization: { select: { id: true, name: true, clubState: true } },
+        organization: {
+          select: { id: true, name: true, clubState: true, logo: true },
+        },
       },
       orderBy: { organization: { name: "asc" } },
     }),
@@ -78,6 +96,7 @@ export default async function EditEventPage({
         })
       : Promise.resolve([]),
     getPlatformFee(),
+    getEventSetupFee(),
     prisma.eventCategory.findMany({
       where: { eventId: id },
       select: {
@@ -95,7 +114,17 @@ export default async function EditEventPage({
         specialAward: { select: { name: true } },
       },
     }),
+    getEventPlatformFeeStatus(id),
+    prisma.votingCategory.count({
+      where: { eventId: id, isActive: true },
+    }),
   ]);
+
+  const paymentSettingsComplete = Boolean(
+    platformFeeStatus?.paymentEnabled && platformFeeStatus.paid,
+  );
+  const smsVotingComplete =
+    event.smsVotingEnabled && activeVotingCategoryCount > 0;
 
   const initialCategoryCount = eventCategoryRows.length;
   const initialTrophyCount = countEventAwardTrophies({
@@ -111,6 +140,7 @@ export default async function EditEventPage({
   });
 
   const convenienceFeeLabel = formatFeeLabel(platformFee);
+  const flatSetupFeeLabel = formatEventSetupFeeLabel(eventSetupFee.amountCents);
 
   const organizerContacts = staff
     .filter((s) => s.roles.some((r) => r.slug === "organizer"))
@@ -130,6 +160,7 @@ export default async function EditEventPage({
     id: m.organization.id,
     name: m.organization.name,
     clubState: m.organization.clubState ?? null,
+    logo: m.organization.logo,
   }));
 
   const listingEditable =
@@ -171,6 +202,7 @@ export default async function EditEventPage({
     startTime: event.startTime,
     endTime: event.endTime,
     isMultiDay: event.isMultiDay,
+    rainDate: event.rainDate?.toISOString() ?? null,
     dailyHours: parseDailyHours(event.dailyHours) ?? undefined,
     registrationFeeType: event.registrationFeeType,
     registrationFeeDollars: event.registrationFeeDollars,
@@ -227,18 +259,26 @@ export default async function EditEventPage({
             </span>
           </p>
         ) : null}
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+        <div className="mt-4 flex flex-wrap items-center gap-4 sm:gap-5">
           <Link
             href={`/organizer/events/${event.id}/registrations`}
-            className="font-medium text-primary hover:underline"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "no-underline",
+            )}
           >
-            Registrations
+            <ClipboardList className="mr-2 size-4" aria-hidden />
+            Event Registrations
           </Link>
           <Link
             href={`/organizer/events/${event.id}/messages`}
-            className="font-medium text-primary hover:underline"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "no-underline",
+            )}
           >
-            Messages
+            <Mail className="mr-2 size-4" aria-hidden />
+            My Messages
           </Link>
           <ContactSiteAdminButton
             eventId={event.id}
@@ -269,7 +309,12 @@ export default async function EditEventPage({
         eventOrganizerContacts={organizerContacts}
         betweenOrganizerAndActions={
           <>
-            <CollapsibleCard title="Payment Settings" defaultOpen={true}>
+            <CollapsibleCard
+              title="Payment Settings"
+              defaultOpen={false}
+              badge={paymentSettingsComplete ? <CompletedBadge /> : undefined}
+            >
+              <div id="payment-settings" className="scroll-mt-24">
               {stripeInfo ? (
                 <div className="space-y-6">
                   <Suspense fallback={null}>
@@ -283,8 +328,11 @@ export default async function EditEventPage({
                   <EventPaymentSettings
                     eventId={event.id}
                     stripeReady={stripeInfo.chargesEnabled}
-                    paymentEnabled={event.paymentEnabled}
+                    eventStatus={event.status}
+                    platformFeeMode={event.platformFeeMode}
                     convenienceFeeLabel={convenienceFeeLabel}
+                    flatSetupFeeLabel={flatSetupFeeLabel}
+                    setupFeeCollected={event.platformSetupFeeCollected}
                   />
                 </div>
               ) : (
@@ -293,8 +341,9 @@ export default async function EditEventPage({
                   settings.
                 </p>
               )}
+              </div>
             </CollapsibleCard>
-            <CollapsibleCard title="Event Staffing" defaultOpen>
+            <CollapsibleCard title="Event Staffing" defaultOpen={false}>
               <EventStaffManager
                 key={event.id}
                 eventId={event.id}
@@ -306,6 +355,14 @@ export default async function EditEventPage({
               eventId={event.id}
               initialCategoryCount={initialCategoryCount}
               initialTrophyCount={initialTrophyCount}
+              initialSmsVotingComplete={smsVotingComplete}
+              eventSchedule={{
+                startDate: event.startDate.toISOString(),
+                endDate: event.endDate?.toISOString() ?? null,
+                startTime: event.startTime,
+                endTime: event.endTime,
+                dailyHours: parseDailyHours(event.dailyHours),
+              }}
             />
           </>
         }

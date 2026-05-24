@@ -40,13 +40,13 @@ import {
 import { formatUSPhoneDigits, digitsFromPhoneInput } from "@/lib/phone-us";
 import type { TierOption, PlatformFeeInfo } from "./event-registration-page";
 import {
-  donationPlatformFeeTotalCents,
   parseDonationDollarsInput,
   suggestedDonationDollarsInput,
   suggestedDonationTotalDollars,
 } from "@/lib/donation";
 import { DonationAmountField } from "./donation-amount-field";
-import { convenienceFeePerVehicle } from "./reg-utils";
+import { totalPlatformFeeForCheckout, type EventPlatformFeeMode } from "@/lib/event-platform-fee";
+import { dollarsToCents } from "@/lib/money";
 import { GuestVehiclePhoto } from "./guest-vehicle-photo";
 import { RequiredFieldMark } from "./required-field-mark";
 import { VehicleClassSelect } from "./vehicle-class-select";
@@ -90,6 +90,9 @@ export function GuestRegistrationForm({
   feeDollars,
   stripeConnectReady,
   platformFee,
+  platformFeeMode = "CONVENIENCE",
+  platformSetupFeeCollected = false,
+  eventSetupFeeCents = 0,
   eventCategories = [],
 }: {
   eventId: string;
@@ -99,6 +102,9 @@ export function GuestRegistrationForm({
   /** Stripe Connect can accept charges for this event. */
   stripeConnectReady: boolean;
   platformFee: PlatformFeeInfo;
+  platformFeeMode?: EventPlatformFeeMode;
+  platformSetupFeeCollected?: boolean;
+  eventSetupFeeCents?: number;
   eventCategories?: EventCategoryOption[];
 }) {
   const router = useRouter();
@@ -163,13 +169,33 @@ export function GuestRegistrationForm({
   const guestDonationCents = isDonationEvent
     ? parseDonationDollarsInput(donationDollars) ?? 0
     : 0;
-  const guestPlatformFee = isDonationEvent
-    ? donationPlatformFeeTotalCents(
-        (cents) => convenienceFeePerVehicle(platformFee, cents),
-        feeDollars,
-        vehicleCount,
-      )
-    : { perVehicleCents: 0, totalCents: 0 };
+
+  const guestFeeUnitCents = (() => {
+    if (isDonationEvent) return dollarsToCents(feeDollars ?? 0);
+    if (feeType === "PAID_TIERED" && selectedTier) return selectedTier.priceCents;
+    return dollarsToCents(feeDollars ?? 0);
+  })();
+
+  const guestPlatformFees = totalPlatformFeeForCheckout({
+    mode: platformFeeMode,
+    platformFee: platformFee ?? {
+      type: "NONE",
+      amountCents: null,
+      percent: null,
+    },
+    unitPriceCents: guestFeeUnitCents,
+    vehicleCount,
+    setupFeeCents: eventSetupFeeCents,
+    setupFeeCollected: platformSetupFeeCollected,
+  });
+
+  const guestPlatformFee = {
+    perVehicleCents: guestPlatformFees.perVehiclePlatformFeeCents,
+    totalCents:
+      guestPlatformFees.perVehiclePlatformFeeCents * Math.max(vehicleCount, 1) +
+      guestPlatformFees.flatSetupFeeCents,
+    flatSetupCents: guestPlatformFees.flatSetupFeeCents,
+  };
   const guestGrandTotal = guestDonationCents + guestPlatformFee.totalCents;
 
   function draftIsValid() {
@@ -405,14 +431,24 @@ export function GuestRegistrationForm({
             disabled={!!submitting}
             id="guest-review-donation-amount"
           />
-          {guestPlatformFee.totalCents > 0 && (
+          {guestPlatformFee.perVehicleCents > 0 && (
             <div className="flex items-center justify-between gap-2 border-t pt-2">
-              <span>Convenience fee:</span>
+              <span>Registration fee:</span>
               <span className="text-right font-medium">
                 {formatMoney(guestPlatformFee.perVehicleCents)} × {vehicleCount}{" "}
                 vehicle
                 {vehicleCount !== 1 ? "s" : ""} ={" "}
-                {formatMoney(guestPlatformFee.totalCents)}
+                {formatMoney(
+                  guestPlatformFee.perVehicleCents * Math.max(vehicleCount, 1),
+                )}
+              </span>
+            </div>
+          )}
+          {guestPlatformFee.flatSetupCents > 0 && (
+            <div className="flex items-center justify-between gap-2 border-t pt-2">
+              <span>Platform setup fee:</span>
+              <span className="text-right font-medium">
+                {formatMoney(guestPlatformFee.flatSetupCents)}
               </span>
             </div>
           )}
@@ -442,13 +478,27 @@ export function GuestRegistrationForm({
       unitCents = selectedTier.priceCents;
       eventFeeLabel = selectedTier.name;
     } else {
-      unitCents = (feeDollars ?? 0) * 100;
+      unitCents = dollarsToCents(feeDollars ?? 0);
     }
 
     const eventFeeTotal = unitCents * numVehicles;
-    const convFeeCents = convenienceFeePerVehicle(platformFee, unitCents);
-    const totalConvFee = convFeeCents * numVehicles;
-    const grandTotal = eventFeeTotal + totalConvFee;
+    const tierPlatformFees = totalPlatformFeeForCheckout({
+      mode: platformFeeMode,
+      platformFee: platformFee ?? {
+        type: "NONE",
+        amountCents: null,
+        percent: null,
+      },
+      unitPriceCents: unitCents,
+      vehicleCount: numVehicles,
+      setupFeeCents: eventSetupFeeCents,
+      setupFeeCollected: platformSetupFeeCollected,
+    });
+    const convFeeCents = tierPlatformFees.perVehiclePlatformFeeCents;
+    const totalConvFee =
+      tierPlatformFees.perVehiclePlatformFeeCents * numVehicles;
+    const flatSetupFeeCents = tierPlatformFees.flatSetupFeeCents;
+    const grandTotal = eventFeeTotal + totalConvFee + flatSetupFeeCents;
 
     if (unitCents === 0) {
       return (
@@ -476,10 +526,18 @@ export function GuestRegistrationForm({
         </div>
         {totalConvFee > 0 && (
           <div className="flex items-center justify-between gap-2">
-            <span>Convenience fee:</span>
+            <span>Registration fee:</span>
             <span className="text-right font-medium">
               {formatMoney(convFeeCents)} × {numVehicles} vehicle
               {numVehicles !== 1 ? "s" : ""} = {formatMoney(totalConvFee)}
+            </span>
+          </div>
+        )}
+        {flatSetupFeeCents > 0 && (
+          <div className="flex items-center justify-between gap-2">
+            <span>Platform setup fee:</span>
+            <span className="text-right font-medium">
+              {formatMoney(flatSetupFeeCents)}
             </span>
           </div>
         )}
@@ -652,7 +710,7 @@ export function GuestRegistrationForm({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-                    <th className="w-16 px-3 py-2">Photo</th>
+                    <th className="w-[5.5rem] px-3 py-2">Photo</th>
                     <th className="px-3 py-2">Vehicle</th>
                     <th className="px-3 py-2">Vehicle nickname</th>
                     <th className="px-3 py-2">
@@ -677,7 +735,9 @@ export function GuestRegistrationForm({
                       <td className="px-3 py-2.5">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <Car className="size-4 shrink-0 text-muted-foreground" />
+                            {!v.photoUrl ? (
+                              <Car className="size-4 shrink-0 text-muted-foreground" />
+                            ) : null}
                             <span className="font-medium">
                               {v.year} {v.make} {v.model}
                             </span>
@@ -831,7 +891,9 @@ export function GuestRegistrationForm({
             <ul className="space-y-1 text-sm">
               {registeredVehicles.map((v) => (
                 <li key={v.clientId} className="flex items-center gap-2">
-                  <Car className="size-3.5 text-muted-foreground" />
+                  {!v.photoUrl ? (
+                    <Car className="size-3.5 text-muted-foreground" />
+                  ) : null}
                   <span>
                     {v.year} {v.make} {v.model}
                   </span>

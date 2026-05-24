@@ -172,14 +172,20 @@
   --dash-card-printable-height: calc(
     var(--dash-card-paper-height) - 2 * var(--dash-card-print-margin)
   );
-  --dash-card-photo-height: 3in;
+  --dash-card-photo-height: calc(3in * 1.15);
   --dash-card-sidebar-width: 4.03in;
   --dash-card-sidebar-detail-label-pt: 11.7pt;
   --dash-card-sidebar-detail-value-pt: 21.6pt;
-  --dash-card-vehicle-id-value-pt: 24pt;
+  --dash-card-vehicle-id-value-pt: 32pt;
+  --dash-card-vehicle-id-body-min-height: calc(4.125rem * 0.8);
+  --dash-card-vehicle-id-body-padding-y: calc(0.75rem * 0.8);
+  --dash-card-vehicle-id-body-padding-y-sm: calc(1rem * 0.8);
   --dash-card-header-meta-pt: 12pt;
-  --dash-card-nickname-pt: 13pt;
-  --dash-card-sponsor-logo-height: 1.75in;
+  --dash-card-nickname-pt: 20pt;
+  --dash-card-sponsor-logo-height: 0.625in;
+  --dash-card-sponsor-logo-padding-y: 0.06in;
+  --dash-card-vote-text-pt: 9pt;
+  --dash-card-footer-logo-height: 0.22in;
 }
 
 /* Screen preview: letter landscape proportions */
@@ -284,18 +290,97 @@
 }
 
 .dash-card-sponsor-logo {
-  min-height: var(--dash-card-sponsor-logo-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  min-height: calc(
+    var(--dash-card-sponsor-logo-height) + 2 * var(--dash-card-sponsor-logo-padding-y)
+  );
+  padding-top: var(--dash-card-sponsor-logo-padding-y);
+  padding-bottom: var(--dash-card-sponsor-logo-padding-y);
+}
+
+.dash-card-sponsor-logo-slot {
+  display: flex;
+  flex: 1 1 50%;
+  align-items: center;
+  min-width: 0;
+  max-width: 50%;
   height: var(--dash-card-sponsor-logo-height);
 }
 
-.dash-card-sponsor-logo .dash-card-sponsor-logo-img {
+.dash-card-sponsor-logo-slot--left {
+  justify-content: flex-start;
+}
+
+.dash-card-sponsor-logo-slot--right {
+  justify-content: flex-end;
+}
+
+.dash-card-sponsor-logo-image {
+  display: block;
   height: var(--dash-card-sponsor-logo-height);
-  width: 100%;
+  width: auto;
   max-width: 100%;
+  object-fit: contain;
+}
+
+.dash-card-sponsor-logo-slot--right .dash-card-sponsor-logo-image {
+  margin-left: auto;
+  object-position: right center;
+}
+
+.dash-card-sponsor-logo-slot--left .dash-card-sponsor-logo-image {
+  object-position: left center;
+}
+
+.dash-card-sponsor-logo--site-only-left {
+  justify-content: flex-start;
+}
+
+.dash-card-sponsor-logo--site-only-left .dash-card-sponsor-logo-slot {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.dash-card-footer-inner {
+  min-height: var(--dash-card-footer-logo-height);
+}
+
+.dash-card-footer-logo {
+  display: block;
+  height: var(--dash-card-footer-logo-height);
+  width: auto;
+  object-fit: contain;
+}
+
+.dash-card-footer-copyright {
+  font-size: 0.5rem;
+  line-height: 1.2;
+}
+
+@media (min-width: 640px) {
+  .dash-card-footer-copyright {
+    font-size: 0.55rem;
+  }
 }
 
 .dash-card-vehicle-photo {
   flex-shrink: 0;
+}
+
+.dash-card-id-panel-body {
+  min-height: var(--dash-card-vehicle-id-body-min-height);
+  padding-top: var(--dash-card-vehicle-id-body-padding-y);
+  padding-bottom: var(--dash-card-vehicle-id-body-padding-y);
+}
+
+@media (min-width: 640px) {
+  .dash-card-id-panel-body {
+    padding-top: var(--dash-card-vehicle-id-body-padding-y-sm);
+    padding-bottom: var(--dash-card-vehicle-id-body-padding-y-sm);
+  }
 }
 
 .dash-card-print-page .dash-card-sidebar-value {
@@ -312,8 +397,12 @@
 }
 
 .dash-card-print-page .dash-card-col-sidebar .dash-card-vehicle-id-value {
-  font-size: max(1.125rem, var(--dash-card-vehicle-id-value-pt));
+  font-size: var(--dash-card-vehicle-id-value-pt);
   font-weight: 700;
+}
+
+.dash-card-col-sidebar .dash-card-vehicle-id-value {
+  font-size: var(--dash-card-vehicle-id-value-pt);
 }
 
 .dash-card-print-page .dash-card-col-sidebar .dash-card-class-value,
@@ -339,6 +428,107 @@
   max-width: none;
   width: 100%;
   height: 100%;
+}
+
+.dash-card-vote-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dash-card-vote-text {
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.dash-card-vote-instruction {
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .dash-card-vote-text {
+    font-size: 0.84375rem;
+  }
+}
+
+.dash-card-qr-row-center {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.dash-card-qr-stage {
+  position: relative;
+  width: 100%;
+  height: 2cm;
+  flex-shrink: 0;
+}
+
+.dash-card-qr-side-label {
+  position: absolute;
+  top: 50%;
+  font-size: 7pt;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #64748b;
+}
+
+.dash-card-qr-side-label--left {
+  left: 0.35in;
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+.dash-card-qr-side-label--right {
+  right: 0.35in;
+  transform: translateY(-50%) rotate(90deg);
+}
+
+.dash-card-qr-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  width: 2cm;
+  height: 2cm;
+  min-width: 2cm;
+  min-height: 2cm;
+  max-width: 2cm;
+  max-height: 2cm;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+}
+
+.dash-card-qr-wrap img {
+  display: block;
+  box-sizing: border-box;
+  width: 2cm;
+  height: 2cm;
+  min-width: 2cm;
+  min-height: 2cm;
+  max-width: 2cm;
+  max-height: 2cm;
+  object-fit: contain;
+}
+
+.dash-card-qr-placeholder {
+  display: flex;
+  box-sizing: border-box;
+  width: 2cm;
+  height: 2cm;
+  min-width: 2cm;
+  min-height: 2cm;
+  max-width: 2cm;
+  max-height: 2cm;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #94a3b8;
+  background: #fff;
 }
 
 .dash-card-print-page .dash-card-class-value {
@@ -499,9 +689,15 @@
     font-weight: 700 !important;
   }
 
+  .dash-card-id-panel-body {
+    min-height: calc(var(--dash-card-vehicle-id-body-min-height) * 1.5) !important;
+    padding-top: calc(0.2in * 0.8) !important;
+    padding-bottom: calc(0.2in * 0.8) !important;
+  }
+
   .dash-card-col-sidebar .dash-card-vehicle-id-value {
     font-size: var(--dash-card-vehicle-id-value-pt) !important;
-    line-height: 1.15 !important;
+    line-height: 1.2 !important;
     font-weight: 700 !important;
     letter-spacing: 0.02em !important;
   }
@@ -523,14 +719,23 @@
   }
 
   .dash-card-sponsor-logo {
-    min-height: var(--dash-card-sponsor-logo-height) !important;
-    height: var(--dash-card-sponsor-logo-height) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    min-height: calc(
+      var(--dash-card-sponsor-logo-height) + 2 * var(--dash-card-sponsor-logo-padding-y)
+    ) !important;
+    height: auto !important;
+    padding-top: var(--dash-card-sponsor-logo-padding-y) !important;
+    padding-bottom: var(--dash-card-sponsor-logo-padding-y) !important;
   }
 
-  .dash-card-sponsor-logo .dash-card-sponsor-logo-img {
+  .dash-card-sponsor-logo-image {
     height: var(--dash-card-sponsor-logo-height) !important;
-    min-height: var(--dash-card-sponsor-logo-height) !important;
     max-height: var(--dash-card-sponsor-logo-height) !important;
+    width: auto !important;
+    max-width: 100% !important;
+    object-fit: contain !important;
   }
 
   .dash-card-header {
@@ -539,6 +744,18 @@
 
   .dash-card-footer {
     padding: 0.03in 0.08in !important;
+  }
+
+  .dash-card-footer-logo {
+    height: var(--dash-card-footer-logo-height) !important;
+    width: auto !important;
+    object-fit: contain !important;
+  }
+
+  .dash-card-footer-copyright {
+    font-size: 6pt !important;
+    line-height: 1.2 !important;
+    color: #64748b !important;
   }
 
   .dash-card-logo {
@@ -585,18 +802,92 @@
   }
 
   .dash-card-vote-text {
-    font-size: 12pt !important;
-    line-height: 1.3 !important;
+    font-size: var(--dash-card-vote-text-pt) !important;
+    line-height: 1.25 !important;
+  }
+
+  .dash-card-vote-instruction {
+    white-space: nowrap !important;
+  }
+
+  .dash-card-vote-sms-block {
+    gap: 0.04in !important;
+    padding-left: 0.1in !important;
+    padding-right: 0.1in !important;
+  }
+
+  .dash-card-rates-disclaimer {
+    font-size: 7pt !important;
+    line-height: 1.15 !important;
   }
 
   .dash-card-vote-inner {
-    gap: 0.1in !important;
-    padding: 0.1in !important;
+    gap: 0 !important;
+    padding: 0.05in 0 0.1in !important;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+  }
+
+  .dash-card-qr-row-center {
+    flex: 1 1 auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 0 !important;
+    width: 100% !important;
+  }
+
+  .dash-card-qr-stage {
+    position: relative !important;
+    width: 100% !important;
+    height: 2cm !important;
+    flex-shrink: 0 !important;
+  }
+
+  .dash-card-qr-side-label {
+    position: absolute !important;
+    top: 50% !important;
+    font-size: 7pt !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+    white-space: nowrap !important;
+  }
+
+  .dash-card-qr-side-label--left {
+    left: 0.35in !important;
+    transform: translateY(-50%) rotate(-90deg) !important;
+  }
+
+  .dash-card-qr-side-label--right {
+    right: 0.35in !important;
+    transform: translateY(-50%) rotate(90deg) !important;
   }
 
   .dash-card-qr-wrap {
-    max-width: 1.65in !important;
-    width: 100% !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    box-sizing: border-box !important;
+    width: 2cm !important;
+    height: 2cm !important;
+    min-width: 2cm !important;
+    min-height: 2cm !important;
+    max-width: 2cm !important;
+    max-height: 2cm !important;
+    transform: translate(-50%, -50%) !important;
+  }
+
+  .dash-card-qr-wrap img {
+    box-sizing: border-box !important;
+    width: 2cm !important;
+    height: 2cm !important;
+    min-width: 2cm !important;
+    min-height: 2cm !important;
+    max-width: 2cm !important;
+    max-height: 2cm !important;
   }
 
   .dash-card-story {

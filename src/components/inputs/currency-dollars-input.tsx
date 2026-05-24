@@ -1,6 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
+import { roundDollars } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -12,7 +13,7 @@ type Props = {
   "aria-invalid"?: boolean;
 };
 
-/** Whole-dollar amount; fixed $ prefix; integers only. */
+/** Dollar amount with optional cents (e.g. $26.50); fixed $ prefix. */
 export function CurrencyDollarsInput({
   id,
   value,
@@ -21,8 +22,6 @@ export function CurrencyDollarsInput({
   className,
   "aria-invalid": ariaInvalid,
 }: Props) {
-  const display = value === null || value === undefined ? "" : String(value);
-
   return (
     <div
       className={cn(
@@ -39,23 +38,25 @@ export function CurrencyDollarsInput({
       </span>
       <Input
         id={id}
-        type="text"
-        inputMode="numeric"
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step={0.01}
         autoComplete="off"
         disabled={disabled}
         aria-invalid={ariaInvalid}
         className="h-full min-h-0 border-0 bg-transparent pl-8 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-        placeholder=""
-        value={display}
+        placeholder="0.00"
+        value={value === null || value === undefined ? "" : value}
         onChange={(e) => {
-          const digits = e.target.value.replace(/\D/g, "");
-          if (digits === "") {
+          const raw = e.target.value;
+          if (raw.trim() === "") {
             onChange(null);
             return;
           }
-          const n = parseInt(digits, 10);
-          if (!Number.isFinite(n) || n < 0) return;
-          onChange(n);
+          const dollars = Number(raw);
+          if (!Number.isFinite(dollars) || dollars < 0) return;
+          onChange(roundDollars(dollars));
         }}
       />
     </div>

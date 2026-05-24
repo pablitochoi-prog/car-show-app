@@ -40,11 +40,21 @@ const eventFieldsSchema = z.object({
   endTime: z.string().optional(),
   isMultiDay: z.boolean().optional(),
   dailyHours: z.array(dailyHourRowSchema).optional(),
+  /** `YYYY-MM-DD` backup date if weather postpones the show; null/empty clears. */
+  rainDate: z
+    .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)])
+    .optional()
+    .nullable(),
   registrationFeeType: z
     .enum(["FREE", "PAID", "PAID_TIERED", "DONATION"])
     .optional()
     .nullable(),
-  registrationFeeDollars: z.number().int().min(0).optional().nullable(),
+  registrationFeeDollars: z
+    .number()
+    .min(0)
+    .transform((n) => Math.round(n * 100) / 100)
+    .optional()
+    .nullable(),
   contactName: z.string().optional(),
   contactFirstName: z.string().optional(),
   contactLastName: z.string().optional(),
@@ -113,20 +123,32 @@ function eventCreateScheduleDatesNotPast(
   data: z.infer<typeof eventFieldsSchema>,
   ctx: z.RefinementCtx
 ) {
-  const rows = data.dailyHours;
-  if (!rows?.length) return;
   const cutoff = utcCalendarTodayStartMs();
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const ms = ymdUtcMidnightMs(row.date);
-    if (ms === null) continue;
-    if (ms < cutoff) {
+  const rows = data.dailyHours;
+  if (rows?.length) {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const ms = ymdUtcMidnightMs(row.date);
+      if (ms === null) continue;
+      if (ms < cutoff) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Event date cannot be in the past",
+          path: ["dailyHours", i, "date"],
+        });
+        return;
+      }
+    }
+  }
+  const rain = data.rainDate;
+  if (rain && String(rain).trim() !== "") {
+    const ms = ymdUtcMidnightMs(String(rain));
+    if (ms !== null && ms < cutoff) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Event date cannot be in the past",
-        path: ["dailyHours", i, "date"],
+        message: "Rain date cannot be in the past",
+        path: ["rainDate"],
       });
-      return;
     }
   }
 }

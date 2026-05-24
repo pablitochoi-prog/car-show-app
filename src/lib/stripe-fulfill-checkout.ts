@@ -2,8 +2,15 @@ import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
 import { donationPlatformFeeTotalCents } from "@/lib/donation";
-import { getPlatformFee } from "@/lib/platform-fee";
+import {
+  getPlatformFee,
+  getEventSetupFee,
+  effectivePlatformFeeConfig,
+  totalPlatformFeeForCheckout,
+} from "@/lib/platform-fee";
 import { calculateApplicationFee } from "@/lib/platform-fee-config";
+import type { EventPlatformFeeMode } from "@/lib/event-platform-fee";
+import { dollarsToCents } from "@/lib/money";
 
 export type FulfillCheckoutResult = {
   registrationId: string;
@@ -44,8 +51,11 @@ export async function fulfillRegistrationFromCheckoutSession(
       vehicles: { select: { id: true } },
       event: {
         select: {
+          id: true,
           registrationFeeType: true,
           registrationFeeDollars: true,
+          platformFeeMode: true,
+          platformSetupFeeCollected: true,
         },
       },
     },
@@ -112,13 +122,26 @@ export async function fulfillRegistrationFromCheckoutSession(
     },
   });
 
+  if (session.metadata?.flatSetupFeeCharged === "true") {
+    const eventId = session.metadata?.eventId;
+    if (eventId) {
+      await prisma.event.update({
+        where: { id: eventId },
+        data: { platformSetupFeeCollected: true },
+      });
+    }
+  }
+
   return { registrationId, paid: true, checkoutType };
 }
 
 async function resolveDonationPlatformFeeCentsAfterPayment(existing: {
   event: {
+    id: string;
     registrationFeeType: string | null;
     registrationFeeDollars: number | null;
+    platformFeeMode: EventPlatformFeeMode;
+    platformSetupFeeCollected: boolean;
   };
   vehicles: { id: string }[];
   guestVehicles: unknown;
@@ -135,14 +158,34 @@ async function resolveDonationPlatformFeeCentsAfterPayment(existing: {
   }
   vehicleCount = Math.max(vehicleCount, 1);
 
-  const feeConfig = await getPlatformFee();
+  const [feeConfig, eventSetupFee] = await Promise.all([
+    getPlatformFee(),
+    getEventSetupFee(),
+  ]);
+  const perVehicleConfig = effectivePlatformFeeConfig(
+    existing.event.platformFeeMode,
+    feeConfig,
+  );
+  const suggestedPerVehicleCents =
+    dollarsToCents(existing.event.registrationFeeDollars ?? 0);
+
+  const fees = totalPlatformFeeForCheckout({
+    mode: existing.event.platformFeeMode,
+    platformFee: feeConfig,
+    unitPriceCents: suggestedPerVehicleCents,
+    vehicleCount,
+    setupFeeCents: eventSetupFee.amountCents,
+    setupFeeCollected: existing.event.platformSetupFeeCollected,
+  });
+
   const { totalCents } = donationPlatformFeeTotalCents(
-    (unit) => calculateApplicationFee(feeConfig, unit),
+    (unit) => calculateApplicationFee(perVehicleConfig, unit),
     existing.event.registrationFeeDollars,
     vehicleCount,
   );
 
-  return totalCents > 0 ? totalCents : null;
+  const platformTotal = Math.max(totalCents, fees.totalApplicationFeeCents);
+  return platformTotal > 0 ? platformTotal : null;
 }
 
 function resolvePaymentIntentId(

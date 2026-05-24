@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Image from "next/image";
 import {
   Building2,
@@ -7,7 +8,7 @@ import {
   Trophy,
   User,
 } from "lucide-react";
-import type { DashCardModel } from "@/lib/dash-card-types";
+import type { DashCardModel, DashCardSponsorModel } from "@/lib/dash-card-types";
 import { cn } from "@/lib/utils";
 import { DashCardQrPlaceholder } from "@/components/dash-card/dash-card-qr-placeholder";
 
@@ -55,6 +56,38 @@ function ShowLogoBadge({ event }: Pick<DashCardModel, "event">) {
   );
 }
 
+function StaffPhoto({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+}) {
+  if (src.startsWith("/api/")) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={alt}
+        className={cn("h-full w-full object-cover object-center", className)}
+      />
+    );
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      className={cn("object-cover object-center", className)}
+      sizes="6.5in"
+      unoptimized
+    />
+  );
+}
+
 function VehiclePhoto({
   vehicle,
 }: {
@@ -63,13 +96,9 @@ function VehiclePhoto({
   if (vehicle.vehiclePhotoUrl) {
     return (
       <div className="dash-card-vehicle-photo relative shrink-0 overflow-hidden rounded-md border border-[#cbd5e1] bg-[#f8fafc]">
-        <Image
+        <StaffPhoto
           src={vehicle.vehiclePhotoUrl}
           alt={`${vehicleTitle(vehicle)} at show`}
-          fill
-          className="object-cover object-center"
-          sizes="6.5in"
-          unoptimized
         />
       </div>
     );
@@ -90,23 +119,29 @@ function VehiclePhoto({
 
 function SidebarInfoRow({
   icon: Icon,
+  iconSlot,
   label,
   value,
   valueClassName,
 }: {
-  icon: typeof Trophy;
+  icon?: typeof Trophy;
+  iconSlot?: ReactNode;
   label: string;
   value: string;
   valueClassName?: string;
 }) {
   return (
     <div className="dash-card-sidebar-row flex gap-2.5">
-      <div
-        className="dash-card-sidebar-icon flex size-9 shrink-0 items-center justify-center rounded-full bg-[#142047] text-white sm:size-10"
-        aria-hidden
-      >
-        <Icon className="size-4 sm:size-[1.1rem]" strokeWidth={2} />
-      </div>
+      {iconSlot ?? (
+        <div
+          className="dash-card-sidebar-icon flex size-9 shrink-0 items-center justify-center rounded-full bg-[#142047] text-white sm:size-10"
+          aria-hidden
+        >
+          {Icon ? (
+            <Icon className="size-4 sm:size-[1.1rem]" strokeWidth={2} />
+          ) : null}
+        </div>
+      )}
       <div className="min-w-0 flex-1">
         <p className="dash-card-field-label font-bold uppercase tracking-wider text-[#64748b]">
           {label}
@@ -126,17 +161,17 @@ function SidebarInfoRow({
 
 function VehicleIdPanel({ publicVehicleId }: { publicVehicleId: string | null }) {
   return (
-    <div className="dash-card-id-panel overflow-hidden rounded-md border border-[#cbd5e1] bg-white shadow-sm">
+    <div className="dash-card-id-panel rounded-md border border-[#cbd5e1] bg-white shadow-sm">
       <div className="bg-[#142047] px-2 py-1.5 text-center text-xs font-bold uppercase tracking-wider text-white sm:text-sm">
         Vehicle ID
       </div>
-      <div className="px-2 py-2 text-center sm:px-3 sm:py-2.5">
+      <div className="dash-card-id-panel-body flex items-center justify-center px-2 text-center sm:px-3">
         {publicVehicleId ? (
-          <p className="dash-card-vehicle-id-value dash-card-sidebar-value font-mono text-base font-bold uppercase leading-snug text-[#b91c1c] sm:text-lg">
+          <p className="dash-card-vehicle-id-value dash-card-sidebar-value font-mono font-bold uppercase leading-normal text-[#b91c1c]">
             {publicVehicleId}
           </p>
         ) : (
-          <p className="dash-card-sidebar-value font-semibold uppercase leading-snug text-[#64748b]">
+          <p className="dash-card-sidebar-value font-semibold uppercase leading-normal text-[#64748b]">
             ID pending
           </p>
         )}
@@ -145,28 +180,120 @@ function VehicleIdPanel({ publicVehicleId }: { publicVehicleId: string | null })
   );
 }
 
-function SponsorshipBlock({ logoUrl }: { logoUrl?: string | null }) {
+function OwnerSidebarRow({
+  name,
+  photoUrl,
+}: {
+  name: string;
+  photoUrl?: string | null;
+}) {
+  const photoIcon = photoUrl ? (
+    <div
+      className="dash-card-sidebar-icon relative size-9 shrink-0 overflow-hidden rounded-full border-2 border-[#142047] bg-[#f1f5f9] sm:size-10"
+      aria-hidden
+    >
+      <StaffPhoto src={photoUrl} alt={`${name} profile`} className="rounded-full" />
+    </div>
+  ) : undefined;
+
+  return (
+    <SidebarInfoRow
+      icon={User}
+      iconSlot={photoIcon}
+      label="Owner"
+      value={name}
+      valueClassName="dash-card-owner-name"
+    />
+  );
+}
+
+function DashCardSponsorLogo({
+  sponsor,
+  side,
+}: {
+  sponsor: DashCardSponsorModel;
+  side: "event" | "site";
+}) {
+  const logo = sponsor.logoUrl?.trim() || "";
+  const name = sponsor.name?.trim() || "";
+  const href = sponsor.websiteUrl?.trim() || "";
+  const fallbackLabel = side === "event" ? "Event sponsor" : "Site sponsor";
+  const label = name || fallbackLabel;
+
+  const slotClass = cn(
+    "dash-card-sponsor-logo-slot",
+    side === "event"
+      ? "dash-card-sponsor-logo-slot--left"
+      : "dash-card-sponsor-logo-slot--right",
+  );
+
+  if (!logo && !name) {
+    return (
+      <div className={slotClass}>
+        <span className="text-[0.65rem] font-medium uppercase tracking-wide text-[#94a3b8]">
+          {fallbackLabel}
+        </span>
+      </div>
+    );
+  }
+
+  const image = logo ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={logo}
+      alt={`${label} logo`}
+      className="dash-card-sponsor-logo-image"
+    />
+  ) : (
+    <span className="text-sm font-semibold text-[#142047]">{label}</span>
+  );
+
+  if (logo && href) {
+    return (
+      <div className={slotClass}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Visit ${label}`}
+          className="inline-flex max-w-full items-center"
+        >
+          {image}
+        </a>
+      </div>
+    );
+  }
+
+  return <div className={slotClass}>{image}</div>;
+}
+
+function SponsorshipBlock({
+  eventSponsor,
+  siteSponsor,
+}: {
+  eventSponsor: DashCardSponsorModel;
+  siteSponsor: DashCardSponsorModel;
+}) {
+  const hasEventLogo = Boolean(eventSponsor.logoUrl?.trim());
+
   return (
     <div className="dash-card-sponsor mt-auto shrink-0 pt-2">
       <p className="dash-card-field-label font-bold uppercase tracking-wide text-[#142047]">
         Show sponsored by:
       </p>
-      <div className="dash-card-sponsor-logo mt-1 flex items-center justify-start rounded border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-2 py-2">
-        {logoUrl ? (
-          <div className="dash-card-sponsor-logo-img relative w-full">
-            <Image
-              src={logoUrl}
-              alt="Show sponsor"
-              fill
-              className="object-contain object-left"
-              unoptimized
-            />
-          </div>
-        ) : (
-          <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-            Sponsor logo
-          </span>
+      <div
+        className={cn(
+          "dash-card-sponsor-logo mt-1 rounded border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-2",
+          !hasEventLogo && "dash-card-sponsor-logo--site-only-left",
         )}
+      >
+        {hasEventLogo ? (
+          <DashCardSponsorLogo sponsor={eventSponsor} side="event" />
+        ) : null}
+        <DashCardSponsorLogo
+          sponsor={siteSponsor}
+          side={hasEventLogo ? "site" : "event"}
+        />
       </div>
     </div>
   );
@@ -179,6 +306,8 @@ function VotePanel({
   voting: DashCardModel["voting"];
   className?: string;
 }) {
+  const vehicleId = voting.vehicleIdForSms?.trim() ?? "";
+
   return (
     <aside
       className={cn(
@@ -189,13 +318,13 @@ function VotePanel({
       <div className="shrink-0 bg-[#142047] py-1.5 text-center text-xs font-bold uppercase tracking-wider text-white sm:text-sm">
         Vote / judge here
       </div>
-      <div className="dash-card-vote-inner flex min-h-0 flex-1 flex-col justify-between gap-2 p-2.5 sm:p-3">
-        <div className="w-full space-y-1.5">
-          {voting.vehicleIdForSms ? (
-            <p className="dash-card-vote-text text-center text-base leading-snug text-[#334155] sm:text-lg">
+      <div className="dash-card-vote-inner flex min-h-0 flex-1 flex-col pb-2 pt-1 sm:pb-2.5 sm:pt-1.5">
+        <div className="dash-card-vote-sms-block w-full shrink-0 space-y-0.5 px-2 sm:px-2.5">
+          {vehicleId ? (
+            <p className="dash-card-vote-text dash-card-vote-instruction text-center text-[#334155]">
               Text{" "}
               <strong className="font-mono font-bold text-[#b91c1c]">
-                {voting.vehicleIdForSms}
+                {vehicleId}
               </strong>{" "}
               to{" "}
               <strong className="font-mono font-bold text-[#b91c1c]">
@@ -203,38 +332,31 @@ function VotePanel({
               </strong>
             </p>
           ) : (
-            <p className="dash-card-vote-text text-center text-base leading-snug text-[#334155] sm:text-lg">
+            <p className="dash-card-vote-text text-center text-[#334155]">
               SMS voting requires a vehicle ID on this card.
             </p>
           )}
-          {voting.ratesDisclaimer ? (
-            <p className="text-center text-xs text-[#64748b] sm:text-sm">
-              {voting.ratesDisclaimer}
-            </p>
-          ) : null}
-          <p className="text-center text-xs font-bold uppercase text-[#64748b] sm:text-sm">
-            or scan
+          <p className="dash-card-rates-disclaimer text-center text-[0.625rem] leading-tight text-[#64748b] sm:text-[0.6875rem]">
+            Standard message rates apply.
           </p>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 py-1">
-          <div className="dash-card-qr-wrap w-full max-w-[5.5rem] sm:max-w-[6.5rem]">
-            {voting.qrImageUrl ? (
-              <div className="relative aspect-square w-full">
-                <Image
-                  src={voting.qrImageUrl}
-                  alt=""
-                  fill
-                  className="object-contain"
-                  unoptimized
-                />
-              </div>
-            ) : (
-              <DashCardQrPlaceholder label="QR" />
-            )}
+        <div className="dash-card-qr-row-center py-1">
+          <div className="dash-card-qr-stage">
+            <span className="dash-card-qr-side-label dash-card-qr-side-label--left" aria-hidden>
+              Scan to vote
+            </span>
+            <div className="dash-card-qr-wrap">
+              {voting.qrImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={voting.qrImageUrl} alt="Scan to vote" />
+              ) : (
+                <DashCardQrPlaceholder />
+              )}
+            </div>
+            <span className="dash-card-qr-side-label dash-card-qr-side-label--right" aria-hidden>
+              Scan to vote
+            </span>
           </div>
-          <p className="dash-card-vote-text text-center text-xs font-semibold uppercase tracking-wide text-[#142047] sm:text-sm">
-            {voting.qrSectionTitle}
-          </p>
         </div>
       </div>
     </aside>
@@ -242,7 +364,8 @@ function VotePanel({
 }
 
 export function DashCardPreview({ data }: { data: DashCardModel }) {
-  const { event, vehicle, owner, voting } = data;
+  const { event, vehicle, owner, voting, siteSponsor } = data;
+  const vehicleNickname = vehicle.nickname?.trim() ?? "";
   const eventDateLine = [
     event.dateRangeLabel,
     event.timeLabel ? event.timeLabel : null,
@@ -304,10 +427,11 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
         <p className="dash-card-ymm font-extrabold uppercase leading-tight tracking-tight text-[#0f172a]">
           {vehicleTitle(vehicle)}
         </p>
-        <p className="dash-card-nickname-row dash-card-nickname mt-1 border-t border-[#cbd5e1] pt-1.5 italic text-[#b91c1c]">
-          Vehicle Nickname:{" "}
-          {vehicle.nickname?.trim() ? `“${vehicle.nickname.trim()}”` : "—"}
-        </p>
+        {vehicleNickname ? (
+          <p className="dash-card-nickname-row dash-card-nickname mt-1 font-medium italic text-[#b91c1c]">
+            &ldquo;{vehicleNickname}&rdquo;
+          </p>
+        ) : null}
       </div>
 
       <div className="dash-card-content dash-card-body-grid min-h-0 flex-1">
@@ -315,15 +439,13 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
           <VehicleIdPanel publicVehicleId={vehicle.publicVehicleId} />
           <SidebarInfoRow
             icon={Trophy}
-            label="Class"
+            label="Vehicle Class"
             value={vehicle.classLabel}
             valueClassName="dash-card-class-value"
           />
-          <SidebarInfoRow
-            icon={User}
-            label="Owner"
-            value={owner.name}
-            valueClassName="dash-card-owner-name"
+          <OwnerSidebarRow
+            name={owner.name}
+            photoUrl={owner.ownerPhotoUrl}
           />
           <SidebarInfoRow
             icon={MapPin}
@@ -331,7 +453,14 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
             value={owner.cityState || "—"}
             valueClassName="dash-card-owner-city"
           />
-          <SponsorshipBlock logoUrl={event.sponsorLogoUrl} />
+          <SponsorshipBlock
+            eventSponsor={{
+              logoUrl: event.sponsorLogoUrl,
+              websiteUrl: event.sponsorWebsiteUrl,
+              name: event.sponsorName,
+            }}
+            siteSponsor={siteSponsor}
+          />
         </aside>
 
         <div className="dash-card-photo-span flex p-2 sm:p-2.5">
@@ -353,15 +482,29 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
       </div>
 
       <footer className="dash-card-footer shrink-0 border-t-2 border-[#142047] px-2 py-1 sm:px-3">
-        <p className="flex flex-wrap items-center justify-center gap-1.5 text-center text-[0.55rem] font-bold uppercase tracking-[0.1em] text-[#142047] sm:text-[0.6rem]">
-          <span className="text-[#b91c1c]" aria-hidden>
-            ★★★
-          </span>
-          Thank you for supporting the classic car community
-          <span className="text-[#b91c1c]" aria-hidden>
-            ★★★
-          </span>
-        </p>
+        <div className="dash-card-footer-inner grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <span aria-hidden />
+          <p className="flex flex-wrap items-center justify-center gap-1.5 text-center text-[0.55rem] font-bold uppercase tracking-[0.1em] text-[#142047] sm:text-[0.6rem]">
+            <span className="text-[#b91c1c]" aria-hidden>
+              ★★★
+            </span>
+            Thank you for supporting the classic car community
+            <span className="text-[#b91c1c]" aria-hidden>
+              ★★★
+            </span>
+          </p>
+          <div className="dash-card-footer-brand flex items-center justify-end gap-1.5 justify-self-end">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/carshowscout-mark.png"
+              alt=""
+              className="dash-card-footer-logo"
+            />
+            <span className="dash-card-footer-copyright whitespace-nowrap text-[#64748b]">
+              &copy; {new Date().getFullYear()} CarShowScout.com
+            </span>
+          </div>
+        </div>
       </footer>
     </article>
   );

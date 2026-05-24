@@ -4,6 +4,9 @@ import { useRef, useState } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/** 3:2 landscape thumbnail (~1.5× wider than tall). */
+const PHOTO_THUMB_CLASS = "h-14 w-[5.25rem] shrink-0";
+
 type Props = {
   eventId: string;
   photoUrl: string | null;
@@ -59,7 +62,10 @@ export function GuestVehiclePhoto({
       {photoUrl ? (
         <button
           type="button"
-          className="block size-14 overflow-hidden rounded-md border bg-muted"
+          className={cn(
+            "block overflow-hidden rounded-md border bg-muted",
+            PHOTO_THUMB_CLASS,
+          )}
           onClick={() => inputRef.current?.click()}
           title="Change photo"
         >
@@ -70,7 +76,10 @@ export function GuestVehiclePhoto({
           type="button"
           disabled={uploading}
           onClick={() => inputRef.current?.click()}
-          className="flex size-14 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted hover:text-foreground"
+          className={cn(
+            "flex flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted hover:text-foreground",
+            PHOTO_THUMB_CLASS,
+          )}
           title="Upload photo"
         >
           {uploading ? (

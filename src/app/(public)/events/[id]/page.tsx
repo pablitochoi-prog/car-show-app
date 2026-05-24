@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getEventForViewer } from "@/lib/event-access";
 import { displayContactName } from "@/lib/contact-display";
 import { EventRegistrationPage } from "@/components/registration/event-registration-page";
-import { getPlatformFee, type PlatformFeeConfig } from "@/lib/platform-fee";
+import { getPlatformFee, getEventSetupFee, type PlatformFeeConfig } from "@/lib/platform-fee";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import {
   isStripeCheckoutAvailable,
@@ -38,7 +38,7 @@ export default async function EventDetailPage({ params }: Props) {
 
   if (!event) notFound();
 
-  const [tierRows, existingRegistration, platformFee, categoryRows, organizerNames] =
+  const [tierRows, existingRegistration, platformFee, eventSetupFee, categoryRows, organizerNames] =
     await Promise.all([
       prisma.registrationTier.findMany({
         where: { eventId: id },
@@ -48,6 +48,7 @@ export default async function EventDetailPage({ params }: Props) {
         ? getExistingRegistrationForEvent(id, viewer.id)
         : Promise.resolve(null),
       getPlatformFee(),
+      getEventSetupFee(),
       prisma.eventCategory.findMany({
         where: { eventId: id },
         include: { category: { select: { name: true } } },
@@ -136,11 +137,16 @@ export default async function EventDetailPage({ params }: Props) {
           orgName: event.organization?.name ?? null,
           flyerUrl: event.flyerUrl,
           logoUrl: event.logoUrl,
+          orgLogoUrl: event.organization?.logo ?? null,
           startDate: event.startDate.toISOString(),
+          rainDate: event.rainDate?.toISOString() ?? null,
           startTime: event.startTime,
           endTime: event.endTime,
           registrationFeeType: event.registrationFeeType,
           registrationFeeDollars: event.registrationFeeDollars,
+          platformFeeMode: event.platformFeeMode,
+          platformSetupFeeCollected: event.platformSetupFeeCollected,
+          eventSetupFeeCents: eventSetupFee.amountCents,
           venue: event.venue,
           city: event.city,
           state: event.state,
@@ -152,6 +158,15 @@ export default async function EventDetailPage({ params }: Props) {
           eventWebsite: event.eventWebsite,
           socialHashtag: event.socialHashtag,
           organizerMessageNote,
+          sponsorName: event.sponsorName,
+          sponsorLogoUrl: event.sponsorLogoUrl,
+          sponsorWebsite: event.sponsorWebsite,
+          charityName: event.charityName,
+          charityDescription: event.charityDescription,
+          charityWebsite: event.charityWebsite,
+          charityEmail: event.charityEmail,
+          charityPhone: event.charityPhone,
+          charityLogoUrl: event.charityLogoUrl,
         }}
         tiers={tiers}
         vehicles={vehicles}

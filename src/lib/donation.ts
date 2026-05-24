@@ -1,10 +1,12 @@
+import { dollarsToCents } from "@/lib/money";
+
 /** Parse a dollar amount string into integer cents, or null if empty/invalid. */
 export function parseDonationDollarsInput(value: string): number | null {
   const trimmed = value.trim();
   if (trimmed === "") return null;
   const dollars = Number(trimmed);
   if (!Number.isFinite(dollars) || dollars < 0) return null;
-  return Math.round(dollars * 100);
+  return dollarsToCents(dollars);
 }
 
 /** Format cents as a dollar string for form inputs (e.g. "25.00"). */
@@ -92,7 +94,9 @@ export function donationPlatformFeeTotalCents(
   suggestedPerVehicleDollars: number | null | undefined,
   vehicleCount: number,
 ): { perVehicleCents: number; totalCents: number } {
-  const unitCents = suggestedDonationPerVehicleDollars(suggestedPerVehicleDollars) * 100;
+  const unitCents = dollarsToCents(
+    suggestedDonationPerVehicleDollars(suggestedPerVehicleDollars),
+  );
   const perVehicleCents = perVehicleFeeFn(unitCents);
   const count = Math.max(vehicleCount, 1);
   return { perVehicleCents, totalCents: perVehicleCents * count };

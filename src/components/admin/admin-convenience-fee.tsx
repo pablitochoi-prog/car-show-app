@@ -16,7 +16,7 @@ type FeeConfig = {
 
 export function AdminConvenienceFee() {
   const [feeType, setFeeType] = useState<FeeType>("FIXED");
-  const [amountCents, setAmountCents] = useState(50);
+  const [amountDollars, setAmountDollars] = useState(0.5);
   const [percent, setPercent] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,7 +34,7 @@ export function AdminConvenienceFee() {
       if (res.ok) {
         const data = (await res.json()) as { fee: FeeConfig };
         setFeeType(data.fee.type);
-        setAmountCents(data.fee.amountCents ?? 0);
+        setAmountDollars((data.fee.amountCents ?? 0) / 100);
         setPercent(data.fee.percent ?? 0);
       }
     } finally {
@@ -56,7 +56,8 @@ export function AdminConvenienceFee() {
         credentials: "same-origin",
         body: JSON.stringify({
           type: feeType,
-          amountCents: feeType === "FIXED" ? amountCents : null,
+          amountCents:
+            feeType === "FIXED" ? Math.round(amountDollars * 100) : null,
           percent: feeType === "PERCENT" ? percent : null,
         }),
       });
@@ -83,8 +84,8 @@ export function AdminConvenienceFee() {
   }
 
   const previewLabel =
-    feeType === "FIXED" && amountCents > 0
-      ? `$${(amountCents / 100).toFixed(2)} per registration`
+    feeType === "FIXED" && amountDollars > 0
+      ? `$${amountDollars.toFixed(2)} per vehicle`
       : feeType === "PERCENT" && percent > 0
         ? `${percent}% of registration price`
         : "No fee";
@@ -106,26 +107,27 @@ export function AdminConvenienceFee() {
           className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
         >
           <option value="NONE">No convenience fee</option>
-          <option value="FIXED">Fixed amount per registration</option>
+          <option value="FIXED">Fixed amount per vehicle</option>
           <option value="PERCENT">Percentage of registration price</option>
         </select>
       </div>
 
       {feeType === "FIXED" && (
         <div>
-          <Label htmlFor="admin-fee-amount">Amount (cents)</Label>
+          <Label htmlFor="admin-fee-amount">Amount (in dollars)</Label>
           <Input
             id="admin-fee-amount"
             type="number"
             min={0}
-            value={amountCents}
-            onChange={(e) => setAmountCents(Number(e.target.value))}
-            placeholder="e.g. 50 = $0.50"
+            step={0.01}
+            value={amountDollars}
+            onChange={(e) => setAmountDollars(Number(e.target.value))}
+            placeholder="e.g. 0.50"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            {amountCents > 0
-              ? `$${(amountCents / 100).toFixed(2)} charged to registrant on each paid registration`
-              : "Enter amount in cents"}
+            {amountDollars > 0
+              ? `$${amountDollars.toFixed(2)} charged to registrant on each paid registration`
+              : "Enter amount in dollars"}
           </p>
         </div>
       )}

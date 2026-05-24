@@ -27,5 +27,5 @@ export const createCheckoutSchema = z.object({
 });
 
 export const eventPaymentSettingsSchema = z.object({
-  paymentEnabled: z.boolean(),
+  platformFeeMode: z.enum(["CONVENIENCE", "FLAT_EVENT"]),
 });

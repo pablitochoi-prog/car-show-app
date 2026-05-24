@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
 import { registerForEventSchema } from "@/lib/validation/registration";
 import { validateRegistrationVehiclesAndClasses } from "@/lib/registration-vehicle-classes";
+import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 import { validateDonationNotDecreasedAfterPayment } from "@/lib/registration-payment-display";
@@ -298,6 +299,12 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     return reg;
   });
+
+  try {
+    await syncAllRegistrationStaffPhotos(registration.id);
+  } catch (e) {
+    console.error("POST register staff photo snapshot:", e);
+  }
 
   const paymentComplete = registration.paymentStatus === "PAID";
 

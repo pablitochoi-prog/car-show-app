@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
 import { vehicleWriteSchema } from "@/lib/validation/registration";
-import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
+import { isGaragePhotoViewUrl } from "@/lib/vehicle-photo-access";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -41,11 +41,14 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
   if (
     typeof d.photoUrl === "string" &&
-    !isEventAssetsPublicUrl(d.photoUrl)
+    !isGaragePhotoViewUrl(d.photoUrl)
   ) {
     return NextResponse.json(
-      { error: "Vehicle photo must be uploaded through this app." },
-      { status: 400 }
+      {
+        error:
+          "Garage vehicle photos must use the private upload flow in My Vehicles.",
+      },
+      { status: 400 },
     );
   }
 

@@ -1,0 +1,12 @@
+-- Expand sponsor contact/address fields and add charitable organization fields.
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "sponsorPrimaryContact" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "sponsorStreet" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "sponsorCity" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "sponsorState" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "sponsorZip" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "sponsorEmail" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "charityName" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "charityDescription" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "charityWebsite" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "charityEmail" TEXT;
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "charityPhone" TEXT;

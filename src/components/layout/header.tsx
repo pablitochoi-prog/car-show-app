@@ -1,15 +1,17 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, Car, LogIn, UserPlus, LogOut, MessageSquare } from "lucide-react";
+import { Menu, LogIn, UserPlus, LogOut, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlatformRole } from "@/types";
 import { useUnreadMessages } from "@/components/messages/unread-messages-provider";
 import { UnreadCountBadge } from "@/components/messages/unread-count-badge";
+import { BRAND_BLUE, BRAND_RED } from "@/lib/brand-colors";
 
 interface HeaderProps {
   isLoggedIn?: boolean;
@@ -42,10 +44,31 @@ export function Header({ isLoggedIn = false }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 print:hidden">
-      <div className="layout-bar h-16 items-center justify-between">
-        <Link href="/" className="flex items-center gap-2 font-bold text-xl">
-          <Car className="h-6 w-6" />
-          <span>CarShowApp</span>
+      <div className="layout-bar h-20 items-center justify-between">
+        <Link
+          href="/"
+          className="flex shrink-0 items-center gap-2.5 py-1"
+          aria-label="CarShowScout.com home"
+        >
+          <Image
+            src="/brand/carshowscout-mark.png"
+            alt=""
+            width={1024}
+            height={819}
+            unoptimized
+            className="h-[calc(2.5rem*1.875*0.8)] w-auto shrink-0 object-contain"
+            priority
+          />
+          <span className="text-[1.35rem] font-bold tracking-tight sm:text-[1.5rem]">
+            <span style={{ color: BRAND_BLUE }}>CarShow</span>
+            <span style={{ color: BRAND_RED }}>Scout</span>
+            <span
+              className="text-[1.05rem] font-semibold"
+              style={{ color: BRAND_BLUE }}
+            >
+              .com
+            </span>
+          </span>
         </Link>
 
         {/* Desktop Navigation */}
