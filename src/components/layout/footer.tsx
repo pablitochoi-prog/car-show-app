@@ -16,6 +16,9 @@ export async function Footer() {
           <Link href="/events" className="hover:text-foreground transition-colors">
             Find Events
           </Link>
+          <Link href="/terms" className="hover:text-foreground transition-colors">
+            SMS Terms
+          </Link>
           <Link href="/login" className="hover:text-foreground transition-colors">
             Log In
           </Link>
