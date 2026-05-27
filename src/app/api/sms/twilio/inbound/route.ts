@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { ensureSharedSmsNumber } from "@/lib/sms/shared-sms-number";
 import {
   buildTwilioTwimlResponse,
+  buildTwilioWebhookUrl,
   formDataToParamRecord,
   parseTwilioFormData,
   validateTwilioSignature,
@@ -11,6 +12,16 @@ import { processInboundSmsVote } from "@/lib/sms/voting-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Quick check that this deployment exposes the Twilio inbound handler. */
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    handler: "twilio-inbound-sms-voting",
+    hashSecretConfigured: Boolean(process.env.SMS_PHONE_HASH_SECRET?.trim()),
+    twilioAuthConfigured: Boolean(process.env.TWILIO_AUTH_TOKEN?.trim()),
+  });
+}
 
 export async function POST(request: Request) {
   await ensureSharedSmsNumber();
@@ -35,9 +46,9 @@ export async function POST(request: Request) {
         headers: { "Content-Type": "text/xml" },
       });
     }
-    const url = request.url;
+    const url = buildTwilioWebhookUrl(request);
     if (!validateTwilioSignature(authToken, signature, url, params)) {
-      console.error("[twilio-sms] Signature verification failed");
+      console.error("[twilio-sms] Signature verification failed for URL:", url);
       return new NextResponse(buildTwilioTwimlResponse("Unauthorized."), {
         status: 403,
         headers: { "Content-Type": "text/xml" },

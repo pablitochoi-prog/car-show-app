@@ -1,5 +1,6 @@
 import {
   isValidPublicVehicleId,
+  normalizeLoosePublicVehicleId,
   PUBLIC_VEHICLE_ID_REGEX,
 } from "@/lib/event-sms-vehicle-id";
 
@@ -7,9 +8,7 @@ export { PUBLIC_VEHICLE_ID_REGEX, isValidPublicVehicleId };
 
 /** Normalize URL path segment to canonical vehicle entry code (e.g. AXY-004). */
 export function normalizeVehicleEntryCode(raw: string): string | null {
-  const trimmed = raw.trim().toUpperCase();
-  if (!isValidPublicVehicleId(trimmed)) return null;
-  return trimmed;
+  return normalizeLoosePublicVehicleId(raw);
 }
 
 export function vehicleSmartRouteUrl(vehicleEntryCode: string): string {

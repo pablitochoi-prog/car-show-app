@@ -1,7 +1,11 @@
-import { isValidPublicVehicleId } from "@/lib/event-sms-vehicle-id";
+import {
+  isValidPublicVehicleId,
+  normalizeLoosePublicVehicleId,
+} from "@/lib/event-sms-vehicle-id";
 import type { ParsedSmsBody } from "@/lib/sms/types";
 
 const COMPACT_VEHICLE_REGEX = /^([A-HJ-NP-Z]{3})(\d{3})$/;
+const COMPACT_LOOSE_VEHICLE_REGEX = /^([A-Z0-9]{3})(\d{3})$/;
 
 /** Convert messy SMS text into canonical vehicle entry code (e.g. AXY-004). */
 export function normalizeVehicleEntryCodeFromSms(raw: string): string | null {
@@ -10,15 +14,19 @@ export function normalizeVehicleEntryCodeFromSms(raw: string): string | null {
 
   text = text.replace(/^VOTE\s+/i, "").trim();
 
-  if (isValidPublicVehicleId(text)) {
-    return text.toUpperCase();
-  }
+  const loose = normalizeLoosePublicVehicleId(text);
+  if (loose) return loose;
 
   const compact = text.replace(/[\s-]/g, "");
   const match = compact.match(COMPACT_VEHICLE_REGEX);
   if (match) {
     const code = `${match[1]}-${match[2]}`;
     if (isValidPublicVehicleId(code)) return code;
+  }
+
+  const looseCompact = compact.match(COMPACT_LOOSE_VEHICLE_REGEX);
+  if (looseCompact) {
+    return `${looseCompact[1]}-${looseCompact[2]}`;
   }
 
   return null;

@@ -23,9 +23,15 @@ describe("normalizeVehicleEntryCodeFromSms", () => {
     expect(normalizeVehicleEntryCodeFromSms("vote axy004")).toBe("AXY-004");
   });
 
+  it("accepts legacy alphanumeric prefixes such as 53X-006", () => {
+    expect(normalizeVehicleEntryCodeFromSms("53X-006")).toBe("53X-006");
+    expect(normalizeVehicleEntryCodeFromSms("53X006")).toBe("53X-006");
+  });
+
   it("rejects invalid codes", () => {
     expect(normalizeVehicleEntryCodeFromSms("hello")).toBeNull();
-    expect(normalizeVehicleEntryCodeFromSms("AXI-004")).toBeNull();
+    expect(normalizeVehicleEntryCodeFromSms("AXY-04")).toBeNull();
+    expect(normalizeVehicleEntryCodeFromSms("AX-004")).toBeNull();
   });
 });
 

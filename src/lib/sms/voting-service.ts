@@ -16,6 +16,8 @@ const MSG_INVALID =
 const MSG_VOTING_CLOSED = "SMS voting is not open for this event.";
 const MSG_NO_CATEGORIES =
   "SMS voting is not configured for this event yet. Please contact the event organizer.";
+const MSG_SMS_UNAVAILABLE =
+  "SMS voting is temporarily unavailable. Please try again later or contact the event organizer.";
 
 function prismaProvider(provider: InboundSmsMessage["provider"]): PrismaSmsProvider {
   return provider === "telnyx" ? "TELNYX" : "TWILIO";
@@ -268,7 +270,7 @@ export async function processInboundSmsVote(
     fromPhoneHash = hashPhoneNumber(message.from);
   } catch {
     console.error("[sms-voting] SMS_PHONE_HASH_SECRET not configured");
-    return { responseText: MSG_INVALID };
+    return { responseText: MSG_SMS_UNAVAILABLE };
   }
 
   const existing = await prisma.smsVote.findFirst({

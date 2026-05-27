@@ -14,6 +14,17 @@ export function isValidPublicVehicleId(id: string): boolean {
   return PUBLIC_VEHICLE_ID_REGEX.test(id.trim().toUpperCase());
 }
 
+/** Stored dash-card ids may use legacy alphanumeric prefixes (e.g. 53X-006). */
+const LOOSE_PUBLIC_VEHICLE_ID_REGEX = /^[A-Z0-9]{3}-\d{3}$/;
+
+/** Canonical form for lookup/SMS when strict letter-only prefix does not apply. */
+export function normalizeLoosePublicVehicleId(raw: string): string | null {
+  const trimmed = raw.trim().toUpperCase();
+  if (isValidPublicVehicleId(trimmed)) return trimmed;
+  if (LOOSE_PUBLIC_VEHICLE_ID_REGEX.test(trimmed)) return trimmed;
+  return null;
+}
+
 export function generateRandomVotePrefix(): string {
   let s = "";
   for (let i = 0; i < 3; i++) {
