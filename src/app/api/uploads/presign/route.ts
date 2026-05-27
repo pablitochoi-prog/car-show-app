@@ -1,5 +1,6 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import type { User } from "@prisma/client";
 import { NextResponse } from "next/server";
 import {
   canManageEvent,
@@ -154,7 +155,7 @@ const VEHICLE_EVENT_PURPOSES = new Set<UploadPurpose>([
 async function resolveKeyArgs(
   purpose: UploadPurpose,
   body: PresignBody,
-  currentUser: { id: string; platformRole: string },
+  currentUser: Pick<User, "id" | "platformRole">,
 ): Promise<{ keyArgs: KeyPrefixArgs | null; error: string | null; status: number }> {
   if (purpose === "privateVehiclePhoto") {
     const vehicleId = parseStringField(body.vehicleId);

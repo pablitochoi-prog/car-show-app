@@ -39,15 +39,6 @@ export function createEventSmsVotingSettingsSchema(
         });
       }
 
-      if (!data.smsVotingEnabled && active.length > 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            "Enable SMS voting for this event, or remove all voting categories before saving.",
-          path: ["smsVotingEnabled"],
-        });
-      }
-
       const optionNumbers = active.map((c) => c.smsOptionNumber);
       if (new Set(optionNumbers).size !== optionNumbers.length) {
         ctx.addIssue({

@@ -70,6 +70,7 @@ export async function loadParticipatingEventRowsPage(
           state: true,
           status: true,
           registrationFeeType: true,
+          registrationFeeDollars: true,
           organization: { select: { name: true, logo: true } },
         },
       },

@@ -289,7 +289,7 @@ export function computeAdditionalDonationBalanceCheckout(input: {
 }
 
 export function getRegistrationAmounts(input: {
-  registrationFeeType: RegistrationFeeType;
+  registrationFeeType: RegistrationFeeType | null;
   unitPriceCents: number;
   vehicleCount: number;
   registrationStatus: RegistrationStatus;
@@ -303,6 +303,7 @@ export function getRegistrationAmounts(input: {
   eventSetupFeeCents?: number;
   platformSetupFeeCollected?: boolean;
 }): RegistrationAmounts {
+  const registrationFeeType = input.registrationFeeType ?? "FREE";
   const {
     registrationStatus,
     paymentStatus,
@@ -322,7 +323,7 @@ export function getRegistrationAmounts(input: {
       : input.platformFee;
 
   if (
-    input.registrationFeeType === "DONATION" &&
+    registrationFeeType === "DONATION" &&
     paymentStatus === "PAID" &&
     (amountCents ?? 0) > 0
   ) {
@@ -344,7 +345,7 @@ export function getRegistrationAmounts(input: {
   }
 
   const totalObligationCents = computeRegistrationTotalDueCents({
-    registrationFeeType: input.registrationFeeType,
+    registrationFeeType,
     unitPriceCents: donationUnitCents,
     vehicleCount: input.vehicleCount,
     platformFee: input.platformFee,

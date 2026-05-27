@@ -88,7 +88,7 @@ export default async function StripeReturnPage({ searchParams }: Props) {
           </h1>
           <p className="mt-2 text-muted-foreground">
             {isComplete
-              ? `${org.name} can now accept payments. Enable paid registration on your event in Payment Settings.`
+              ? `${updated.name} can now accept payments. Enable paid registration on your event in Payment Settings.`
               : pendingReview
                 ? "Stripe received your details and is reviewing your account. This is normal in test mode and can take a few minutes. Click Refresh Status on the event Payment Settings page, or check back shortly."
                 : needsMoreInfo
@@ -102,7 +102,7 @@ export default async function StripeReturnPage({ searchParams }: Props) {
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Organization
             </p>
-            <p className="font-semibold">{org.name}</p>
+            <p className="font-semibold">{updated.name}</p>
           </div>
           <div className="border-t pt-3">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
-import { CompletedBadge } from "@/components/ui/completed-badge";
+import {
+  CompletedBadge,
+  NotEnabledBadge,
+} from "@/components/ui/completed-badge";
 import { EventCategoriesSection } from "@/components/forms/event-categories-section";
 import { EventAwardsSection } from "@/components/forms/event-awards-section";
 import { EventSponsorSection } from "@/components/forms/event-sponsor-section";
@@ -18,19 +21,19 @@ export function EventSetupListCards({
   eventId,
   initialCategoryCount = 0,
   initialTrophyCount = 0,
-  initialSmsVotingComplete = false,
+  initialSmsVotingStatus = null,
   eventSchedule,
 }: {
   eventId: string;
   initialCategoryCount?: number;
   initialTrophyCount?: number;
-  initialSmsVotingComplete?: boolean;
+  initialSmsVotingStatus?: "complete" | "not_enabled" | null;
   eventSchedule: EventScheduleForSmsDefaults;
 }) {
   const [categoryCount, setCategoryCount] = useState(initialCategoryCount);
   const [trophyCount, setTrophyCount] = useState(initialTrophyCount);
-  const [smsVotingComplete, setSmsVotingComplete] = useState(
-    initialSmsVotingComplete,
+  const [smsVotingStatus, setSmsVotingStatus] = useState(
+    initialSmsVotingStatus,
   );
   const [sponsorConfigured, setSponsorConfigured] = useState(false);
   const [charityConfigured, setCharityConfigured] = useState(false);
@@ -58,12 +61,18 @@ export function EventSetupListCards({
         title="SMS Voting"
         defaultOpen={false}
         keepMounted
-        badge={smsVotingComplete ? <CompletedBadge /> : undefined}
+        badge={
+          smsVotingStatus === "complete" ? (
+            <CompletedBadge />
+          ) : smsVotingStatus === "not_enabled" ? (
+            <NotEnabledBadge />
+          ) : undefined
+        }
       >
         <EventSmsVotingSettings
           eventId={eventId}
           eventSchedule={eventSchedule}
-          onCompleteChange={setSmsVotingComplete}
+          onStatusChange={setSmsVotingStatus}
         />
       </CollapsibleCard>
       <CollapsibleCard

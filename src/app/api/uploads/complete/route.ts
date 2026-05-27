@@ -62,6 +62,7 @@ export async function POST(request: Request) {
   if (!data.vehicleId) {
     return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
   }
+  const vehicleId = data.vehicleId;
 
   if (data.bucket !== r2Buckets.privateAssets) {
     return NextResponse.json({ error: "Invalid bucket" }, { status: 400 });
@@ -82,13 +83,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const allowed = await canAccessVehicle(user, data.vehicleId);
+  const allowed = await canAccessVehicle(user, vehicleId);
   if (!allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const vehicle = await prisma.vehicle.findUnique({
-    where: { id: data.vehicleId },
+    where: { id: vehicleId },
     select: { userId: true },
   });
   if (!vehicle) {
@@ -99,21 +100,21 @@ export async function POST(request: Request) {
     !objectKeyMatchesPrivateVehiclePhoto(
       data.objectKey,
       vehicle.userId,
-      data.vehicleId,
+      vehicleId,
     )
   ) {
     return NextResponse.json({ error: "Invalid objectKey" }, { status: 400 });
   }
 
   const existingCount = await prisma.vehiclePhoto.count({
-    where: { vehicleId: data.vehicleId, status: "READY" },
+    where: { vehicleId, status: "READY" },
   });
   const makePrimary = data.isPrimary === true || existingCount === 0;
 
   const photo = await prisma.$transaction(async (tx) => {
     if (makePrimary) {
       await tx.vehiclePhoto.updateMany({
-        where: { vehicleId: data.vehicleId, isPrimary: true },
+        where: { vehicleId, isPrimary: true },
         data: { isPrimary: false },
       });
     }
@@ -121,7 +122,7 @@ export async function POST(request: Request) {
     return tx.vehiclePhoto.create({
       data: {
         userId: vehicle.userId,
-        vehicleId: data.vehicleId,
+        vehicleId,
         bucket: data.bucket,
         objectKey: data.objectKey,
         visibility: "private",
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
   });
 
   if (makePrimary) {
-    await syncVehiclePrimaryPhotoUrl(data.vehicleId);
+    await syncVehiclePrimaryPhotoUrl(vehicleId);
   }
 
   return NextResponse.json({

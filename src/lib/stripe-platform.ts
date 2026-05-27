@@ -26,7 +26,7 @@ export async function getPlatformStripeStatus(): Promise<PlatformStripeStatus> {
   }
 
   try {
-    const account = await stripe.accounts.retrieve();
+    const account = await stripe.accounts.retrieveCurrent();
     return {
       configured: true,
       chargesEnabled: account.charges_enabled ?? false,

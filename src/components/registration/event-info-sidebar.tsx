@@ -1,5 +1,6 @@
 "use client";
 
+import type { RegistrationFeeType } from "@prisma/client";
 import { useState } from "react";
 import {
   MapPin,
@@ -30,7 +31,7 @@ export type SidebarEvent = {
   rainDate?: string | null;
   startTime: string | null;
   endTime: string | null;
-  registrationFeeType: string | null;
+  registrationFeeType: RegistrationFeeType | null;
   registrationFeeDollars: number | null;
   venue: string | null;
   city: string | null;

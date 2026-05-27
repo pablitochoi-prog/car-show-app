@@ -22,7 +22,7 @@ type CategoryRow = {
 type Props = {
   eventId: string;
   eventSchedule: EventScheduleForSmsDefaults;
-  onCompleteChange?: (complete: boolean) => void;
+  onStatusChange?: (status: "complete" | "not_enabled" | null) => void;
 };
 
 function applyDefaultVotingTimes(
@@ -31,17 +31,27 @@ function applyDefaultVotingTimes(
   return defaultSmsVotingWindowLocal(schedule);
 }
 
-function isSmsVotingSetupComplete(
+function resolveSmsVotingStatus(
   enabled: boolean,
   categories: CategoryRow[],
-): boolean {
-  return enabled && categories.some((c) => c.isActive);
+  context: "load" | "save",
+  hasPersistedSchedule = false,
+): "complete" | "not_enabled" | null {
+  if (enabled && categories.some((c) => c.isActive)) {
+    return "complete";
+  }
+  if (!enabled) {
+    if (context === "save") return "not_enabled";
+    if (categories.length > 0 || hasPersistedSchedule) return "not_enabled";
+    return null;
+  }
+  return null;
 }
 
 export function EventSmsVotingSettings({
   eventId,
   eventSchedule,
-  onCompleteChange,
+  onStatusChange,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,11 +68,18 @@ export function EventSmsVotingSettings({
     text: string;
   } | null>(null);
 
-  const syncComplete = useCallback(
-    (enabled: boolean, cats: CategoryRow[]) => {
-      onCompleteChange?.(isSmsVotingSetupComplete(enabled, cats));
+  const syncStatus = useCallback(
+    (
+      enabled: boolean,
+      cats: CategoryRow[],
+      context: "load" | "save",
+      hasPersistedSchedule = false,
+    ) => {
+      onStatusChange?.(
+        resolveSmsVotingStatus(enabled, cats, context, hasPersistedSchedule),
+      );
     },
-    [onCompleteChange],
+    [onStatusChange],
   );
 
   const load = useCallback(async () => {
@@ -92,7 +109,12 @@ export function EventSmsVotingSettings({
       setSmsPresets(data.presets ?? []);
       setCategories(loadedCategories);
       setInstructionPreview(data.instructionPreview ?? "");
-      syncComplete(enabled, loadedCategories);
+      syncStatus(
+        enabled,
+        loadedCategories,
+        "load",
+        Boolean(data.smsVotingStartsAt || data.smsVotingEndsAt),
+      );
     } catch (err) {
       setMessage({
         type: "error",
@@ -101,7 +123,7 @@ export function EventSmsVotingSettings({
     } finally {
       setLoading(false);
     }
-  }, [eventId, eventSchedule, syncComplete]);
+  }, [eventId, eventSchedule, syncStatus]);
 
   useEffect(() => {
     void load();
@@ -110,13 +132,10 @@ export function EventSmsVotingSettings({
   function handleEnableChange(checked: boolean) {
     setSmsVotingEnabled(checked);
     setMessage(null);
-    if (checked) {
+    if (checked && !smsVotingStartsAt && !smsVotingEndsAt) {
       const defaults = applyDefaultVotingTimes(eventSchedule);
       setSmsVotingStartsAt(defaults.opens);
       setSmsVotingEndsAt(defaults.closes);
-    } else {
-      setCategories([]);
-      setCustomName("");
     }
   }
 
@@ -175,9 +194,6 @@ export function EventSmsVotingSettings({
     if (smsVotingEnabled && active.length === 0) {
       return "Choose at least one voting category when SMS voting is enabled.";
     }
-    if (!smsVotingEnabled && active.length > 0) {
-      return "Enable SMS voting for this event, or remove all voting categories before saving.";
-    }
     return null;
   }
 
@@ -191,19 +207,18 @@ export function EventSmsVotingSettings({
 
     setSaving(true);
     try {
-      const payloadCategories = smsVotingEnabled ? categories : [];
       const res = await fetch(`/api/events/${eventId}/sms-voting`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           smsVotingEnabled,
-          smsVotingStartsAt: smsVotingEnabled && smsVotingStartsAt
+          smsVotingStartsAt: smsVotingStartsAt
             ? new Date(smsVotingStartsAt).toISOString()
             : null,
-          smsVotingEndsAt: smsVotingEnabled && smsVotingEndsAt
+          smsVotingEndsAt: smsVotingEndsAt
             ? new Date(smsVotingEndsAt).toISOString()
             : null,
-          categories: payloadCategories,
+          categories,
         }),
       });
       const data = await res.json();
@@ -214,7 +229,7 @@ export function EventSmsVotingSettings({
       setSmsPresets(data.presets ?? []);
       setInstructionPreview(data.instructionPreview ?? "");
       setSmsVotingEnabled(savedEnabled);
-      syncComplete(savedEnabled, savedCategories);
+      syncStatus(savedEnabled, savedCategories, "save");
       setMessage({ type: "success", text: "SMS voting settings saved." });
     } catch (err) {
       setMessage({

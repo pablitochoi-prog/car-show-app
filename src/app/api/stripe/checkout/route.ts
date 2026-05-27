@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
@@ -108,9 +109,7 @@ export async function POST(request: Request) {
   let flatSetupFeeCharged = false;
   const isDonationEvent = event.registrationFeeType === "DONATION";
 
-  let lineItems: NonNullable<
-    Parameters<typeof stripe.checkout.sessions.create>[0]["line_items"]
-  >;
+  let lineItems: NonNullable<Stripe.Checkout.SessionCreateParams["line_items"]>;
   let totalApplicationFee: number;
   let totalAmountCents: number;
   let checkoutType: "standard" | "additional_balance" = "standard";

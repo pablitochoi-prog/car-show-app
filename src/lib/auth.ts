@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type RegistrationFeeType } from "@prisma/client";
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
@@ -241,6 +241,7 @@ const managedEventSelect = {
   showNumber: true,
   orgId: true,
   status: true,
+  registrationFeeType: true,
 } as const;
 
 type ManagedEvent = {
@@ -249,6 +250,7 @@ type ManagedEvent = {
   showNumber: number;
   orgId: string | null;
   status: string;
+  registrationFeeType: RegistrationFeeType | null;
 };
 
 /**

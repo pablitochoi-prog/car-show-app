@@ -1,4 +1,5 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { userHasProfilePhoto } from "@/lib/profile-photo-access";
 import { publicPhotosR2, r2Buckets } from "@/lib/r2";
@@ -271,7 +272,7 @@ export async function syncGuestRegistrationStaffPhotos(
   if (changed) {
     await prisma.registration.update({
       where: { id: registrationId },
-      data: { guestVehicles: updated },
+      data: { guestVehicles: updated as Prisma.InputJsonValue },
     });
   }
 }

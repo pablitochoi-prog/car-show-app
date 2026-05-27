@@ -52,6 +52,7 @@ import {
 } from "@/lib/event-schedule-date";
 import { timeZoneForUsState } from "@/lib/us-state-time-zone";
 import { FLAT_PLATFORM_FEE_UNPAID_LISTING_MESSAGE } from "@/lib/event-platform-fee";
+import { formatEventShowNumber } from "@/lib/event-show-number";
 
 /** 12:00 AM in stored `HH:MM` form (QuarterHourTimePickers show 12-hour labels). */
 const DEFAULT_SCHEDULE_TIME = normalizeTimeToFiveMinutes("00:00");
@@ -107,6 +108,8 @@ export type EventInitial = {
   lng?: number | null;
   flyerUrl?: string | null;
   logoUrl?: string | null;
+  /** Assigned at creation; shown on edit Event Details header. */
+  showNumber?: number;
 };
 
 type ScheduleRow = {
@@ -1181,14 +1184,15 @@ export function EventForm({
                 />
               ) : null}
               {!hostingLocked ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 shrink-0 whitespace-nowrap sm:h-11"
-                  asChild
+                <Link
+                  href={createClubHref}
+                  className={cn(
+                    buttonVariants({ variant: "outline" }),
+                    "h-10 shrink-0 whitespace-nowrap no-underline sm:h-11",
+                  )}
                 >
-                  <Link href={createClubHref}>Create New Club</Link>
-                </Button>
+                  Create New Club
+                </Link>
               ) : null}
             </div>
             {hostingLocked ? (
@@ -1229,10 +1233,22 @@ export function EventForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>Event Details</CardTitle>
-          <CardDescription>
-            Name, listing status, and registration settings for this event.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+            <div className="min-w-0">
+              <CardTitle>Event Details</CardTitle>
+              <CardDescription>
+                Name, listing status, and registration settings for this event.
+              </CardDescription>
+            </div>
+            {isEdit && initial?.showNumber != null ? (
+              <p className="shrink-0 text-right text-sm text-muted-foreground">
+                Car show number{" "}
+                <span className="font-medium tabular-nums text-foreground">
+                  {formatEventShowNumber(initial.showNumber)}
+                </span>
+              </p>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {!statusReadOnly ? (

@@ -186,10 +186,10 @@ function EventRegistrationPageContent({
         lastName: userContact.lastName,
         email: userContact.email,
         phone: userContact.phone,
-        street: userContact.profileExtras.street ?? "",
-        city: userContact.profileExtras.city ?? "",
-        state: userContact.profileExtras.state ?? "",
-        zip: userContact.profileExtras.zip ?? "",
+        street: userContact.street,
+        city: userContact.city,
+        state: userContact.state,
+        zip: userContact.zip,
       };
     }
     return emptyRegistrationContact();
@@ -461,7 +461,7 @@ function EventRegistrationPageContent({
     const regTotal = ft === "DONATION" ? unitCents : unitCents * totalVehicles;
     const feeUnitCents =
       ft === "DONATION"
-        ? Math.round(suggestedPerVehicleDollars * 100)
+        ? Math.round((suggestedPerVehicleDollars ?? 0) * 100)
         : unitCents;
     const platformFees = totalPlatformFeeForCheckout({
       mode: event.platformFeeMode ?? "CONVENIENCE",
@@ -536,7 +536,7 @@ function EventRegistrationPageContent({
     : (pricingTier?.priceCents ?? 0);
 
   const registrationBalance = getRegistrationAmounts({
-    registrationFeeType: event.registrationFeeType,
+    registrationFeeType: event.registrationFeeType ?? "FREE",
     unitPriceCents,
     vehicleCount: totalVehicles,
     registrationStatus:

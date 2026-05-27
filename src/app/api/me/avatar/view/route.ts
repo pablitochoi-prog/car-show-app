@@ -27,7 +27,7 @@ export async function GET() {
     return NextResponse.json({ error: asset.error }, { status: 404 });
   }
 
-  return new NextResponse(asset.bytes, {
+  return new NextResponse(new Uint8Array(asset.bytes), {
     status: 200,
     headers: {
       "Content-Type": asset.contentType || "image/jpeg",

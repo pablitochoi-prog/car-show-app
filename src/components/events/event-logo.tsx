@@ -21,6 +21,13 @@ const wideSizeClasses = {
   lg: "h-14 w-[calc(3.5rem*1.5)] text-sm",
 } as const;
 
+function wideSizeKey(
+  size: keyof typeof squareSizeClasses,
+): keyof typeof wideSizeClasses {
+  if (size === "club" || size === "clubForm") return "sm";
+  return size;
+}
+
 export function EventLogo({
   src,
   alt,
@@ -52,7 +59,7 @@ export function EventLogo({
     <div
       className={cn(
         "relative shrink-0 overflow-hidden rounded-lg border bg-muted",
-        isWide ? wideSizeClasses[size] : squareSizeClasses[size],
+        isWide ? wideSizeClasses[wideSizeKey(size)] : squareSizeClasses[size],
         className,
       )}
       title={title}

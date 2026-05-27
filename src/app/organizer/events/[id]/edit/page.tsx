@@ -76,6 +76,7 @@ export default async function EditEventPage({
     eventAwardRows,
     platformFeeStatus,
     activeVotingCategoryCount,
+    totalVotingCategoryCount,
   ] = await Promise.all([
     prisma.organizationMember.findMany({
       where: { userId: user.id },
@@ -118,13 +119,23 @@ export default async function EditEventPage({
     prisma.votingCategory.count({
       where: { eventId: id, isActive: true },
     }),
+    prisma.votingCategory.count({
+      where: { eventId: id },
+    }),
   ]);
 
   const paymentSettingsComplete = Boolean(
     platformFeeStatus?.paymentEnabled && platformFeeStatus.paid,
   );
-  const smsVotingComplete =
-    event.smsVotingEnabled && activeVotingCategoryCount > 0;
+  const initialSmsVotingStatus =
+    event.smsVotingEnabled && activeVotingCategoryCount > 0
+      ? ("complete" as const)
+      : !event.smsVotingEnabled &&
+          (totalVotingCategoryCount > 0 ||
+            event.smsVotingStartsAt ||
+            event.smsVotingEndsAt)
+        ? ("not_enabled" as const)
+        : null;
 
   const initialCategoryCount = eventCategoryRows.length;
   const initialTrophyCount = countEventAwardTrophies({
@@ -229,6 +240,7 @@ export default async function EditEventPage({
     persistedEventStatus: event.status,
     flyerUrl: event.flyerUrl,
     logoUrl: event.logoUrl,
+    showNumber: event.showNumber,
   };
 
   return (
@@ -240,12 +252,6 @@ export default async function EditEventPage({
         >
           ← Back to my events
         </Link>
-        <p className="mt-2 text-sm text-muted-foreground">
-            Car show number{" "}
-          <span className="font-medium tabular-nums text-foreground">
-            {formatEventShowNumber(event.showNumber)}
-          </span>
-        </p>
         {event.smsVotePrefix ? (
           <p className="mt-1 text-sm text-muted-foreground">
             Vehicle show ID prefix:{" "}
@@ -355,7 +361,7 @@ export default async function EditEventPage({
               eventId={event.id}
               initialCategoryCount={initialCategoryCount}
               initialTrophyCount={initialTrophyCount}
-              initialSmsVotingComplete={smsVotingComplete}
+              initialSmsVotingStatus={initialSmsVotingStatus}
               eventSchedule={{
                 startDate: event.startDate.toISOString(),
                 endDate: event.endDate?.toISOString() ?? null,

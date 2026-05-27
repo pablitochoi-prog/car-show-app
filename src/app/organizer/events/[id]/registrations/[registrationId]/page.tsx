@@ -246,6 +246,10 @@ export default async function OrganizerRegistrationEditPage({
           lastName: registrant.lastName ?? "",
           email: registrant.email,
           phone: registrant.phone ?? "",
+          street: registrant.street ?? "",
+          city: registrant.city ?? "",
+          state: registrant.state ?? "",
+          zip: registrant.zip ?? "",
           profileExtras: {
             birthYear: registrant.birthYear ?? undefined,
             street: registrant.street ?? "",

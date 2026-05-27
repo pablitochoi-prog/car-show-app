@@ -178,6 +178,10 @@ export default async function EventDetailPage({ params }: Props) {
                 lastName: viewer.lastName ?? "",
                 email: viewer.email,
                 phone: viewer.phone ?? "",
+                street: viewer.street ?? "",
+                city: viewer.city ?? "",
+                state: viewer.state ?? "",
+                zip: viewer.zip ?? "",
                 profileExtras: {
                   birthYear: viewer.birthYear ?? undefined,
                   street: viewer.street ?? "",
