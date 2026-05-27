@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -11,7 +10,7 @@ import { cn } from "@/lib/utils";
 import type { PlatformRole } from "@/types";
 import { useUnreadMessages } from "@/components/messages/unread-messages-provider";
 import { UnreadCountBadge } from "@/components/messages/unread-count-badge";
-import { BRAND_BLUE, BRAND_RED } from "@/lib/brand-colors";
+import { SiteLogo } from "@/components/brand/site-logo";
 
 interface HeaderProps {
   isLoggedIn?: boolean;
@@ -50,25 +49,7 @@ export function Header({ isLoggedIn = false }: HeaderProps) {
           className="flex shrink-0 items-center gap-2.5 py-1"
           aria-label="CarShowScout.com home"
         >
-          <Image
-            src="/brand/carshowscout-mark.png"
-            alt=""
-            width={1024}
-            height={819}
-            unoptimized
-            className="h-[calc(2.5rem*1.875*0.8)] w-auto shrink-0 object-contain"
-            priority
-          />
-          <span className="text-[1.35rem] font-bold tracking-tight sm:text-[1.5rem]">
-            <span style={{ color: BRAND_BLUE }}>CarShow</span>
-            <span style={{ color: BRAND_RED }}>Scout</span>
-            <span
-              className="text-[1.05rem] font-semibold"
-              style={{ color: BRAND_BLUE }}
-            >
-              .com
-            </span>
-          </span>
+          <SiteLogo size="header" priority />
         </Link>
 
         {/* Desktop Navigation */}

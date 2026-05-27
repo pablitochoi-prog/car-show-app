@@ -496,8 +496,8 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
           <div className="dash-card-footer-brand flex items-center justify-end gap-1.5 justify-self-end">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/brand/carshowscout-mark.png"
-              alt=""
+              src="/brand/carshowscout-logo.jpg"
+              alt="CarShowScout"
               className="dash-card-footer-logo"
             />
             <span className="dash-card-footer-copyright whitespace-nowrap text-[#64748b]">

@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Footer } from "@/components/layout/footer";
 import { UnreadMessagesShell } from "@/components/layout/unread-messages-shell";
+import { getSiteOrigin } from "@/lib/site-url";
 import "./globals.css";
 
 const inter = Inter({
@@ -13,9 +14,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "CarShowScout.com - Discover & Manage Car Shows",
+  metadataBase: new URL(getSiteOrigin()),
+  title: {
+    default: "CarShowScout — Car show discovery & event management",
+    template: "%s | CarShowScout",
+  },
   description:
-    "Find car shows near you, register your vehicles, and connect with the car enthusiast community.",
+    "Find car shows near you, register vehicles, manage events, and participate in SMS voting with CarShowScout.",
 };
 
 export default function RootLayout({
