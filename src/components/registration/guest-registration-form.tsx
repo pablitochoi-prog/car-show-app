@@ -46,6 +46,10 @@ import {
   suggestedDonationTotalDollars,
 } from "@/lib/donation";
 import { DonationAmountField } from "./donation-amount-field";
+import {
+  RegistrationFeeRow,
+  registrationVehiclesTableClassName,
+} from "./registration-fee-row";
 import { totalPlatformFeeForCheckout, type EventPlatformFeeMode } from "@/lib/event-platform-fee";
 import { dollarsToCents } from "@/lib/money";
 import { GuestVehiclePhoto } from "./guest-vehicle-photo";
@@ -507,31 +511,30 @@ export function GuestRegistrationForm({
             id="guest-review-donation-amount"
           />
           {guestPlatformFee.perVehicleCents > 0 && (
-            <div className="flex items-center justify-between gap-2 border-t pt-2">
-              <span>Registration fee:</span>
-              <span className="text-right font-medium">
-                {formatMoney(guestPlatformFee.perVehicleCents)} × {vehicleCount}{" "}
-                vehicle
-                {vehicleCount !== 1 ? "s" : ""} ={" "}
-                {formatMoney(
-                  guestPlatformFee.perVehicleCents * Math.max(vehicleCount, 1),
-                )}
-              </span>
-            </div>
+            <RegistrationFeeRow
+              label="Registration fee:"
+              className="border-t pt-2"
+            >
+              {formatMoney(guestPlatformFee.perVehicleCents)} × {vehicleCount}{" "}
+              vehicle
+              {vehicleCount !== 1 ? "s" : ""} ={" "}
+              {formatMoney(
+                guestPlatformFee.perVehicleCents * Math.max(vehicleCount, 1),
+              )}
+            </RegistrationFeeRow>
           )}
           {guestPlatformFee.flatSetupCents > 0 && (
-            <div className="flex items-center justify-between gap-2 border-t pt-2">
-              <span>Platform setup fee:</span>
-              <span className="text-right font-medium">
-                {formatMoney(guestPlatformFee.flatSetupCents)}
-              </span>
-            </div>
+            <RegistrationFeeRow
+              label="Platform setup fee:"
+              className="border-t pt-2"
+            >
+              {formatMoney(guestPlatformFee.flatSetupCents)}
+            </RegistrationFeeRow>
           )}
           {(guestDonationCents > 0 || guestPlatformFee.totalCents > 0) && (
-            <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
-              <span>Total:</span>
-              <span>{formatMoney(guestGrandTotal)}</span>
-            </div>
+            <RegistrationFeeRow label="Total:" bold>
+              {formatMoney(guestGrandTotal)}
+            </RegistrationFeeRow>
           )}
         </div>
       );
@@ -592,34 +595,24 @@ export function GuestRegistrationForm({
             <span className="font-medium">{selectedTier.name}</span>
           </div>
         )}
-        <div className="flex items-center justify-between gap-2">
-          <span>{eventFeeLabel}:</span>
-          <span className="text-right font-medium">
-            {formatMoney(unitCents)} × {numVehicles} vehicle
-            {numVehicles !== 1 ? "s" : ""} = {formatMoney(eventFeeTotal)}
-          </span>
-        </div>
+        <RegistrationFeeRow label={`${eventFeeLabel}:`}>
+          {formatMoney(unitCents)} × {numVehicles} vehicle
+          {numVehicles !== 1 ? "s" : ""} = {formatMoney(eventFeeTotal)}
+        </RegistrationFeeRow>
         {totalConvFee > 0 && (
-          <div className="flex items-center justify-between gap-2">
-            <span>Registration fee:</span>
-            <span className="text-right font-medium">
-              {formatMoney(convFeeCents)} × {numVehicles} vehicle
-              {numVehicles !== 1 ? "s" : ""} = {formatMoney(totalConvFee)}
-            </span>
-          </div>
+          <RegistrationFeeRow label="Registration fee:">
+            {formatMoney(convFeeCents)} × {numVehicles} vehicle
+            {numVehicles !== 1 ? "s" : ""} = {formatMoney(totalConvFee)}
+          </RegistrationFeeRow>
         )}
         {flatSetupFeeCents > 0 && (
-          <div className="flex items-center justify-between gap-2">
-            <span>Platform setup fee:</span>
-            <span className="text-right font-medium">
-              {formatMoney(flatSetupFeeCents)}
-            </span>
-          </div>
+          <RegistrationFeeRow label="Platform setup fee:">
+            {formatMoney(flatSetupFeeCents)}
+          </RegistrationFeeRow>
         )}
-        <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
-          <span>Total:</span>
-          <span>{formatMoney(grandTotal)}</span>
-        </div>
+        <RegistrationFeeRow label="Total:" bold>
+          {formatMoney(grandTotal)}
+        </RegistrationFeeRow>
       </div>
     );
   }
@@ -794,8 +787,8 @@ export function GuestRegistrationForm({
         </CardHeader>
         <CardContent>
           {registeredVehicles.length > 0 ? (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full text-sm">
+            <div className="rounded-lg border">
+              <table className={registrationVehiclesTableClassName}>
                 <thead>
                   <tr className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                     <th className="w-[5.5rem] px-3 py-2">Photo</th>
@@ -808,10 +801,10 @@ export function GuestRegistrationForm({
                     <th className="w-10 px-3 py-2" />
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y md:divide-y">
                   {registeredVehicles.map((v) => (
-                    <tr key={v.clientId} className="hover:bg-muted/30">
-                      <td className="px-3 py-2.5">
+                    <tr key={v.clientId} className="max-md:relative hover:bg-muted/30">
+                      <td className="px-3 py-2.5 max-md:pr-10">
                         <GuestVehiclePhoto
                           eventId={eventId}
                           photoUrl={v.photoUrl}
@@ -820,7 +813,7 @@ export function GuestRegistrationForm({
                           }
                         />
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5 max-md:pr-10">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             {!v.photoUrl ? (
@@ -848,7 +841,10 @@ export function GuestRegistrationForm({
                         ) : null}
                         </div>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td
+                        className="px-3 py-2.5"
+                        data-label="Vehicle nickname"
+                      >
                         <Input
                           value={v.nickname}
                           onChange={(e) =>
@@ -858,10 +854,10 @@ export function GuestRegistrationForm({
                           }
                           placeholder='e.g. "Miss Behavin’"'
                           maxLength={48}
-                          className="h-8 min-w-[8rem] text-sm"
+                          className="h-8 w-full min-w-0 text-sm md:min-w-[8rem]"
                         />
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5" data-label="Class">
                         {requiresVehicleClass ? (
                           <VehicleClassSelect
                             value={v.eventCategoryId}
@@ -879,7 +875,7 @@ export function GuestRegistrationForm({
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="max-md:absolute max-md:right-2 max-md:top-2 max-md:z-10 max-md:p-0 md:px-3 md:py-2.5">
                         <Button
                           type="button"
                           variant="ghost"

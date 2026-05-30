@@ -77,6 +77,8 @@ export default async function OrganizerRegistrationEditPage({
   });
   if (!event) notFound();
 
+  const registrationFeeType = event.registrationFeeType ?? "FREE";
+
   const registration = await getRegistrationByIdForOrganizer(
     eventId,
     registrationId,
@@ -160,7 +162,7 @@ export default async function OrganizerRegistrationEditPage({
         registrantPhone: null,
       },
       {
-        registrationFeeType: event.registrationFeeType,
+        registrationFeeType,
         suggestedDonationPerVehicleDollars: event.registrationFeeDollars,
       },
       platformFee,

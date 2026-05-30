@@ -46,7 +46,7 @@ export function VehicleClassSelect({
       <SelectTrigger
         id={id}
         className={cn(
-          "h-8 w-full min-w-[140px] text-xs",
+          "h-8 w-full min-w-0 text-xs md:min-w-[140px]",
           invalid && "border-destructive aria-invalid:border-destructive",
           className,
         )}

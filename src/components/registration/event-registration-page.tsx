@@ -64,6 +64,10 @@ import {
   suggestedDonationTotalDollars,
 } from "@/lib/donation";
 import { DonationAmountField } from "./donation-amount-field";
+import {
+  RegistrationFeeRow,
+  registrationVehiclesTableClassName,
+} from "./registration-fee-row";
 import { CancelRegistrationButton } from "@/components/dashboard/events/cancel-registration-button";
 import {
   derivePaidVehicleCount,
@@ -812,9 +816,9 @@ function EventRegistrationPageContent({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
+      <div className="grid min-w-0 gap-8 lg:grid-cols-[1fr_300px]">
         {/* ---- LEFT COLUMN: Registration form ---- */}
-        <div className="space-y-6" id="register">
+        <div className="min-w-0 space-y-6" id="register">
           {isUpdating && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
               <div className="flex items-start justify-between gap-3">
@@ -1084,7 +1088,7 @@ function EventRegistrationPageContent({
                     </p>
                   ) : null}
                   {garageVehicles.length > 0 && (
-                    <div className="overflow-x-auto rounded-lg border">
+                    <div className="rounded-lg border">
                       {editingRegisteredVehicles ? (
                         <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
                           <input
@@ -1120,7 +1124,7 @@ function EventRegistrationPageContent({
                           )}
                         </div>
                       ) : null}
-                      <table className="w-full text-sm">
+                      <table className={registrationVehiclesTableClassName}>
                         <thead>
                           <tr className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                             {editingRegisteredVehicles ? (
@@ -1135,19 +1139,19 @@ function EventRegistrationPageContent({
                             </th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y">
+                        <tbody className="divide-y md:divide-y">
                           {garageVehicles.map((v) => (
                             <tr
                               key={v.id}
                               className={cn(
-                                "hover:bg-muted/30",
+                                "max-md:relative hover:bg-muted/30",
                                 editingRegisteredVehicles &&
                                   selectedRegisteredForRemoval.has(v.id) &&
                                   "bg-primary/5",
                               )}
                             >
                               {editingRegisteredVehicles ? (
-                                <td className="px-3 py-2.5">
+                                <td className="max-md:absolute max-md:left-2 max-md:top-2 max-md:z-10 max-md:p-0 md:px-3 md:py-2.5">
                                   <input
                                     type="checkbox"
                                     className="size-4 rounded border-input"
@@ -1161,7 +1165,7 @@ function EventRegistrationPageContent({
                                   />
                                 </td>
                               ) : null}
-                              <td className="px-3 py-2.5">
+                              <td className="px-3 py-2.5 max-md:pr-10">
                                 <RegistrationVehiclePhoto
                                   vehicleId={v.id}
                                   photoUrl={vehiclePhotos[v.id] ?? null}
@@ -1173,7 +1177,7 @@ function EventRegistrationPageContent({
                                   }
                                 />
                               </td>
-                              <td className="px-3 py-2.5">
+                              <td className="px-3 py-2.5 max-md:pr-10">
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
                                     {!vehiclePhotos[v.id] ? (
@@ -1226,7 +1230,10 @@ function EventRegistrationPageContent({
                                   ) : null}
                                 </div>
                               </td>
-                              <td className="px-3 py-2.5">
+                              <td
+                                className="px-3 py-2.5"
+                                data-label="Vehicle nickname"
+                              >
                                 <Input
                                   value={vehicleNicknames[v.id] ?? ""}
                                   onChange={(e) =>
@@ -1238,10 +1245,13 @@ function EventRegistrationPageContent({
                                   placeholder="Vehicle nickname"
                                   aria-label={`Vehicle nickname for ${v.year} ${v.make} ${v.model}`}
                                   maxLength={48}
-                                  className="h-8 min-w-[8rem] text-sm"
+                                  className="h-8 w-full min-w-0 text-sm md:min-w-[8rem]"
                                 />
                               </td>
-                              <td className="px-3 py-2.5">
+                              <td
+                                className="px-3 py-2.5"
+                                data-label="Class"
+                              >
                                 {requiresVehicleClass ? (
                                   <VehicleClassSelect
                                     value={vehicleCategories[v.id]}
@@ -1431,31 +1441,30 @@ function EventRegistrationPageContent({
                         id="review-donation-amount"
                       />
                       {feeSummary.totalConvFee > 0 && (
-                        <div className="flex items-center justify-between gap-2 border-t pt-2">
-                          <span>Registration fee:</span>
-                          <span className="text-right font-medium">
-                            {formatMoney(feeSummary.convFeeCents)} ×{" "}
-                            {totalVehicles} vehicle
-                            {totalVehicles !== 1 ? "s" : ""} ={" "}
-                            {formatMoney(feeSummary.totalConvFee)}
-                          </span>
-                        </div>
+                        <RegistrationFeeRow
+                          label="Registration fee:"
+                          className="border-t pt-2"
+                        >
+                          {formatMoney(feeSummary.convFeeCents)} ×{" "}
+                          {totalVehicles} vehicle
+                          {totalVehicles !== 1 ? "s" : ""} ={" "}
+                          {formatMoney(feeSummary.totalConvFee)}
+                        </RegistrationFeeRow>
                       )}
                       {feeSummary.flatSetupFeeCents > 0 && (
-                        <div className="flex items-center justify-between gap-2 border-t pt-2">
-                          <span>Platform setup fee:</span>
-                          <span className="text-right font-medium">
-                            {formatMoney(feeSummary.flatSetupFeeCents)}
-                          </span>
-                        </div>
+                        <RegistrationFeeRow
+                          label="Platform setup fee:"
+                          className="border-t pt-2"
+                        >
+                          {formatMoney(feeSummary.flatSetupFeeCents)}
+                        </RegistrationFeeRow>
                       )}
                       {(feeSummary.regTotal > 0 ||
                         feeSummary.totalConvFee > 0 ||
                         feeSummary.flatSetupFeeCents > 0) && (
-                        <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
-                          <span>Total:</span>
-                          <span>{formatMoney(feeSummary.grandTotal)}</span>
-                        </div>
+                        <RegistrationFeeRow label="Total:" bold>
+                          {formatMoney(feeSummary.grandTotal)}
+                        </RegistrationFeeRow>
                       )}
                       {feeSummary.regTotal === 0 &&
                         feeSummary.totalConvFee === 0 &&
@@ -1494,40 +1503,30 @@ function EventRegistrationPageContent({
                     return (
                       <div className="space-y-1 text-sm">
                         {regTotal > 0 && (
-                          <div className="flex items-center justify-between gap-2">
-                            <span>{tierLabel}:</span>
-                            <span className="text-right font-medium">
-                              {formatMoney(unitCents)} × {totalVehicles} vehicle
-                              {totalVehicles !== 1 ? "s" : ""} ={" "}
-                              {formatMoney(regTotal)}
-                            </span>
-                          </div>
+                          <RegistrationFeeRow label={`${tierLabel}:`}>
+                            {formatMoney(unitCents)} × {totalVehicles} vehicle
+                            {totalVehicles !== 1 ? "s" : ""} ={" "}
+                            {formatMoney(regTotal)}
+                          </RegistrationFeeRow>
                         )}
                         {totalConvFee > 0 && (
-                          <div className="flex items-center justify-between gap-2">
-                            <span>Registration fee:</span>
-                            <span className="text-right font-medium">
-                              {formatMoney(convFeeCents)} × {totalVehicles} vehicle
-                              {totalVehicles !== 1 ? "s" : ""} ={" "}
-                              {formatMoney(totalConvFee)}
-                            </span>
-                          </div>
+                          <RegistrationFeeRow label="Registration fee:">
+                            {formatMoney(convFeeCents)} × {totalVehicles} vehicle
+                            {totalVehicles !== 1 ? "s" : ""} ={" "}
+                            {formatMoney(totalConvFee)}
+                          </RegistrationFeeRow>
                         )}
                         {flatSetupFeeCents > 0 && (
-                          <div className="flex items-center justify-between gap-2">
-                            <span>Platform setup fee:</span>
-                            <span className="text-right font-medium">
-                              {formatMoney(flatSetupFeeCents)}
-                            </span>
-                          </div>
+                          <RegistrationFeeRow label="Platform setup fee:">
+                            {formatMoney(flatSetupFeeCents)}
+                          </RegistrationFeeRow>
                         )}
                         {(totalConvFee > 0 ||
                           flatSetupFeeCents > 0 ||
                           regTotal > 0) && (
-                          <div className="flex items-center justify-between gap-2 border-t pt-1 font-bold">
-                            <span>Total:</span>
-                            <span>{formatMoney(grandTotal)}</span>
-                          </div>
+                          <RegistrationFeeRow label="Total:" bold>
+                            {formatMoney(grandTotal)}
+                          </RegistrationFeeRow>
                         )}
                       </div>
                     );
@@ -1546,28 +1545,26 @@ function EventRegistrationPageContent({
                   {(registrationBalance.amountPaidCents > 0 ||
                     registrationBalance.amountDueCents > 0) && (
                     <div className="space-y-1 border-t pt-2 text-sm">
-                      <div className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">Amount paid</span>
-                        <span className="font-medium">
-                          {formatMoney(registrationBalance.amountPaidCents)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">
-                          {showEditRegistrationPayOptions
+                      <RegistrationFeeRow label="Amount paid" labelMuted>
+                        {formatMoney(registrationBalance.amountPaidCents)}
+                      </RegistrationFeeRow>
+                      <RegistrationFeeRow
+                        label={
+                          showEditRegistrationPayOptions
                             ? "Additional amount due"
-                            : "Amount due"}
-                        </span>
+                            : "Amount due"
+                        }
+                        labelMuted
+                      >
                         <span
                           className={cn(
-                            "font-medium",
                             registrationBalance.amountDueCents > 0 &&
                               "text-amber-700 dark:text-amber-300",
                           )}
                         >
                           {formatMoney(registrationBalance.amountDueCents)}
                         </span>
-                      </div>
+                      </RegistrationFeeRow>
                     </div>
                   )}
 

@@ -5,6 +5,7 @@ import { Loader2, Star, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { vehiclePhotoImgClassName } from "@/components/vehicle/vehicle-photo-display";
+import { uploadPrivateVehiclePhoto } from "@/lib/upload-private-vehicle-photo-client";
 
 type VehiclePhotoRow = {
   id: string;

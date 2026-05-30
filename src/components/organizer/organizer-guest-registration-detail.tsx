@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -574,12 +574,18 @@ export function OrganizerGuestRegistrationDetail({
                   <Copy className="size-4" />
                   Copy payment link
                 </Button>
-                <Button type="button" size="sm" variant="outline" asChild>
-                  <a href={checkoutUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="size-4" />
-                    Open checkout
-                  </a>
-                </Button>
+                <a
+                  href={checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" }),
+                    "gap-1.5",
+                  )}
+                >
+                  <ExternalLink className="size-4" />
+                  Open checkout
+                </a>
               </div>
             </div>
           ) : null}
