@@ -1,7 +1,7 @@
 export const EVENT_REPORT_TYPES = [
   {
     id: "voting",
-    label: "Voting",
+    label: "Public votes",
     description: "Public and SMS vote counts by category and vehicle.",
     available: true,
   },
