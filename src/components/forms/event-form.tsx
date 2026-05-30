@@ -121,6 +121,19 @@ type ScheduleRow = {
   timeZone: EventTimeZoneIana;
 };
 
+/** Fixed column widths — date | start | end | tz | +/- */
+const SCHEDULE_ROW =
+  "flex w-full min-w-0 flex-nowrap items-end gap-2";
+const SCHEDULE_DATE_COL =
+  "w-[9.5rem] max-w-[9.5rem] min-w-0 shrink-0 space-y-2";
+/** 5rem + 15% ≈ 5.75rem (92px) — fits "9:30 AM" without truncating. */
+const SCHEDULE_TIME_COL =
+  "w-[92px] max-w-[92px] min-w-0 shrink-0 space-y-2";
+const SCHEDULE_TZ_COL =
+  "w-[7rem] max-w-[7rem] min-w-0 shrink-0 space-y-2";
+const SCHEDULE_ACTIONS_COL =
+  "flex shrink-0 items-end justify-end gap-1";
+
 function toDateInput(iso: string) {
   try {
     const d = new Date(iso);
@@ -133,8 +146,12 @@ function toDateInput(iso: string) {
 
 function scheduleRowsFromInitial(
   initial?: EventInitial,
-  defaultTimeZone: EventTimeZoneIana = DEFAULT_EVENT_TIME_ZONE
+  defaultTimeZone: EventTimeZoneIana = DEFAULT_EVENT_TIME_ZONE,
 ): ScheduleRow[] {
+  const venueTimeZone = initial?.state
+    ? timeZoneForUsState(initial.state)
+    : defaultTimeZone;
+
   if (!initial) {
     return [
       {
@@ -154,7 +171,7 @@ function scheduleRowsFromInitial(
       endTime: normalizeTimeToFiveMinutes(r.endTime ?? ""),
       timeZone: isEventTimeZoneIana(r.timeZone)
         ? r.timeZone
-        : DEFAULT_EVENT_TIME_ZONE,
+        : venueTimeZone,
     }));
   }
   return [
@@ -163,7 +180,7 @@ function scheduleRowsFromInitial(
       date: toDateInput(initial.startDate),
       startTime: normalizeTimeToFiveMinutes(initial.startTime ?? ""),
       endTime: normalizeTimeToFiveMinutes(initial.endTime ?? ""),
-      timeZone: DEFAULT_EVENT_TIME_ZONE,
+      timeZone: venueTimeZone,
     },
   ];
 }
@@ -415,6 +432,13 @@ export function EventForm({
     const tz = timeZoneForOrgId(orgId);
     setScheduleRows((prev) => prev.map((r) => ({ ...r, timeZone: tz })));
   }
+
+  function applyVenueTimeZone(state: string) {
+    const code = state.trim();
+    if (!code) return;
+    const tz = timeZoneForUsState(code);
+    setScheduleRows((prev) => prev.map((r) => ({ ...r, timeZone: tz })));
+  }
   const [name, setName] = useState(initial?.name ?? "");
   const [estimatedCarCount, setEstimatedCarCount] = useState<number | null>(
     initial?.estimatedCarCount ?? null
@@ -483,6 +507,9 @@ export function EventForm({
       setCity(data.city ?? "");
       setStateVal(data.state ?? "");
       setZip(data.zip ?? "");
+      if (data.state?.trim()) {
+        applyVenueTimeZone(data.state);
+      }
       if (
         typeof data.lat === "number" &&
         typeof data.lng === "number" &&
@@ -607,7 +634,9 @@ export function EventForm({
 
   function onHostingOrganizationChange(value: string) {
     setHostingOrgId(value);
-    if (!isEdit) applyOrganizationTimeZone(value);
+    if (!isEdit && !stateVal.trim()) {
+      applyOrganizationTimeZone(value);
+    }
   }
 
   function onListingStatusChange(next: "DRAFT" | "SCHEDULED" | "PUBLISHED") {
@@ -1126,7 +1155,13 @@ export function EventForm({
 
   return (
     <>
-    <form onSubmit={onSubmit} className="mx-auto max-w-2xl space-y-8 pb-12">
+    <form
+      onSubmit={onSubmit}
+      className={cn(
+        "mx-auto space-y-8 pb-12",
+        isEdit ? "max-w-6xl" : "max-w-2xl",
+      )}
+    >
       {error && (
         <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           {error}
@@ -1438,130 +1473,154 @@ export function EventForm({
             the previous row—set the first date before adding another day.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="overflow-x-auto">
           {(() => {
             const lastScheduleRow = scheduleRows[scheduleRows.length - 1];
             const canAddAnotherDay =
               !!lastScheduleRow?.date?.trim() &&
               /^\d{4}-\d{2}-\d{2}$/.test(lastScheduleRow.date);
-            return scheduleRows.map((row, index) => {
-            const isLast = index === scheduleRows.length - 1;
             return (
-              <div
-                key={row.id}
-                className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-2"
-              >
-                <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(9.45rem,1.04625fr)_minmax(0,calc(13.75rem/0.9))_minmax(0,calc(13.75rem/0.9))] sm:gap-2">
-                  <div className="min-w-0 space-y-2 sm:min-w-[9.45rem]">
-                    <Label
-                      htmlFor={`event-date-${row.id}`}
-                      className={index > 0 ? "sr-only" : undefined}
-                    >
-                      Event date
-                      <CreateRequiredMark show={!isEdit} />
-                    </Label>
-                    <Input
-                      id={`event-date-${row.id}`}
-                      type="date"
-                      autoComplete="off"
-                      aria-required={!isEdit ? true : undefined}
-                      min={!isEdit ? todayLocalYmd() : undefined}
-                      value={row.date}
-                      onChange={(e) =>
-                        updateScheduleRow(row.id, {
-                          date: e.target.value,
-                        })
-                      }
-                      className="min-w-0 font-mono text-sm tabular-nums sm:min-w-[9.45rem]"
-                    />
-                  </div>
-                  <QuarterHourTimePickers
-                    idPrefix={`start-${row.id}`}
-                    label="Start time"
-                    labelSrOnly={index > 0}
-                    showRequiredAsterisk={!isEdit}
-                    inputRequired={!isEdit}
-                    value={row.startTime}
-                    onChange={(startTime) =>
-                      updateScheduleRow(row.id, {
-                        startTime: normalizeTimeToFiveMinutes(startTime),
-                      })
-                    }
-                  />
-                  <QuarterHourTimePickers
-                    idPrefix={`end-${row.id}`}
-                    label="End time"
-                    labelSrOnly={index > 0}
-                    value={row.endTime}
-                    onChange={(endTime) =>
-                      updateScheduleRow(row.id, {
-                        endTime: normalizeTimeToFiveMinutes(endTime),
-                      })
-                    }
-                  />
-                </div>
-                <div className="w-full max-w-[7.75rem] shrink-0 space-y-2 sm:w-[7.75rem]">
-                  <Label
-                    htmlFor={`tz-${row.id}`}
-                    className={index > 0 ? "sr-only" : undefined}
-                  >
-                    Time zone
-                    <CreateRequiredMark show={!isEdit} />
-                  </Label>
-                  <select
-                    id={`tz-${row.id}`}
-                    className="flex h-9 w-full max-w-[7.75rem] rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-xs outline-none sm:h-10 sm:text-[13px]"
-                    required={!isEdit}
-                    aria-required={!isEdit ? true : undefined}
-                    value={row.timeZone}
-                    onChange={(e) =>
-                      updateScheduleRow(row.id, {
-                        timeZone: e.target.value as EventTimeZoneIana,
-                      })
-                    }
-                  >
-                    {EVENT_TIME_ZONE_OPTIONS.map((z) => (
-                      <option key={z.value} value={z.value}>
-                        {z.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex shrink-0 justify-end gap-1 sm:pb-0.5">
-                  {scheduleRows.length > 1 && index > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
-                      onClick={() => removeScheduleRow(row.id)}
-                      aria-label="Remove this day"
-                    >
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                  {isLast ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
-                      onClick={addScheduleRow}
-                      disabled={!canAddAnotherDay}
-                      aria-label="Add another day"
-                      title={
-                        canAddAnotherDay
-                          ? undefined
-                          : "Enter a valid event date on this row first"
-                      }
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                </div>
+              <div className="min-w-0 space-y-3">
+                {scheduleRows.map((row, index) => {
+                  const isLast = index === scheduleRows.length - 1;
+                  const canRemove = scheduleRows.length > 1;
+                  const showColumnLabels = index === 0;
+                  const labelSpacer = showColumnLabels ? null : (
+                    <span className="block h-5" aria-hidden />
+                  );
+                  return (
+                    <div key={row.id} className={SCHEDULE_ROW}>
+                      <div className={SCHEDULE_DATE_COL}>
+                        {showColumnLabels ? (
+                          <Label htmlFor={`event-date-${row.id}`}>
+                            Event date
+                            <CreateRequiredMark show={!isEdit} />
+                          </Label>
+                        ) : (
+                          labelSpacer
+                        )}
+                        <Input
+                          id={`event-date-${row.id}`}
+                          type="date"
+                          autoComplete="off"
+                          aria-required={!isEdit ? true : undefined}
+                          min={!isEdit ? todayLocalYmd() : undefined}
+                          value={row.date}
+                          onChange={(e) =>
+                            updateScheduleRow(row.id, {
+                              date: e.target.value,
+                            })
+                          }
+                          className="min-w-0 font-mono text-sm tabular-nums"
+                        />
+                      </div>
+                      <div className={SCHEDULE_TIME_COL}>
+                        {!showColumnLabels ? labelSpacer : null}
+                        <QuarterHourTimePickers
+                          idPrefix={`start-${row.id}`}
+                          label="Start time"
+                          labelSrOnly={!showColumnLabels}
+                          showRequiredAsterisk={!isEdit && showColumnLabels}
+                          inputRequired={!isEdit}
+                          compact
+                          value={row.startTime}
+                          onChange={(startTime) =>
+                            updateScheduleRow(row.id, {
+                              startTime: normalizeTimeToFiveMinutes(startTime),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className={SCHEDULE_TIME_COL}>
+                        {!showColumnLabels ? labelSpacer : null}
+                        <QuarterHourTimePickers
+                          idPrefix={`end-${row.id}`}
+                          label="End time"
+                          labelSrOnly={!showColumnLabels}
+                          compact
+                          value={row.endTime}
+                          onChange={(endTime) =>
+                            updateScheduleRow(row.id, {
+                              endTime: normalizeTimeToFiveMinutes(endTime),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className={SCHEDULE_TZ_COL}>
+                        {showColumnLabels ? (
+                          <Label htmlFor={`tz-${row.id}`}>
+                            Time zone
+                            <CreateRequiredMark show={!isEdit} />
+                          </Label>
+                        ) : (
+                          labelSpacer
+                        )}
+                        <select
+                          id={`tz-${row.id}`}
+                          className="flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-xs outline-none sm:h-10 sm:text-[13px]"
+                          required={!isEdit}
+                          aria-required={!isEdit ? true : undefined}
+                          value={row.timeZone}
+                          onChange={(e) =>
+                            updateScheduleRow(row.id, {
+                              timeZone: e.target.value as EventTimeZoneIana,
+                            })
+                          }
+                        >
+                          {EVENT_TIME_ZONE_OPTIONS.map((z) => (
+                            <option key={z.value} value={z.value}>
+                              {z.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className={SCHEDULE_ACTIONS_COL}>
+                        {canRemove ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+                            onClick={() => removeScheduleRow(row.id)}
+                            aria-label="Remove this day"
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <span
+                            className="inline-flex h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+                            aria-hidden
+                          />
+                        )}
+                        {isLast ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+                            onClick={addScheduleRow}
+                            disabled={!canAddAnotherDay}
+                            aria-label="Add another day"
+                            title={
+                              canAddAnotherDay
+                                ? undefined
+                                : "Enter a valid event date on this row first"
+                            }
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <span
+                            className="inline-flex h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+                            aria-hidden
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
-          });
           })()}
 
           <div className="mt-6 border-t border-border pt-4">
@@ -1695,7 +1754,9 @@ export function EventForm({
                     value={stateVal}
                     onChange={(e) => {
                       clearResolvedCoords();
-                      setStateVal(e.target.value);
+                      const next = e.target.value;
+                      setStateVal(next);
+                      applyVenueTimeZone(next);
                     }}
                     className={cn(
                       "flex h-10 w-full rounded-md border border-input bg-transparent px-2 py-2 text-sm shadow-xs outline-none sm:h-11",

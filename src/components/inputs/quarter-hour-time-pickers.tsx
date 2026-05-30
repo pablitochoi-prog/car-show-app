@@ -23,6 +23,8 @@ type QuarterHourTimePickersProps = {
   inputRequired?: boolean;
   /** Disable typing and clock picker (e.g. listing time when not editable). */
   disabled?: boolean;
+  /** Tighter layout for event schedule rows (narrower control + clock button). */
+  compact?: boolean;
   value: string;
   onChange: (hhMm: string) => void;
 };
@@ -41,6 +43,7 @@ export function QuarterHourTimePickers({
   showRequiredAsterisk,
   inputRequired,
   disabled = false,
+  compact = false,
   value,
   onChange,
 }: QuarterHourTimePickersProps) {
@@ -53,7 +56,7 @@ export function QuarterHourTimePickers({
   const [focused, setFocused] = useState(false);
 
   return (
-    <div className="space-y-2">
+    <div className={cn("min-w-0 space-y-2", compact && "w-full max-w-full")}>
       <Label
         htmlFor={`${idPrefix}-input`}
         className={labelSrOnly ? "sr-only" : undefined}
@@ -68,7 +71,8 @@ export function QuarterHourTimePickers({
       </Label>
       <div
         className={cn(
-          "flex h-10 min-w-0 items-center gap-2 rounded-md border border-input bg-transparent px-2 py-1 shadow-xs outline-none sm:h-11",
+          "flex h-10 w-full max-w-full min-w-0 items-center rounded-md border border-input bg-transparent shadow-xs outline-none sm:h-11",
+          compact ? "gap-0.5 px-1" : "gap-2 px-2 py-1",
           !disabled && "focus-within:ring-2 focus-within:ring-ring",
           disabled && "cursor-not-allowed opacity-60"
         )}
@@ -82,7 +86,8 @@ export function QuarterHourTimePickers({
           disabled={disabled}
           placeholder={TIME_INPUT_PLACEHOLDER}
           className={cn(
-            "h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0 sm:h-10",
+            "h-9 min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0 sm:h-10",
+            compact ? "px-0.5 text-xs sm:text-sm" : "px-2",
             "placeholder:text-muted-foreground",
             !value && !focused && "text-muted-foreground",
             disabled && "cursor-not-allowed"
@@ -109,7 +114,8 @@ export function QuarterHourTimePickers({
           type="button"
           disabled={disabled}
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground sm:size-10",
+            "flex shrink-0 items-center justify-center rounded-md text-muted-foreground",
+            compact ? "size-7" : "size-9 sm:size-10",
             "outline-none transition-colors hover:bg-accent hover:text-foreground",
             "focus-visible:ring-2 focus-visible:ring-ring",
             disabled && "opacity-50"
@@ -125,7 +131,7 @@ export function QuarterHourTimePickers({
             setOpen(true);
           }}
         >
-          <Clock className="size-5" aria-hidden />
+          <Clock className={compact ? "size-4" : "size-5"} aria-hidden />
         </button>
       </div>
 

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { syncAccountStatus } from "@/lib/stripe-connect";
 import { fulfillRegistrationFromCheckoutSession } from "@/lib/stripe-fulfill-checkout";
 import { fulfillPlatformSetupFeeFromCheckoutSession } from "@/lib/stripe-fulfill-platform-setup-fee";
+import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
 import { isFullStripeChargeRefund } from "@/lib/stripe-refund-status";
 
 export const runtime = "nodejs";
@@ -136,6 +137,8 @@ async function handlePaymentSucceeded(event: Stripe.Event) {
       stripeEventId: event.id,
     },
   });
+
+  await notifyRegistrationConfirmationEmail(registrationId);
 }
 
 async function handlePaymentFailed(event: Stripe.Event) {

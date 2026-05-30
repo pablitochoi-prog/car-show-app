@@ -32,7 +32,6 @@ export function hasCompleteMailingAddress(parts: {
   zip?: string | null;
 }): boolean {
   return (
-    (parts.street?.trim().length ?? 0) > 0 &&
     (parts.city?.trim().length ?? 0) > 0 &&
     (parts.state?.trim().length ?? 0) >= 2 &&
     (parts.zip?.trim().length ?? 0) >= 5

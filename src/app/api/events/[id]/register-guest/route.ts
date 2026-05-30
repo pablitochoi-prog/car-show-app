@@ -5,6 +5,7 @@ import { validateGuestRegistrationVehiclesAndClasses } from "@/lib/registration-
 import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { assignPublicIdsToGuestVehiclePayloads } from "@/lib/event-sms-vehicle-id";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
+import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -120,7 +121,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         guestLastName: parsed.data.lastName.trim(),
         guestEmail,
         guestPhone: parsed.data.phone?.trim() || null,
-        guestStreet: parsed.data.street.trim(),
+        guestStreet: parsed.data.street.trim() || null,
         guestCity: parsed.data.city.trim(),
         guestState: parsed.data.state.trim(),
         guestZip: parsed.data.zip.trim(),
@@ -134,6 +135,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   } catch (e) {
     console.error("POST register-guest staff photo snapshot:", e);
   }
+
+  await notifyRegistrationConfirmationEmail(registration.id);
 
   const vehiclePublicIds = (
     Array.isArray(registration.guestVehicles)

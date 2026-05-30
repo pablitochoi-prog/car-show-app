@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -40,6 +39,7 @@ import {
   loggedInVehiclesHaveRequiredClasses,
 } from "@/lib/registration-vehicle-classes";
 import { RegistrationVehiclePhoto } from "./registration-vehicle-photo";
+import { AddVehicleForm } from "@/components/forms/add-vehicle-form";
 import { RegistrationContactSection } from "./registration-contact-section";
 import {
   RegistrationContactSheet,
@@ -204,6 +204,16 @@ function EventRegistrationPageContent({
     return firstOpen?.id ?? tiers[0]?.id ?? "";
   });
 
+  const [addedGarageVehicles, setAddedGarageVehicles] = useState<VehicleOption[]>(
+    [],
+  );
+  const [addVehicleOpen, setAddVehicleOpen] = useState(false);
+  const allGarageVehicles = useMemo(() => {
+    const byId = new Map(vehicles.map((v) => [v.id, v]));
+    for (const v of addedGarageVehicles) byId.set(v.id, v);
+    return [...byId.values()];
+  }, [vehicles, addedGarageVehicles]);
+
   // Garage vehicles staged for the "Add to Registration" button
   const [stagedVehicles, setStagedVehicles] = useState<Set<string>>(new Set());
   const [stagedVehicleCategories, setStagedVehicleCategories] = useState<
@@ -220,11 +230,11 @@ function EventRegistrationPageContent({
   const [vehicleNicknames, setVehicleNicknames] = useState<Record<string, string>>(
     () =>
       Object.fromEntries(
-        vehicles.map((v) => [v.id, v.nickname?.trim() ?? ""]),
+        allGarageVehicles.map((v) => [v.id, v.nickname?.trim() ?? ""]),
       ),
   );
   const [vehiclePhotos, setVehiclePhotos] = useState<Record<string, string | null>>(
-    () => Object.fromEntries(vehicles.map((v) => [v.id, v.photoUrl])),
+    () => Object.fromEntries(allGarageVehicles.map((v) => [v.id, v.photoUrl])),
   );
   const [photoConfirmOpen, setPhotoConfirmOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -255,7 +265,6 @@ function EventRegistrationPageContent({
   const registrationReturnPath = editRegistrationMode
     ? `/events/${event.id}/register/edit`
     : `/events/${event.id}`;
-  const addVehicleHref = `/dashboard/vehicles?returnTo=${encodeURIComponent(registrationReturnPath)}`;
 
   useEffect(() => {
     setRegistrationCategories(eventCategories);
@@ -278,18 +287,29 @@ function EventRegistrationPageContent({
   useEffect(() => {
     setVehiclePhotos((prev) => {
       const next = { ...prev };
-      for (const v of vehicles) {
-        next[v.id] = v.photoUrl;
+      for (const v of allGarageVehicles) {
+        if (next[v.id] === undefined) {
+          next[v.id] = v.photoUrl;
+        }
       }
       return next;
     });
-  }, [vehicles]);
+    setVehicleNicknames((prev) => {
+      const next = { ...prev };
+      for (const v of allGarageVehicles) {
+        if (next[v.id] === undefined) {
+          next[v.id] = v.nickname?.trim() ?? "";
+        }
+      }
+      return next;
+    });
+  }, [allGarageVehicles]);
 
   useEffect(() => {
     const addedId = searchParams.get("addedVehicle");
     if (!addedId) return;
 
-    const vehicle = vehicles.find((v) => v.id === addedId);
+    const vehicle = allGarageVehicles.find((v) => v.id === addedId);
     if (!vehicle) {
       router.refresh();
       return;
@@ -299,7 +319,40 @@ function EventRegistrationPageContent({
     setVehiclePhotos((prev) => ({ ...prev, [addedId]: vehicle.photoUrl }));
     setVehicleAddedNotice(true);
     router.replace(registrationReturnPath, { scroll: false });
-  }, [searchParams, vehicles, event.id, router, registrationReturnPath]);
+  }, [searchParams, allGarageVehicles, event.id, router, registrationReturnPath]);
+
+  function handleInlineVehicleAdded(vehicle: {
+    id: string;
+    year: number;
+    make: string;
+    model: string;
+    trim?: string | null;
+    nickname?: string | null;
+    photoUrl?: string | null;
+  }) {
+    const option: VehicleOption = {
+      id: vehicle.id,
+      year: vehicle.year,
+      make: vehicle.make,
+      model: vehicle.model,
+      trim: vehicle.trim ?? null,
+      nickname: vehicle.nickname ?? null,
+      photoUrl: vehicle.photoUrl ?? null,
+    };
+    setAddedGarageVehicles((prev) => [
+      ...prev.filter((v) => v.id !== option.id),
+      option,
+    ]);
+    setRegisteredVehicles((prev) => new Set([...prev, option.id]));
+    setVehiclePhotos((prev) => ({ ...prev, [option.id]: option.photoUrl }));
+    setVehicleNicknames((prev) => ({
+      ...prev,
+      [option.id]: option.nickname?.trim() ?? "",
+    }));
+    setVehicleAddedNotice(true);
+    setAddVehicleOpen(false);
+    setError("");
+  }
 
   function toggleStaged(id: string) {
     setStagedVehicles((prev) => {
@@ -395,8 +448,12 @@ function EventRegistrationPageContent({
   }
 
   const selectedTier = tiers.find((t) => t.id === tierId);
-  const garageVehicles = vehicles.filter((v) => registeredVehicles.has(v.id));
-  const availableGarage = vehicles.filter((v) => !registeredVehicles.has(v.id));
+  const garageVehicles = allGarageVehicles.filter((v) =>
+    registeredVehicles.has(v.id),
+  );
+  const availableGarage = allGarageVehicles.filter(
+    (v) => !registeredVehicles.has(v.id),
+  );
   const totalVehicles = garageVehicles.length;
   const requiresVehicleClass = registrationCategories.length > 0;
   const categoryNameById = useMemo(
@@ -870,7 +927,8 @@ function EventRegistrationPageContent({
               {/* ---- Select Vehicles ---- */}
               {vehicleAddedNotice && (
                 <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-                  Your new vehicle was added to this registration.
+                  Your new vehicle was saved to My Vehicles and added to this
+                  registration.
                   {requiresVehicleClass
                     ? " Select a class for it in the Registered Vehicles list below, then save."
                     : " Review the list below and submit when ready."}
@@ -881,19 +939,25 @@ function EventRegistrationPageContent({
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-base">Your Garage</CardTitle>
-                    <Link
-                      href={addVehicleHref}
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "sm" }),
-                        "shrink-0 gap-1.5",
-                      )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 gap-1.5"
+                      onClick={() => setAddVehicleOpen((open) => !open)}
                     >
                       <Plus className="size-4" />
-                      Add New Vehicle
-                    </Link>
+                      {addVehicleOpen ? "Hide form" : "Add New Vehicle"}
+                    </Button>
                   </div>
                 </CardHeader>
                   <CardContent className="space-y-4">
+                    {addVehicleOpen ? (
+                      <AddVehicleForm
+                        onVehicleAdded={handleInlineVehicleAdded}
+                        onSaved={() => setAddVehicleOpen(false)}
+                      />
+                    ) : null}
                     {availableGarage.length > 0 ? (
                       <>
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -972,8 +1036,8 @@ function EventRegistrationPageContent({
                       </>
                     ) : (
                       <p className="text-sm text-muted-foreground">
-                        {vehicles.length === 0
-                          ? "No vehicles in your garage yet. Add one to register for this show."
+                        {allGarageVehicles.length === 0
+                          ? "No vehicles in your garage yet. Add one above to register for this show."
                           : "All of your garage vehicles are already in this registration."}
                       </p>
                     )}
@@ -1206,7 +1270,7 @@ function EventRegistrationPageContent({
                     <div className="rounded-lg border-2 border-dashed p-6 text-center">
                       <Car className="mx-auto mb-2 size-6 text-muted-foreground/50" />
                       <p className="text-sm text-muted-foreground">
-                        {vehicles.length > 0
+                        {allGarageVehicles.length > 0
                           ? "Select vehicles from your garage above and click Add to Registration."
                           : "Use Add New Vehicle above to add a car to your garage, then add it here."}
                       </p>

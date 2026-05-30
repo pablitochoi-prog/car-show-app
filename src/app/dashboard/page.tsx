@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { isSiteAdmin } from "@/lib/permissions";
-import { Calendar, Car, Trophy, Users, UserCircle, ShieldCheck } from "lucide-react";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DashboardMessagesTile } from "@/components/dashboard/dashboard-messages-tile";
+import { NavTileLink } from "@/components/navigation/nav-tile-link";
 
 const destinations = [
   {
@@ -12,31 +11,31 @@ const destinations = [
     title: "My Events",
     description:
       "Managing vs participating: staff roles, registrations, and listings.",
-    icon: Calendar,
+    icon: "calendar" as const,
   },
   {
     href: "/dashboard/vehicles",
     title: "My Vehicles",
     description: "Saved vehicles to reuse when registering for shows.",
-    icon: Car,
+    icon: "car" as const,
   },
   {
     href: "/dashboard/awards",
     title: "My Awards",
     description: "Awards and placings from events you entered.",
-    icon: Trophy,
+    icon: "trophy" as const,
   },
   {
     href: "/dashboard/clubs",
     title: "My Clubs",
     description: "Car clubs and organizations you belong to.",
-    icon: Users,
+    icon: "users" as const,
   },
   {
     href: "/dashboard/profile",
     title: "My Profile",
     description: "Your account name, email, and contact details.",
-    icon: UserCircle,
+    icon: "user-circle" as const,
   },
 ] as const;
 
@@ -57,59 +56,29 @@ export default async function DashboardPage() {
       </div>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {destinations.map(({ href, title, description, icon: Icon }) => (
-          <Link
+        {destinations.map(({ href, title, description, icon }) => (
+          <NavTileLink
             key={href}
             href={href}
-            className={cn(
-              "flex flex-col rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm",
-              "transition-colors hover:bg-accent/45 hover:border-primary/35",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            )}
-          >
-              <div className="flex flex-row items-start gap-3">
-                <Icon
-                  className="mt-0.5 h-6 w-6 shrink-0 text-primary"
-                  aria-hidden
-                />
-                <div className="min-w-0 flex-1 space-y-2">
-                  <h2 className="text-lg font-semibold leading-snug tracking-tight">
-                    {title}
-                  </h2>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    {description}
-                  </p>
-                </div>
-              </div>
-          </Link>
+            title={title}
+            description={description}
+            icon={icon}
+          />
         ))}
 
         <DashboardMessagesTile />
 
         {isSiteAdmin(user) && (
-          <Link
+          <NavTileLink
             href="/admin"
+            title="Site Admin"
+            description="Manage clubs, events, accounts, vehicles, awards, and global settings."
+            icon="shield-check"
             className={cn(
-              "flex flex-col rounded-xl border-2 border-primary/30 bg-primary/5 p-6 text-card-foreground shadow-sm",
-              "transition-colors hover:bg-primary/10 hover:border-primary/50",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              "border-2 border-primary/30 bg-primary/5",
+              "hover:bg-primary/10 hover:border-primary/50",
             )}
-          >
-            <div className="flex flex-row items-start gap-3">
-              <ShieldCheck
-                className="mt-0.5 h-6 w-6 shrink-0 text-primary"
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1 space-y-2">
-                <h2 className="text-lg font-semibold leading-snug tracking-tight">
-                  Site Admin
-                </h2>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  Manage clubs, events, accounts, vehicles, awards, and global settings.
-                </p>
-              </div>
-            </div>
-          </Link>
+          />
         )}
       </div>
     </div>

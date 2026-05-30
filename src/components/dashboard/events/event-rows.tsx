@@ -200,7 +200,7 @@ export function ManagingCard({
           {canViewRegistrations ? (
             <Link
               href={`/organizer/events/${row.eventId}/registrations`}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
               Registrations
             </Link>
@@ -215,7 +215,7 @@ export function ManagingCard({
           ) : null}
           <Link
             href={`/events/${row.eventId}`}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
           >
             View page
           </Link>

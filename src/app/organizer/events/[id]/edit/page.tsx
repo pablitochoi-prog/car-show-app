@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ClipboardList, Mail } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { EventForm, type EventInitial } from "@/components/forms/event-form";
@@ -8,6 +7,8 @@ import { parseDailyHours } from "@/lib/daily-hours";
 import { getEventStaffList, listEventRoleDefinitions } from "@/lib/event-staff";
 import { EventStaffManager } from "@/components/forms/event-staff-manager";
 import { EventSetupListCards } from "@/components/forms/event-setup-list-cards";
+import { EventNameWithNumber } from "@/components/events/event-name-with-number";
+import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { countEventAwardTrophies } from "@/lib/event-awards-trophies";
 import {
@@ -20,8 +21,6 @@ import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
 import { CompletedBadge } from "@/components/ui/completed-badge";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { Suspense } from "react";
 import { StripeReturnBanner } from "@/components/stripe/stripe-return-banner";
 import { fulfillPlatformSetupFeeFromCheckoutSession } from "@/lib/stripe-fulfill-platform-setup-fee";
@@ -244,48 +243,28 @@ export default async function EditEventPage({
   };
 
   return (
-    <div className="page-shell max-w-5xl space-y-8">
-      <div className="mx-auto max-w-2xl text-center sm:text-left">
+    <div className="page-shell max-w-6xl space-y-6">
+      <div className="space-y-4 text-center sm:text-left">
         <Link
-          href="/dashboard/events"
+          href="/dashboard/events?tab=managing"
           className="text-sm text-muted-foreground hover:text-foreground"
         >
           ← Back to my events
         </Link>
-        {event.smsVotePrefix ? (
-          <p className="mt-1 text-sm text-muted-foreground">
-            Vehicle show ID prefix:{" "}
-            <span className="font-mono font-medium text-foreground">
-              {event.smsVotePrefix}
-            </span>
-            <span className="hidden sm:inline">
-              {" "}
-              — each vehicle is {event.smsVotePrefix}-001, {event.smsVotePrefix}
-              -005, … (3 letters, no I/O, plus a 3-digit number for SMS)
-            </span>
-          </p>
-        ) : null}
-        <div className="mt-4 flex flex-wrap items-center gap-4 sm:gap-5">
-          <Link
-            href={`/organizer/events/${event.id}/registrations`}
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              "no-underline",
-            )}
-          >
-            <ClipboardList className="mr-2 size-4" aria-hidden />
-            Event Registrations
-          </Link>
-          <Link
-            href={`/organizer/events/${event.id}/messages`}
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              "no-underline",
-            )}
-          >
-            <Mail className="mr-2 size-4" aria-hidden />
-            My Messages
-          </Link>
+      </div>
+
+      <div className="space-y-4">
+        <EventOrganizerNav eventId={event.id} active="edit" />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">
+              Edit Event —{" "}
+              <EventNameWithNumber
+                name={event.name}
+                showNumber={event.showNumber}
+              />
+            </h1>
+          </div>
           <ContactSiteAdminButton
             eventId={event.id}
             eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
@@ -294,7 +273,7 @@ export default async function EditEventPage({
       </div>
 
       {!event.orgId ? (
-        <div className="mx-auto max-w-2xl rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
           This event is not linked to an organization yet.{" "}
           <Link
             href={`/organizer/events/${event.id}/organization`}
@@ -368,6 +347,7 @@ export default async function EditEventPage({
                 startTime: event.startTime,
                 endTime: event.endTime,
                 dailyHours: parseDailyHours(event.dailyHours),
+                venueState: event.state,
               }}
             />
           </>

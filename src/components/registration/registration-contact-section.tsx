@@ -96,17 +96,14 @@ export function RegistrationContactSection({
                 Mailing address
               </dt>
               <dd className="mt-0.5 font-medium">
-                {contact.street.trim() ? (
-                  <>
-                    {contact.street.trim()}
-                    <br />
-                    {[contact.city.trim(), contact.state.trim(), contact.zip.trim()]
-                      .filter(Boolean)
-                      .join(", ") || "—"}
-                  </>
-                ) : (
-                  "—"
-                )}
+                {[
+                  contact.street.trim(),
+                  [contact.city.trim(), contact.state.trim(), contact.zip.trim()]
+                    .filter(Boolean)
+                    .join(", "),
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "—"}
               </dd>
             </div>
           </dl>

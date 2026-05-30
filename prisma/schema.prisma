@@ -487,22 +487,26 @@ model RegistrationVehicle {
   @@map("registration_vehicles")
 }
 
-/// One public vote per visitor fingerprint per vehicle entry at an event.
+/// Web/QR public vote — one vote per visitor per category per event; at most one category per vehicle.
 model VehiclePublicVote {
-  id                 String   @id @default(uuid())
-  eventId            String
-  vehicleEntryCode   String
-  registrationId     String
+  id                    String   @id @default(uuid())
+  eventId               String
+  votingCategoryId      String
+  vehicleEntryCode      String
+  registrationId        String
   registrationVehicleId String?
-  voterKey           String
-  userId             String?
-  createdAt          DateTime @default(now())
+  /// Event-scoped visitor id: hash(fingerprint + eventId).
+  visitorKey            String
+  userId                String?
+  createdAt             DateTime @default(now())
 
   registration         Registration          @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   registrationVehicle  RegistrationVehicle?  @relation(fields: [registrationVehicleId], references: [id], onDelete: SetNull)
   user                 User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  votingCategory       VotingCategory        @relation(fields: [votingCategoryId], references: [id], onDelete: Cascade)
 
-  @@unique([eventId, vehicleEntryCode, voterKey])
+  @@unique([eventId, votingCategoryId, visitorKey])
+  @@unique([eventId, vehicleEntryCode, visitorKey])
   @@index([eventId, vehicleEntryCode])
   @@map("vehicle_public_votes")
 }
@@ -752,6 +756,7 @@ model VotingCategory {
 
   event    Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   smsVotes SmsVote[]
+  publicVotes VehiclePublicVote[]
 
   @@unique([eventId, smsOptionNumber])
   @@index([eventId, isActive])

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Trash2, Archive, ArchiveRestore } from "lucide-react";
+import { ExternalLink, Trash2, Archive, ArchiveRestore, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAdminSearch, AdminSearchBar, AdminEmptyState } from "./admin-search-table";
@@ -46,6 +46,57 @@ export function AdminEventsSection() {
     if (!confirm("Permanently delete this event and all its registrations?")) return;
     await fetch(`/api/admin/events?id=${id}`, { method: "DELETE", credentials: "same-origin" });
     setRows((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  async function handleResetVoting(event: EventRow) {
+    const previewRes = await fetch(
+      `/api/admin/events/${event.id}/reset-voting`,
+      { credentials: "same-origin" },
+    );
+    const preview = (await previewRes.json()) as {
+      error?: string;
+      webVotes?: number;
+      smsVotes?: number;
+      smsSessions?: number;
+      totalVotes?: number;
+    };
+    if (!previewRes.ok) {
+      alert(preview.error ?? "Could not load vote counts.");
+      return;
+    }
+
+    const web = preview.webVotes ?? 0;
+    const sms = preview.smsVotes ?? 0;
+    const sessions = preview.smsSessions ?? 0;
+    const total = preview.totalVotes ?? web + sms;
+
+    if (total === 0 && sessions === 0) {
+      alert(`No voting data to reset for "${event.name}".`);
+      return;
+    }
+
+    const confirmed = confirm(
+      `Reset all voting data for "${event.name}"?\n\n` +
+        `This will permanently delete:\n` +
+        `• ${web} website vote${web === 1 ? "" : "s"}\n` +
+        `• ${sms} SMS vote${sms === 1 ? "" : "s"}\n` +
+        `• ${sessions} pending SMS session${sessions === 1 ? "" : "s"}\n\n` +
+        "Voting categories and settings are kept. This cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    const res = await fetch(`/api/admin/events/${event.id}/reset-voting`, {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    const data = (await res.json()) as { error?: string; totalVotesDeleted?: number };
+    if (!res.ok) {
+      alert(data.error ?? "Could not reset voting data.");
+      return;
+    }
+    alert(
+      `Voting reset for "${event.name}". Removed ${data.totalVotesDeleted ?? total} recorded vote${(data.totalVotesDeleted ?? total) === 1 ? "" : "s"}.`,
+    );
   }
 
   function statusVariant(s: string) {
@@ -93,6 +144,17 @@ export function AdminEventsSection() {
                       <Link href={`/organizer/events/${e.id}/edit`}>
                         <Button type="button" variant="ghost" size="icon" className="size-7" aria-label={`Edit ${e.name}`}><ExternalLink className="size-3.5" /></Button>
                       </Link>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-violet-600 hover:bg-violet-500/10"
+                        onClick={() => void handleResetVoting(e)}
+                        aria-label={`Reset voting for ${e.name}`}
+                        title="Reset voting data"
+                      >
+                        <RotateCcw className="size-3.5" />
+                      </Button>
                       {e.status === "ARCHIVED" ? (
                         <Button type="button" variant="ghost" size="icon" className="size-7 text-emerald-600 hover:bg-emerald-500/10" onClick={() => void handleArchive(e.id, false)} aria-label={`Restore ${e.name}`}><ArchiveRestore className="size-3.5" /></Button>
                       ) : (

@@ -3,6 +3,7 @@ import {
   normalizeLoosePublicVehicleId,
   PUBLIC_VEHICLE_ID_REGEX,
 } from "@/lib/event-sms-vehicle-id";
+import { getSiteOrigin } from "@/lib/site-url";
 
 export { PUBLIC_VEHICLE_ID_REGEX, isValidPublicVehicleId };
 
@@ -11,8 +12,7 @@ export function normalizeVehicleEntryCode(raw: string): string | null {
   return normalizeLoosePublicVehicleId(raw);
 }
 
+/** Public smart-route URL encoded in dash-card QR codes (`/v/{vehicleEntryCode}`). */
 export function vehicleSmartRouteUrl(vehicleEntryCode: string): string {
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
-  return `${origin.replace(/\/$/, "")}/v/${encodeURIComponent(vehicleEntryCode)}`;
+  return `${getSiteOrigin()}/v/${encodeURIComponent(vehicleEntryCode)}`;
 }

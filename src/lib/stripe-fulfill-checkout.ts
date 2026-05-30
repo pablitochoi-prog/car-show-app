@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
+import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
 import { donationPlatformFeeTotalCents } from "@/lib/donation";
 import {
   getPlatformFee,
@@ -131,6 +132,8 @@ export async function fulfillRegistrationFromCheckoutSession(
       });
     }
   }
+
+  await notifyRegistrationConfirmationEmail(registrationId);
 
   return { registrationId, paid: true, checkoutType };
 }

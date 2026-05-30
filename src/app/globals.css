@@ -222,6 +222,31 @@
   --dash-card-footer-logo-height: 0.22in;
 }
 
+/* Vehicle photos: landscape cars — show full width, never crop hood/trunk. */
+.vehicle-photo-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+.vehicle-photo-frame--thumb {
+  width: 5.25rem;
+  max-height: 3.5rem;
+}
+
+.vehicle-photo-frame--inline {
+  width: 2rem;
+  max-height: 2rem;
+}
+
+.dash-card-vehicle-photo .vehicle-photo-img {
+  width: 100%;
+  max-height: var(--dash-card-photo-height);
+}
+
 /* Screen preview: letter landscape proportions */
 .dash-card-print-page {
   width: min(100%, var(--dash-card-paper-width));
@@ -306,9 +331,13 @@
   width: 100%;
   max-width: none;
   min-width: 0;
-  min-height: var(--dash-card-photo-height);
-  height: var(--dash-card-photo-height);
+  height: auto;
+  min-height: 0;
+  max-height: var(--dash-card-photo-height);
   aspect-ratio: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .dash-card-col-story {
@@ -600,6 +629,10 @@
     background: #fff !important;
   }
 
+  .dash-cards-print-root > *:not(.dash-cards-print-stack) {
+    display: none !important;
+  }
+
   .dash-card-print-page {
     box-sizing: border-box;
     width: var(--dash-card-printable-width) !important;
@@ -612,13 +645,14 @@
     overflow: hidden;
     break-inside: avoid;
     page-break-inside: avoid;
-    break-after: page;
-    page-break-after: always;
-  }
-
-  .dash-card-print-page:last-child {
     break-after: auto;
     page-break-after: auto;
+  }
+
+  /* break-before avoids extra blank pages that break-after causes on full-page cards */
+  .dash-card-print-page + .dash-card-print-page {
+    break-before: page;
+    page-break-before: always;
   }
 
   .dash-card-sheet {
@@ -681,11 +715,14 @@
     width: 100% !important;
     max-width: none !important;
     min-width: 100% !important;
-    height: var(--dash-card-photo-height) !important;
-    min-height: var(--dash-card-photo-height) !important;
+    height: auto !important;
+    min-height: 0 !important;
     max-height: var(--dash-card-photo-height) !important;
     aspect-ratio: auto !important;
     flex-shrink: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
   .dash-card-col-story {

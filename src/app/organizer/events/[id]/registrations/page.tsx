@@ -13,6 +13,7 @@ import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
 import type { OrganizerRegistrationInput } from "@/lib/organizer-registration-rows";
 import { OrganizerRegistrationsClient } from "@/components/organizer/organizer-registrations-client";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
+import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
 
 export default async function EventRegistrationsPage({
   params,
@@ -126,6 +127,10 @@ export default async function EventRegistrationsPage({
         >
           ← My events
         </Link>
+      </div>
+
+      <div className="space-y-4">
+        <EventOrganizerNav eventId={eventId} active="registrations" />
       </div>
 
       <div className="page-head flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">

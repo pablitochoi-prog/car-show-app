@@ -3,9 +3,11 @@
 import { useRef, useState } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { vehiclePhotoImgClassName } from "@/components/vehicle/vehicle-photo-display";
 
-/** 3:2 landscape thumbnail (~1.5× wider than tall). */
-const PHOTO_THUMB_CLASS = "h-14 w-[5.25rem] shrink-0";
+/** Landscape thumb — width-first so the full car stays visible. */
+const PHOTO_THUMB_CLASS =
+  "vehicle-photo-frame vehicle-photo-frame--thumb flex items-center justify-center overflow-hidden rounded-md border bg-muted shrink-0";
 
 type Props = {
   eventId: string;
@@ -69,7 +71,7 @@ export function GuestVehiclePhoto({
           onClick={() => inputRef.current?.click()}
           title="Change photo"
         >
-          <img src={photoUrl} alt="" className="size-full object-cover" />
+          <img src={photoUrl} alt="" className={vehiclePhotoImgClassName} />
         </button>
       ) : (
         <button

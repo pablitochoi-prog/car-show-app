@@ -100,7 +100,7 @@ export default async function OrganizerDashCardsPage({
   );
 
   return (
-    <div className="page-shell max-w-6xl space-y-6 bg-slate-100 print:bg-white print:py-0">
+    <div className="dash-cards-print-root page-shell max-w-6xl space-y-6 bg-slate-100 print:bg-white print:py-0">
       <div className="layout-bar flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between print:hidden">
         <div className="space-y-1">
           <Link
@@ -123,7 +123,7 @@ export default async function OrganizerDashCardsPage({
             sheet (8.5&quot; × 11&quot;) in landscape.
           </p>
         </div>
-        <DashCardPrintButton />
+        <DashCardPrintButton cardCount={cards.length} />
       </div>
 
       {cards.length === 0 ? (
@@ -143,10 +143,13 @@ export default async function OrganizerDashCardsPage({
           </Link>
         </div>
       ) : (
-        <div className="space-y-8 print:space-y-0">
+        <div className="dash-cards-print-stack space-y-8 print:space-y-0">
           {cards.map((data, i) => (
             <div
-              key={`${data.owner.name}-${data.vehicle.make}-${data.vehicle.model}-${i}`}
+              key={
+                data.vehicle.publicVehicleId ??
+                `${data.owner.name}-${data.vehicle.make}-${data.vehicle.model}-${i}`
+              }
               className="dash-card-print-page"
             >
               <DashCardPreview data={data} />

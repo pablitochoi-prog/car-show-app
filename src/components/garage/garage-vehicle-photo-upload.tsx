@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Star, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { uploadPrivateVehiclePhoto } from "@/lib/upload-private-vehicle-photo-client";
+import { vehiclePhotoImgClassName } from "@/components/vehicle/vehicle-photo-display";
 
 type VehiclePhotoRow = {
   id: string;
@@ -165,12 +165,12 @@ export function GarageVehiclePhotoUpload({ vehicleId }: { vehicleId: string }) {
               key={photo.id}
               className="overflow-hidden rounded-lg border bg-muted/20"
             >
-              <div className="relative aspect-[4/3] bg-muted">
+              <div className="relative flex items-center justify-center bg-muted p-2">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={photo.viewUrl}
                   alt={photo.originalFilename}
-                  className="h-full w-full object-cover"
+                  className={vehiclePhotoImgClassName}
                 />
                 {photo.isPrimary ? (
                   <span className="absolute left-2 top-2 rounded bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">

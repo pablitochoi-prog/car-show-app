@@ -12,6 +12,7 @@ import {
   syncRegistrationVehiclesWithPublicIds,
 } from "@/lib/event-sms-vehicle-id";
 import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
+import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -182,7 +183,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     registrantLastName: parsed.data.contact.lastName.trim(),
     registrantEmail: parsed.data.contact.email.toLowerCase().trim(),
     registrantPhone: parsed.data.contact.phone?.trim() || null,
-    registrantStreet: parsed.data.contact.street.trim(),
+    registrantStreet: parsed.data.contact.street.trim() || null,
     registrantCity: parsed.data.contact.city.trim(),
     registrantState: parsed.data.contact.state.trim(),
     registrantZip: parsed.data.contact.zip.trim(),
@@ -305,6 +306,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   } catch (e) {
     console.error("POST register staff photo snapshot:", e);
   }
+
+  await notifyRegistrationConfirmationEmail(registration.id);
 
   const paymentComplete = registration.paymentStatus === "PAID";
 

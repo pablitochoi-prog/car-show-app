@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { IdCard } from "lucide-react";
+import { PendingLink, PendingNavSpinner, usePendingNav } from "@/components/navigation/pending-navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -19,13 +19,6 @@ export function CreateDashCardsLink({
   disabledTitle?: string;
   className?: string;
 }) {
-  const label = (
-    <>
-      <IdCard className="size-4" />
-      <span className="hidden sm:inline">Create dash cards</span>
-    </>
-  );
-
   const buttonClass = cn(
     buttonVariants({ variant: "secondary", size: "sm" }),
     "h-8 gap-1 px-2",
@@ -39,7 +32,8 @@ export function CreateDashCardsLink({
         aria-disabled="true"
         className={cn(buttonClass, "cursor-not-allowed opacity-50")}
       >
-        {label}
+        <IdCard className="size-4" />
+        <span className="hidden sm:inline">Create dash cards</span>
       </span>
     );
   }
@@ -49,8 +43,25 @@ export function CreateDashCardsLink({
     .join(",")}`;
 
   return (
-    <Link href={href} prefetch className={buttonClass}>
-      {label}
-    </Link>
+    <PendingLink href={href} prefetch className={buttonClass}>
+      <DashCardsLinkLabel />
+    </PendingLink>
+  );
+}
+
+function DashCardsLinkLabel() {
+  const navigating = usePendingNav();
+
+  return (
+    <>
+      {navigating ? (
+        <PendingNavSpinner className="size-4" />
+      ) : (
+        <IdCard className="size-4" />
+      )}
+      <span className="hidden sm:inline">
+        {navigating ? "Loading…" : "Create dash cards"}
+      </span>
+    </>
   );
 }

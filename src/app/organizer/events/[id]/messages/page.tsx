@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEventAndLoad } from "@/lib/auth";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { OrganizerMessagesClient } from "@/components/messages/organizer-messages-client";
+import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
 
 export default async function OrganizerEventMessagesPage({
   params,
@@ -41,32 +42,31 @@ export default async function OrganizerEventMessagesPage({
   }));
 
   return (
-    <div className="page-shell max-w-3xl space-y-6">
-      <div className="text-sm text-muted-foreground">
-        <Link href="/dashboard/events" className="hover:text-foreground">
-          ← My events
-        </Link>
-        <span className="mx-2">·</span>
+    <div className="page-shell max-w-6xl space-y-6">
+      <div className="text-center sm:text-left">
         <Link
-          href={`/organizer/events/${eventId}/edit`}
-          className="hover:text-foreground"
+          href="/dashboard/events?tab=managing"
+          className="text-sm text-muted-foreground hover:text-foreground"
         >
-          Edit event
+          ← My events
         </Link>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Messages —{" "}
-          <EventNameWithNumber
-            name={event.name}
-            showNumber={event.showNumber}
-          />
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {messages.length} message{messages.length !== 1 ? "s" : ""} for this
-          event.
-        </p>
+      <div className="space-y-4">
+        <EventOrganizerNav eventId={eventId} active="messages" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Messages —{" "}
+            <EventNameWithNumber
+              name={event.name}
+              showNumber={event.showNumber}
+            />
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {messages.length} message{messages.length !== 1 ? "s" : ""} for this
+            event.
+          </p>
+        </div>
       </div>
 
       <OrganizerMessagesClient

@@ -77,7 +77,7 @@ export function RegistrationContactSheet({
       return "Enter a valid email address.";
     }
     if (!hasCompleteMailingAddress(buildContact())) {
-      return "Street address, city, state, and zip are required.";
+      return "City, state, and zip are required.";
     }
     return null;
   }

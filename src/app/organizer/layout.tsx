@@ -10,7 +10,7 @@ export default async function OrganizerLayout({
 
   return (
     <>
-      <div className="page-shell max-w-6xl pt-4">
+      <div className="page-shell max-w-6xl pt-4 print:hidden">
         <SuspendedAccountBanner user={user} />
       </div>
       {children}

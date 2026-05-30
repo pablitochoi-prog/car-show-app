@@ -6,21 +6,37 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Upload, X } from "lucide-react";
+import {
+  Loader2,
+  Upload,
+  X,
+} from "lucide-react";
+import { vehiclePhotoImgClassName } from "@/components/vehicle/vehicle-photo-display";
 import {
   VehicleLookupFields,
   type VehicleLookupValues,
 } from "@/components/forms/vehicle-lookup-fields";
 
-type SavedVehicle = { id: string };
+type SavedVehicle = {
+  id: string;
+  year: number;
+  make: string;
+  model: string;
+  trim?: string | null;
+  nickname?: string | null;
+  photoUrl?: string | null;
+};
 
 export function AddVehicleForm({
   onSaved,
   returnTo,
+  onVehicleAdded,
 }: {
   onSaved?: () => void;
   /** After save, redirect here with ?addedVehicle=<id> (must be an app path). */
   returnTo?: string | null;
+  /** When set, stay on the current page and add the saved vehicle to registration. */
+  onVehicleAdded?: (vehicle: SavedVehicle) => void;
 } = {}) {
   const router = useRouter();
 
@@ -98,16 +114,36 @@ export function AddVehicleForm({
         return;
       }
 
+      const saved = data as SavedVehicle;
+
+      if (onVehicleAdded && saved.id) {
+        if (data.photoError) {
+          setError(
+            `Vehicle saved, but photo upload failed: ${data.photoError}. You can add a photo from the registration list.`,
+          );
+        }
+        onVehicleAdded({
+          id: saved.id,
+          year: saved.year ?? yearNum,
+          make: saved.make ?? lookup.make.trim(),
+          model: saved.model ?? lookup.model.trim(),
+          trim: saved.trim ?? (lookup.trim.trim() || null),
+          nickname: saved.nickname ?? (nickname.trim() || null),
+          photoUrl: saved.photoUrl ?? null,
+        });
+        setLookup({ year: "", make: "", model: "", trim: "" });
+        setNickname("");
+        setVin("");
+        setNotes("");
+        setPendingPhoto(null);
+        onSaved?.();
+        return;
+      }
+
       if (data.photoError) {
         setError(
           `Vehicle saved, but photo upload failed: ${data.photoError}. Use Edit to add a photo.`,
         );
-      }
-
-      const saved = data as SavedVehicle;
-
-      if (data.photoError) {
-        // Vehicle exists; still refresh the list below.
       } else if (returnTo && saved.id) {
         const dest = `${returnTo}${returnTo.includes("?") ? "&" : "?"}addedVehicle=${encodeURIComponent(saved.id)}`;
         router.push(dest);
@@ -217,13 +253,13 @@ export function AddVehicleForm({
 
       {/* Photo upload */}
       <div className="flex flex-wrap items-start gap-4">
-        <div className="relative h-28 w-40 shrink-0 overflow-hidden rounded-lg border bg-muted">
+        <div className="vehicle-photo-frame flex w-40 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
           {photoPreviewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={photoPreviewUrl}
               alt=""
-              className="h-full w-full object-cover"
+              className={vehiclePhotoImgClassName}
             />
           ) : (
             <div className="flex h-full items-center justify-center px-2 text-center text-xs text-muted-foreground">

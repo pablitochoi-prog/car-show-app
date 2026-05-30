@@ -16,6 +16,7 @@ import {
 } from "@/lib/event-registration-staff-photos";
 import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
 import { getSharedSmsNumberDisplay, buildDashCardSmsLine } from "@/lib/sms/shared-sms-number";
+import { getSiteOrigin } from "@/lib/site-url";
 
 type GuestVehicleJson = {
   year?: number;
@@ -31,7 +32,7 @@ type GuestVehicleJson = {
 };
 
 function appOrigin() {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
+  return getSiteOrigin();
 }
 
 function defaultSmsShortCode() {

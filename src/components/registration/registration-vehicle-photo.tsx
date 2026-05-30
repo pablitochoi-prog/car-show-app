@@ -4,9 +4,14 @@ import { useRef, useState } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { uploadPrivateVehiclePhoto } from "@/lib/upload-private-vehicle-photo-client";
+import {
+  resolveVehiclePhotoSrc,
+  vehiclePhotoImgClassName,
+} from "@/components/vehicle/vehicle-photo-display";
 
-/** 3:2 landscape thumbnail (~1.5× wider than tall). */
-const PHOTO_THUMB_CLASS = "h-14 w-[5.25rem] shrink-0";
+/** Landscape thumb — width-first so the full car stays visible. */
+const PHOTO_THUMB_CLASS =
+  "vehicle-photo-frame vehicle-photo-frame--thumb flex items-center justify-center overflow-hidden rounded-md border bg-muted shrink-0";
 
 type Props = {
   photoUrl: string | null;
@@ -47,10 +52,7 @@ export function RegistrationVehiclePhoto({
     }
   }
 
-  const src =
-    photoUrl?.startsWith("/api/") || photoUrl?.startsWith("http")
-      ? photoUrl
-      : null;
+  const src = resolveVehiclePhotoSrc(photoUrl);
 
   return (
     <div className={cn("relative shrink-0", className)}>
@@ -72,7 +74,7 @@ export function RegistrationVehiclePhoto({
           title="Change photo"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src} alt="" className="size-full object-cover" />
+          <img src={src} alt="" className={vehiclePhotoImgClassName} />
         </button>
       ) : (
         <button

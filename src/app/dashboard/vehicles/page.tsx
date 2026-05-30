@@ -1,5 +1,5 @@
-import Image from "next/image";
 import Link from "next/link";
+import { VehiclePhotoDisplay } from "@/components/vehicle/vehicle-photo-display";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
@@ -61,24 +61,12 @@ export default async function VehiclesPage({ searchParams }: Props) {
             >
               <span className="flex min-w-0 items-start gap-3">
                 {v.photoUrl ? (
-                  <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-md border bg-muted">
-                    {v.photoUrl.startsWith("/api/") ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={v.photoUrl}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <Image
-                        src={v.photoUrl}
-                        alt=""
-                        fill
-                        className="object-cover"
-                        sizes="80px"
-                      />
-                    )}
-                  </div>
+                  <VehiclePhotoDisplay
+                    src={v.photoUrl}
+                    alt=""
+                    size="thumb"
+                    className="w-20"
+                  />
                 ) : null}
                 <span className="min-w-0">
                   <span className="font-medium">

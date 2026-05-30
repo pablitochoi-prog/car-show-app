@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  defaultSmsVotingEndsLocal,
-  defaultSmsVotingOpensLocal,
+  defaultSmsVotingEnds,
+  defaultSmsVotingOpens,
 } from "./default-voting-window";
 
 describe("defaultSmsVotingWindow", () => {
@@ -27,8 +27,14 @@ describe("defaultSmsVotingWindow", () => {
       ],
     };
 
-    expect(defaultSmsVotingOpensLocal(schedule)).toBe("2026-06-01T09:00");
-    expect(defaultSmsVotingEndsLocal(schedule)).toBe("2026-06-02T14:00");
+    expect(defaultSmsVotingOpens(schedule)).toEqual({
+      date: "2026-06-01",
+      time: "09:00",
+    });
+    expect(defaultSmsVotingEnds(schedule)).toEqual({
+      date: "2026-06-02",
+      time: "14:00",
+    });
   });
 
   it("uses single-day start/end when dailyHours is absent", () => {
@@ -38,9 +44,16 @@ describe("defaultSmsVotingWindow", () => {
       startTime: "08:00",
       endTime: "18:00",
       dailyHours: null,
+      venueState: "CA",
     };
 
-    expect(defaultSmsVotingOpensLocal(schedule)).toBe("2026-07-04T08:00");
-    expect(defaultSmsVotingEndsLocal(schedule)).toBe("2026-07-04T16:00");
+    expect(defaultSmsVotingOpens(schedule)).toEqual({
+      date: "2026-07-04",
+      time: "08:00",
+    });
+    expect(defaultSmsVotingEnds(schedule)).toEqual({
+      date: "2026-07-04",
+      time: "16:00",
+    });
   });
 });

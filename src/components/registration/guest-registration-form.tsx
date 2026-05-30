@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -57,6 +58,10 @@ import {
 } from "@/lib/registration-vehicle-classes";
 import { hasCompleteMailingAddress } from "@/lib/registration-address";
 import { RegistrationAddressFields } from "./registration-address-fields";
+import {
+  VehiclePhotoDraftField,
+  VehicleRegistrationPhotoThumb,
+} from "./vehicle-photo-draft-field";
 
 type EventCategoryOption = { id: string; name: string };
 
@@ -128,6 +133,9 @@ export function GuestRegistrationForm({
   });
 
   const [draft, setDraft] = useState(emptyDraft);
+  const [draftPhotoFile, setDraftPhotoFile] = useState<File | null>(null);
+  const [draftPhotoPreview, setDraftPhotoPreview] = useState<string | null>(null);
+  const [addingVehicle, setAddingVehicle] = useState(false);
   const [registeredVehicles, setRegisteredVehicles] = useState<
     RegisteredGuestVehicle[]
   >([]);
@@ -198,16 +206,82 @@ export function GuestRegistrationForm({
   };
   const guestGrandTotal = guestDonationCents + guestPlatformFee.totalCents;
 
+  useEffect(() => {
+    if (!draftPhotoFile) {
+      setDraftPhotoPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(draftPhotoFile);
+    setDraftPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [draftPhotoFile]);
+
+  function onDraftPhotoSelected(file: File) {
+    setError("");
+    const allowed = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
+    if (!allowed.includes(file.type)) {
+      setError("Use a JPG, PNG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError("Photo is too large (max 8MB).");
+      return;
+    }
+    setDraftPhotoFile(file);
+  }
+
+  function clearDraftPhoto() {
+    setDraftPhotoFile(null);
+  }
+
+  function resetDraft() {
+    setDraft(emptyDraft());
+    clearDraftPhoto();
+  }
+
   function draftIsValid() {
     return Boolean(draft.make && draft.model && draft.year);
   }
 
-  function addDraftToRegistration() {
+  async function addDraftToRegistration() {
     if (!draftIsValid()) {
       setError("Enter year, make, and model before adding a vehicle.");
       return;
     }
     setError("");
+    setAddingVehicle(true);
+
+    let photoUrl: string | null = null;
+    if (draftPhotoFile) {
+      try {
+        const fd = new FormData();
+        fd.append("file", draftPhotoFile);
+        const res = await fetch(`/api/events/${eventId}/register-guest/upload`, {
+          method: "POST",
+          body: fd,
+        });
+        const data = (await res.json().catch(() => null)) as {
+          url?: string;
+          error?: string;
+        } | null;
+        if (!res.ok || !data?.url) {
+          setError(data?.error ?? "Could not upload vehicle photo.");
+          setAddingVehicle(false);
+          return;
+        }
+        photoUrl = data.url;
+      } catch {
+        setError("Could not upload vehicle photo. Try again.");
+        setAddingVehicle(false);
+        return;
+      }
+    }
+
     setRegisteredVehicles((prev) => [
       ...prev,
       {
@@ -218,11 +292,12 @@ export function GuestRegistrationForm({
         trim: draft.trim.trim(),
         nickname: draft.nickname.trim(),
         notes: draft.notes.trim(),
-        photoUrl: null,
+        photoUrl,
         eventCategoryId: null,
       },
     ]);
-    setDraft(emptyDraft());
+    resetDraft();
+    setAddingVehicle(false);
   }
 
   function removeVehicle(clientId: string) {
@@ -274,7 +349,7 @@ export function GuestRegistrationForm({
         zip,
       })
     ) {
-      setError("Street address, city, state, and zip are required.");
+      setError("City, state, and zip are required.");
       return false;
     }
     if (!tierId) {
@@ -673,21 +748,34 @@ export function GuestRegistrationForm({
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Your Vehicle Story</Label>
-            <Input
-              placeholder="Tell us about your vehicle"
+            <Textarea
+              placeholder="Tell us about your vehicle — how you found it, restored it, or what makes it special."
               value={draft.notes}
               onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
-              className="h-8 text-sm"
+              rows={3}
+              className="min-h-[5rem] resize-y text-sm"
             />
           </div>
+          <VehiclePhotoDraftField
+            idPrefix="guest-draft"
+            previewUrl={draftPhotoPreview}
+            disabled={addingVehicle}
+            onFileSelected={onDraftPhotoSelected}
+            onClear={clearDraftPhoto}
+            helperText="JPG, PNG, WebP, or GIF · max 8MB · saved to your dash card"
+          />
           <Button
             type="button"
             size="sm"
             className="gap-1.5"
-            disabled={!draftIsValid()}
-            onClick={addDraftToRegistration}
+            disabled={!draftIsValid() || addingVehicle}
+            onClick={() => void addDraftToRegistration()}
           >
-            <Plus className="size-4" />
+            {addingVehicle ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
             Add to Registration
           </Button>
         </CardContent>
@@ -891,6 +979,7 @@ export function GuestRegistrationForm({
             <ul className="space-y-1 text-sm">
               {registeredVehicles.map((v) => (
                 <li key={v.clientId} className="flex items-center gap-2">
+                  <VehicleRegistrationPhotoThumb photoUrl={v.photoUrl} />
                   {!v.photoUrl ? (
                     <Car className="size-3.5 text-muted-foreground" />
                   ) : null}

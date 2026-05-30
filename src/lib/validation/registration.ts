@@ -44,8 +44,31 @@ export const vehicleWriteSchema = z.object({
   notes: z.string().optional(),
 });
 
+const optionalMaskedUsPhone = z
+  .string()
+  .optional()
+  .transform((s) => {
+    if (s == null || !String(s).trim()) return undefined;
+    const digits = String(s).replace(/\D/g, "").slice(0, 10);
+    return digits.length === 0 ? undefined : digits;
+  })
+  .refine(
+    (d) => d === undefined || d.length === 10,
+    "Enter a complete 10-digit phone number or leave this field blank.",
+  )
+  .transform((d) =>
+    d === undefined
+      ? undefined
+      : `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`,
+  );
+
+const optionalRegistrationStreet = z.preprocess(
+  (val) => (val == null ? "" : String(val).trim()),
+  z.string().max(200),
+);
+
 const registrationAddressSchema = z.object({
-  street: z.string().min(1, "Street address is required").max(200),
+  street: optionalRegistrationStreet,
   city: z.string().min(1, "City is required").max(100),
   state: z
     .string()
@@ -105,10 +128,41 @@ export const guestRegisterSchema = z
     firstName: z.string().min(1, "First name is required").max(100),
     lastName: z.string().min(1, "Last name is required").max(100),
     email: z.string().email("Valid email is required"),
-    phone: z.string().max(30).optional(),
+    phone: optionalMaskedUsPhone,
     vehicles: z
       .array(guestVehicleSchema)
       .min(1, "Add at least one vehicle"),
     donationCents: z.coerce.number().int().min(0).optional(),
   })
   .merge(registrationAddressSchema);
+
+const guestVehicleOrganizerUpdateSchema = z.object({
+  publicVehicleId: z.string().min(1, "Vehicle id is required"),
+  nickname: optionalVehicleNickname,
+  eventCategoryId: z.union([z.string().uuid(), z.null()]).optional(),
+  notes: z.string().max(5000).optional(),
+});
+
+/** Organizer updates guest contact (and optional vehicle fields) before payment completes. */
+export const organizerUpdateGuestRegistrationSchema = z.object({
+  firstName: z.string().min(1, "First name is required").max(100),
+  lastName: z.string().min(1, "Last name is required").max(100),
+  email: z
+    .string()
+    .email("Valid email is required")
+    .transform((s) => s.trim().toLowerCase()),
+  phone: optionalMaskedUsPhone,
+  street: optionalRegistrationStreet,
+  city: z.string().min(1, "City is required").max(100),
+  state: z
+    .string()
+    .min(2, "State is required")
+    .max(2, "Use 2-letter state code")
+    .transform((s) => s.toUpperCase()),
+  zip: z
+    .string()
+    .min(5, "Zip code is required")
+    .max(10, "Zip code is too long")
+    .regex(/^\d{5}(-\d{4})?$/, "Enter a valid US zip code"),
+  vehicles: z.array(guestVehicleOrganizerUpdateSchema).optional(),
+});

@@ -1,12 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DatetimeLocalField,
+  splitDatetimeLocal,
+  zonedLocalToDatetimeLocal,
+} from "@/components/inputs/datetime-local-field";
 import { Loader2, MessageSquare } from "lucide-react";
 import {
-  defaultSmsVotingWindowLocal,
+  utcInstantToZonedLocal,
+  zonedLocalToUtcIso,
+} from "@/lib/event-calendar";
+import {
+  defaultSmsVotingWindow,
+  resolveEventScheduleTimeZone,
   type EventScheduleForSmsDefaults,
 } from "@/lib/sms/default-voting-window";
 
@@ -24,12 +34,6 @@ type Props = {
   eventSchedule: EventScheduleForSmsDefaults;
   onStatusChange?: (status: "complete" | "not_enabled" | null) => void;
 };
-
-function applyDefaultVotingTimes(
-  schedule: EventScheduleForSmsDefaults,
-): { opens: string; closes: string } {
-  return defaultSmsVotingWindowLocal(schedule);
-}
 
 function resolveSmsVotingStatus(
   enabled: boolean,
@@ -53,6 +57,11 @@ export function EventSmsVotingSettings({
   eventSchedule,
   onStatusChange,
 }: Props) {
+  const eventTimeZone = useMemo(
+    () => resolveEventScheduleTimeZone(eventSchedule),
+    [eventSchedule],
+  );
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [smsVotingEnabled, setSmsVotingEnabled] = useState(false);
@@ -82,6 +91,16 @@ export function EventSmsVotingSettings({
     [onStatusChange],
   );
 
+  function applyDefaultVotingTimes() {
+    const defaults = defaultSmsVotingWindow(eventSchedule);
+    setSmsVotingStartsAt(
+      zonedLocalToDatetimeLocal(defaults.opens.date, defaults.opens.time),
+    );
+    setSmsVotingEndsAt(
+      zonedLocalToDatetimeLocal(defaults.closes.date, defaults.closes.time),
+    );
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -91,20 +110,23 @@ export function EventSmsVotingSettings({
       const enabled = Boolean(data.smsVotingEnabled);
       const loadedCategories = (data.categories ?? []) as CategoryRow[];
       setSmsVotingEnabled(enabled);
-      const opens = data.smsVotingStartsAt
-        ? data.smsVotingStartsAt.slice(0, 16)
-        : "";
-      const closes = data.smsVotingEndsAt
-        ? data.smsVotingEndsAt.slice(0, 16)
-        : "";
-      if (enabled && !opens && !closes) {
-        const defaults = applyDefaultVotingTimes(eventSchedule);
-        setSmsVotingStartsAt(defaults.opens);
-        setSmsVotingEndsAt(defaults.closes);
+
+      const opens = utcInstantToZonedLocal(
+        data.smsVotingStartsAt,
+        eventTimeZone,
+      );
+      const closes = utcInstantToZonedLocal(
+        data.smsVotingEndsAt,
+        eventTimeZone,
+      );
+
+      if (enabled && !opens.date && !closes.date) {
+        applyDefaultVotingTimes();
       } else {
-        setSmsVotingStartsAt(opens);
-        setSmsVotingEndsAt(closes);
+        setSmsVotingStartsAt(zonedLocalToDatetimeLocal(opens.date, opens.time));
+        setSmsVotingEndsAt(zonedLocalToDatetimeLocal(closes.date, closes.time));
       }
+
       setSmsNumber(data.smsNumber ?? "");
       setSmsPresets(data.presets ?? []);
       setCategories(loadedCategories);
@@ -123,7 +145,7 @@ export function EventSmsVotingSettings({
     } finally {
       setLoading(false);
     }
-  }, [eventId, eventSchedule, syncStatus]);
+  }, [eventId, eventSchedule, eventTimeZone, syncStatus]);
 
   useEffect(() => {
     void load();
@@ -132,10 +154,12 @@ export function EventSmsVotingSettings({
   function handleEnableChange(checked: boolean) {
     setSmsVotingEnabled(checked);
     setMessage(null);
-    if (checked && !smsVotingStartsAt && !smsVotingEndsAt) {
-      const defaults = applyDefaultVotingTimes(eventSchedule);
-      setSmsVotingStartsAt(defaults.opens);
-      setSmsVotingEndsAt(defaults.closes);
+    if (
+      checked &&
+      !smsVotingStartsAt &&
+      !smsVotingEndsAt
+    ) {
+      applyDefaultVotingTimes();
     }
   }
 
@@ -207,17 +231,23 @@ export function EventSmsVotingSettings({
 
     setSaving(true);
     try {
+      const opens = splitDatetimeLocal(smsVotingStartsAt);
+      const closes = splitDatetimeLocal(smsVotingEndsAt);
       const res = await fetch(`/api/events/${eventId}/sms-voting`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           smsVotingEnabled,
-          smsVotingStartsAt: smsVotingStartsAt
-            ? new Date(smsVotingStartsAt).toISOString()
-            : null,
-          smsVotingEndsAt: smsVotingEndsAt
-            ? new Date(smsVotingEndsAt).toISOString()
-            : null,
+          smsVotingStartsAt: zonedLocalToUtcIso(
+            opens.date,
+            opens.time,
+            eventTimeZone,
+          ),
+          smsVotingEndsAt: zonedLocalToUtcIso(
+            closes.date,
+            closes.time,
+            eventTimeZone,
+          ),
           categories,
         }),
       });
@@ -285,20 +315,20 @@ export function EventSmsVotingSettings({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="smsVotingStartsAt">Voting opens</Label>
-              <Input
+              <DatetimeLocalField
                 id="smsVotingStartsAt"
-                type="datetime-local"
+                aria-label="Voting opens"
                 value={smsVotingStartsAt}
-                onChange={(e) => setSmsVotingStartsAt(e.target.value)}
+                onChange={setSmsVotingStartsAt}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="smsVotingEndsAt">Voting closes</Label>
-              <Input
+              <DatetimeLocalField
                 id="smsVotingEndsAt"
-                type="datetime-local"
+                aria-label="Voting closes"
                 value={smsVotingEndsAt}
-                onChange={(e) => setSmsVotingEndsAt(e.target.value)}
+                onChange={setSmsVotingEndsAt}
               />
             </div>
           </div>

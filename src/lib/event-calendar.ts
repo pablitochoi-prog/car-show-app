@@ -95,6 +95,41 @@ function getZonedParts(date: Date, timeZone: string): ZonedParts {
   };
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+/** UTC instant as calendar date + time in an IANA zone. */
+export function utcInstantToZonedLocal(
+  instant: Date | string | null | undefined,
+  timeZone: EventTimeZoneIana,
+): { date: string; time: string } {
+  if (!instant) return { date: "", time: "" };
+  const d = typeof instant === "string" ? new Date(instant) : instant;
+  if (Number.isNaN(d.getTime())) return { date: "", time: "" };
+  const parts = getZonedParts(d, timeZone);
+  return {
+    date: `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`,
+    time: normalizeTimeToFiveMinutes(
+      `${pad2(parts.hour)}:${pad2(parts.minute)}`,
+    ),
+  };
+}
+
+/** Wall-clock date/time in an IANA zone as a UTC ISO string. */
+export function zonedLocalToUtcIso(
+  ymd: string,
+  hhMm: string,
+  timeZone: EventTimeZoneIana,
+): string | null {
+  if (!ymd?.trim() || !hhMm?.trim()) return null;
+  try {
+    return zonedLocalDateTimeToUtc(ymd, hhMm, timeZone).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 /** Map wall-clock date/time in an IANA zone to a UTC instant. */
 export function zonedLocalDateTimeToUtc(
   ymd: string,

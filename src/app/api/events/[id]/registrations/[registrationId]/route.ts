@@ -2,14 +2,18 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
 import { canManageEventRegistrations } from "@/lib/organizer-registrations-auth";
-import { registerForEventSchema } from "@/lib/validation/registration";
-import { validateRegistrationVehiclesAndClasses } from "@/lib/registration-vehicle-classes";
+import { registerForEventSchema, organizerUpdateGuestRegistrationSchema } from "@/lib/validation/registration";
+import { validateRegistrationVehiclesAndClasses, validateGuestRegistrationVehiclesAndClasses } from "@/lib/registration-vehicle-classes";
 import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 import { validateDonationNotDecreasedAfterPayment } from "@/lib/registration-payment-display";
 import { syncRegistrationVehiclesWithPublicIds } from "@/lib/event-sms-vehicle-id";
 import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
+import {
+  mergeGuestVehicleOrganizerUpdates,
+  parseGuestVehicleRecords,
+} from "@/lib/organizer-guest-registration-update";
 
 type RouteParams = {
   params: Promise<{ id: string; registrationId: string }>;
@@ -45,6 +49,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       tierId: true,
       amountCents: true,
       platformFeeCents: true,
+      guestVehicles: true,
+      guestEmail: true,
     },
   });
 
@@ -52,18 +58,107 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Registration not found" }, { status: 404 });
   }
 
-  if (!existingReg.userId) {
-    return NextResponse.json(
-      { error: "Guest registrations cannot be edited here yet." },
-      { status: 400 },
-    );
-  }
-
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (!existingReg.userId) {
+    if (existingReg.status === "CANCELLED") {
+      return NextResponse.json(
+        { error: "Cancelled guest registrations cannot be edited." },
+        { status: 400 },
+      );
+    }
+
+    const parsed = organizerUpdateGuestRegistrationSchema.safeParse(body);
+    if (!parsed.success) {
+      const msg = parsed.error.issues[0]?.message ?? "Invalid input";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+
+    const nextEmail = parsed.data.email;
+    if (
+      nextEmail !== existingReg.guestEmail?.trim().toLowerCase()
+    ) {
+      const duplicate = await prisma.registration.findFirst({
+        where: {
+          eventId,
+          guestEmail: nextEmail,
+          NOT: { id: registrationId },
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        return NextResponse.json(
+          { error: "Another guest registration already uses this email." },
+          { status: 400 },
+        );
+      }
+    }
+
+    let nextGuestVehicles = parseGuestVehicleRecords(existingReg.guestVehicles);
+    if (parsed.data.vehicles?.length) {
+      nextGuestVehicles = mergeGuestVehicleOrganizerUpdates(
+        nextGuestVehicles,
+        parsed.data.vehicles,
+      );
+
+      const eventCategoryIds = (
+        await prisma.eventCategory.findMany({
+          where: { eventId },
+          select: { id: true },
+        })
+      ).map((row) => row.id);
+
+      const classError = validateGuestRegistrationVehiclesAndClasses({
+        allowedCategoryIds: eventCategoryIds,
+        vehicles: nextGuestVehicles.map((v) => ({
+          year: v.year,
+          make: v.make,
+          model: v.model,
+          trim: v.trim ?? undefined,
+          nickname: v.nickname ?? undefined,
+          notes: v.notes ?? undefined,
+          photoUrl: v.photoUrl ?? undefined,
+          eventCategoryId: v.eventCategoryId ?? undefined,
+        })),
+      });
+      if (classError) {
+        return NextResponse.json({ error: classError }, { status: 400 });
+      }
+    }
+
+    const registration = await prisma.registration.update({
+      where: { id: registrationId },
+      data: {
+        guestFirstName: parsed.data.firstName.trim(),
+        guestLastName: parsed.data.lastName.trim(),
+        guestEmail: nextEmail,
+        guestPhone: parsed.data.phone ?? null,
+        guestStreet: parsed.data.street.trim() || null,
+        guestCity: parsed.data.city.trim(),
+        guestState: parsed.data.state.trim(),
+        guestZip: parsed.data.zip.trim(),
+        ...(parsed.data.vehicles?.length
+          ? { guestVehicles: nextGuestVehicles }
+          : {}),
+      },
+    });
+
+    try {
+      await syncAllRegistrationStaffPhotos(registration.id);
+    } catch (e) {
+      console.error("PATCH guest registration staff photo snapshot:", e);
+    }
+
+    return NextResponse.json({
+      id: registration.id,
+      updated: true,
+      message: "Guest registration updated.",
+    });
   }
 
   const parsed = registerForEventSchema.safeParse(body);
@@ -196,7 +291,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     registrantLastName: parsed.data.contact.lastName.trim(),
     registrantEmail: parsed.data.contact.email.toLowerCase().trim(),
     registrantPhone: parsed.data.contact.phone?.trim() || null,
-    registrantStreet: parsed.data.contact.street.trim(),
+    registrantStreet: parsed.data.contact.street.trim() || null,
     registrantCity: parsed.data.contact.city.trim(),
     registrantState: parsed.data.contact.state.trim(),
     registrantZip: parsed.data.contact.zip.trim(),

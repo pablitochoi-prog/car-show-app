@@ -12,10 +12,9 @@ import {
 } from "@/lib/vehicle-entry-access";
 import { getJudgeScoreForEntry } from "@/lib/vehicle-judging";
 import {
-  buildVoterKey,
   entryAllowsPublicVoting,
-  getOrCreateVoterKey,
-  hasVisitorVoted,
+  getVisitorPublicVoteContext,
+  readVoterFingerprint,
 } from "@/lib/vehicle-voting";
 
 type Props = {
@@ -83,19 +82,17 @@ export default async function VehicleEntrySmartRoutePage({
     );
   }
 
-  const fingerprint = await getOrCreateVoterKey();
-  const voterKey = buildVoterKey(
-    fingerprint,
-    entry.eventId,
-    entry.vehicleEntryCode,
-  );
-  const alreadyVoted = await hasVisitorVoted(entry, voterKey);
+  const fingerprint = await readVoterFingerprint();
+  const voteContext = await getVisitorPublicVoteContext(entry, fingerprint);
+  const votingOpen =
+    entryAllowsPublicVoting(entry, entry.event.status) &&
+    voteContext.hasAnyOpenCategory;
 
   return (
     <PublicVotePanel
       entry={entry}
-      votingOpen={entryAllowsPublicVoting(entry, entry.event.status)}
-      alreadyVoted={alreadyVoted}
+      votingOpen={votingOpen}
+      voteContext={voteContext}
     />
   );
 }

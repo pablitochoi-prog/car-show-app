@@ -1,8 +1,14 @@
+import {
+  utcInstantToZonedLocal,
+  zonedLocalDateTimeToUtc,
+} from "@/lib/event-calendar";
 import { normalizeDailyHours, type DailyHourRow } from "@/lib/daily-hours";
 import {
-  normalizeDatetimeLocalToFiveMinutes,
-  normalizeTimeToFiveMinutes,
-} from "@/lib/time-quarter-hour";
+  isEventTimeZoneIana,
+  type EventTimeZoneIana,
+} from "@/lib/event-time-zones";
+import { normalizeTimeToFiveMinutes } from "@/lib/time-quarter-hour";
+import { timeZoneForUsState } from "@/lib/us-state-time-zone";
 
 export type EventScheduleForSmsDefaults = {
   startDate: string;
@@ -10,38 +16,20 @@ export type EventScheduleForSmsDefaults = {
   startTime: string | null;
   endTime: string | null;
   dailyHours?: DailyHourRow[] | null;
+  /** Venue state — used for time zone when daily hours omit one. */
+  venueState?: string | null;
 };
 
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
+export type ZonedLocalDateTime = {
+  date: string;
+  time: string;
+};
 
 /** Match event form calendar extraction from stored ISO dates. */
 function toDateInput(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toISOString().slice(0, 10);
-}
-
-function buildDatetimeLocal(dateYmd: string, timeHhMm: string): string {
-  const date = dateYmd.trim();
-  const time = normalizeTimeToFiveMinutes(timeHhMm.trim() || "00:00");
-  if (!date) return "";
-  if (!time) return `${date}T`;
-  return normalizeDatetimeLocalToFiveMinutes(`${date}T${time}`);
-}
-
-function dateToDatetimeLocal(d: Date): string {
-  const raw = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  return normalizeDatetimeLocalToFiveMinutes(raw);
-}
-
-function subtractHoursFromDatetimeLocal(local: string, hours: number): string {
-  if (!local.trim()) return "";
-  const d = new Date(local);
-  if (Number.isNaN(d.getTime())) return "";
-  d.setTime(d.getTime() - hours * 60 * 60 * 1000);
-  return dateToDatetimeLocal(d);
 }
 
 function resolveScheduleBounds(schedule: EventScheduleForSmsDefaults): {
@@ -86,29 +74,79 @@ function resolveScheduleBounds(schedule: EventScheduleForSmsDefaults): {
   return { startDate, startTime, endDate, endTime };
 }
 
-/** Default SMS voting opens at the event start date/time (`datetime-local`). */
+export function resolveEventScheduleTimeZone(
+  schedule: EventScheduleForSmsDefaults,
+): EventTimeZoneIana {
+  const normalizedDaily = schedule.dailyHours?.length
+    ? normalizeDailyHours(schedule.dailyHours)
+    : null;
+  const tz = normalizedDaily?.[0]?.timeZone;
+  if (tz && isEventTimeZoneIana(tz)) return tz;
+  return timeZoneForUsState(schedule.venueState);
+}
+
+/** Default SMS voting opens at the event start date/time in the event zone. */
+export function defaultSmsVotingOpens(
+  schedule: EventScheduleForSmsDefaults,
+): ZonedLocalDateTime {
+  const bounds = resolveScheduleBounds(schedule);
+  return { date: bounds.startDate, time: bounds.startTime };
+}
+
+/** Default SMS voting closes two hours before the event end in the event zone. */
+export function defaultSmsVotingEnds(
+  schedule: EventScheduleForSmsDefaults,
+): ZonedLocalDateTime {
+  const bounds = resolveScheduleBounds(schedule);
+  const timeZone = resolveEventScheduleTimeZone(schedule);
+  const endUtc = zonedLocalDateTimeToUtc(
+    bounds.endDate,
+    bounds.endTime,
+    timeZone,
+  );
+  const closeUtc = new Date(endUtc.getTime() - 2 * 60 * 60 * 1000);
+  return utcInstantToZonedLocal(closeUtc, timeZone);
+}
+
+export function defaultSmsVotingWindow(schedule: EventScheduleForSmsDefaults): {
+  opens: ZonedLocalDateTime;
+  closes: ZonedLocalDateTime;
+} {
+  return {
+    opens: defaultSmsVotingOpens(schedule),
+    closes: defaultSmsVotingEnds(schedule),
+  };
+}
+
+/** @deprecated Use {@link defaultSmsVotingOpens} — returns `YYYY-MM-DDTHH:MM` without zone conversion. */
 export function defaultSmsVotingOpensLocal(
   schedule: EventScheduleForSmsDefaults,
 ): string {
-  const bounds = resolveScheduleBounds(schedule);
-  return buildDatetimeLocal(bounds.startDate, bounds.startTime);
+  const { date, time } = defaultSmsVotingOpens(schedule);
+  return date && time ? `${date}T${time}` : "";
 }
 
-/** Default SMS voting closes two hours before the event end date/time. */
+/** @deprecated Use {@link defaultSmsVotingEnds} */
 export function defaultSmsVotingEndsLocal(
   schedule: EventScheduleForSmsDefaults,
 ): string {
-  const bounds = resolveScheduleBounds(schedule);
-  const eventEnd = buildDatetimeLocal(bounds.endDate, bounds.endTime);
-  return subtractHoursFromDatetimeLocal(eventEnd, 2);
+  const { date, time } = defaultSmsVotingEnds(schedule);
+  return date && time ? `${date}T${time}` : "";
 }
 
-export function defaultSmsVotingWindowLocal(schedule: EventScheduleForSmsDefaults): {
-  opens: string;
-  closes: string;
-} {
+/** @deprecated Use {@link defaultSmsVotingWindow} */
+export function defaultSmsVotingWindowLocal(
+  schedule: EventScheduleForSmsDefaults,
+): { opens: string; closes: string } {
+  const window = defaultSmsVotingWindow(schedule);
   return {
-    opens: defaultSmsVotingOpensLocal(schedule),
-    closes: defaultSmsVotingEndsLocal(schedule),
+    opens:
+      window.opens.date && window.opens.time
+        ? `${window.opens.date}T${window.opens.time}`
+        : "",
+    closes:
+      window.closes.date && window.closes.time
+        ? `${window.closes.date}T${window.closes.time}`
+        : "",
   };
 }

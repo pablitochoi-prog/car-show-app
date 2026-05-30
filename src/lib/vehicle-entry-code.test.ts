@@ -16,10 +16,15 @@ describe("vehicle-entry-code", () => {
     expect(normalizeVehicleEntryCode("uuid-123")).toBeNull();
   });
 
-  it("builds smart route URLs", () => {
-    process.env.NEXT_PUBLIC_APP_URL = "https://carshowscout.com";
+  it("builds smart route URLs from site origin", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
     expect(vehicleSmartRouteUrl("AXY-004")).toBe(
-      "https://carshowscout.com/v/AXY-004",
+      "https://events.carshowscout.com/v/AXY-004",
     );
+  });
+
+  it("encodes vehicle entry codes in QR URLs", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
+    expect(vehicleSmartRouteUrl("AXY-004")).toContain("/v/AXY-004");
   });
 });

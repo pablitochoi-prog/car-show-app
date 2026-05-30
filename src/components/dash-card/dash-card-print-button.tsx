@@ -1,17 +1,41 @@
 "use client";
 
+import { useCallback, useRef, useState } from "react";
 import { Printer } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 
-export function DashCardPrintButton() {
+export function DashCardPrintButton({ cardCount = 1 }: { cardCount?: number }) {
+  const printingRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+
+  const handlePrint = useCallback(() => {
+    if (printingRef.current || typeof window === "undefined") return;
+
+    printingRef.current = true;
+    setBusy(true);
+
+    const release = () => {
+      printingRef.current = false;
+      setBusy(false);
+    };
+
+    window.addEventListener("afterprint", release, { once: true });
+    window.setTimeout(release, 3000);
+    window.print();
+  }, []);
+
+  const label =
+    cardCount === 1 ? "Print dash card" : `Print ${cardCount} dash cards`;
+
   return (
-    <Button
+    <LoadingButton
       type="button"
       className="print:hidden"
-      onClick={() => window.print()}
+      loading={busy}
+      onClick={handlePrint}
     >
-      <Printer className="size-4" />
-      Print dash card
-    </Button>
+      {!busy && <Printer className="size-4" />}
+      {busy ? "Opening print dialog…" : label}
+    </LoadingButton>
   );
 }

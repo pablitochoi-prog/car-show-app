@@ -9,7 +9,7 @@ export function AuthPageShell({ children }: { children: ReactNode }) {
       >
         <div className="absolute -top-28 left-1/2 h-[min(420px,70vw)] w-[min(720px,100%)] -translate-x-1/2 rounded-[100%] bg-primary/[0.09] blur-3xl dark:bg-primary/[0.14]" />
       </div>
-      <div className="relative w-full">{children}</div>
+      <div className="relative flex w-full justify-center">{children}</div>
     </div>
   );
 }

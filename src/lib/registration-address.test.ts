@@ -18,7 +18,7 @@ describe("formatRegistrationMailingAddress", () => {
 });
 
 describe("hasCompleteMailingAddress", () => {
-  it("requires all parts", () => {
+  it("requires city, state, and zip", () => {
     expect(
       hasCompleteMailingAddress({
         street: "1 Main",
@@ -31,6 +31,21 @@ describe("hasCompleteMailingAddress", () => {
       hasCompleteMailingAddress({
         street: "",
         city: "Town",
+        state: "NY",
+        zip: "10001",
+      }),
+    ).toBe(true);
+    expect(
+      hasCompleteMailingAddress({
+        city: "Town",
+        state: "NY",
+        zip: "10001",
+      }),
+    ).toBe(true);
+    expect(
+      hasCompleteMailingAddress({
+        street: "1 Main",
+        city: "",
         state: "NY",
         zip: "10001",
       }),

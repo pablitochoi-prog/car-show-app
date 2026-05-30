@@ -549,7 +549,10 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
         </div>
 
         <div className="grid gap-2">
-          <Label htmlFor="profile-street">Street address</Label>
+          <Label htmlFor="profile-street">
+            Street address{" "}
+            <span className="font-normal text-muted-foreground">(optional)</span>
+          </Label>
           <Input
             id="profile-street"
             name="street"

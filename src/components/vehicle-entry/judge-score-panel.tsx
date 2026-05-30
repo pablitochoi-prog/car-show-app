@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { VehicleEntryHeader } from "@/components/vehicle-entry/vehicle-entry-header";
+import { VehiclePhotoDisplay } from "@/components/vehicle/vehicle-photo-display";
 import type { VehicleEntryRecord } from "@/lib/vehicle-entry-types";
 
 type Props = {
@@ -70,26 +70,11 @@ export function JudgeScorePanel({
         }
       />
 
-      {photoSrc ? (
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border bg-muted">
-          {photoSrc.startsWith("/api/") ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={photoSrc}
-              alt={`${entry.make} ${entry.model}`}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <Image
-              src={photoSrc}
-              alt={`${entry.make} ${entry.model}`}
-              fill
-              className="object-cover"
-              unoptimized
-            />
-          )}
-        </div>
-      ) : null}
+      <VehiclePhotoDisplay
+        src={photoSrc}
+        alt={`${entry.make} ${entry.model}`}
+        size="full"
+      />
 
       <form
         onSubmit={(e) => void submitScore(e)}

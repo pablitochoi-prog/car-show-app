@@ -11,6 +11,7 @@ import {
 import type { DashCardModel, DashCardSponsorModel } from "@/lib/dash-card-types";
 import { cn } from "@/lib/utils";
 import { DashCardQrPlaceholder } from "@/components/dash-card/dash-card-qr-placeholder";
+import { VehiclePhotoDisplay } from "@/components/vehicle/vehicle-photo-display";
 
 function vehicleTitle(v: DashCardModel["vehicle"]): string {
   const t = v.trim?.trim();
@@ -95,12 +96,12 @@ function VehiclePhoto({
 }) {
   if (vehicle.vehiclePhotoUrl) {
     return (
-      <div className="dash-card-vehicle-photo relative shrink-0 overflow-hidden rounded-md border border-[#cbd5e1] bg-[#f8fafc]">
-        <StaffPhoto
-          src={vehicle.vehiclePhotoUrl}
-          alt={`${vehicleTitle(vehicle)} at show`}
-        />
-      </div>
+      <VehiclePhotoDisplay
+        src={vehicle.vehiclePhotoUrl}
+        alt={`${vehicleTitle(vehicle)} at show`}
+        size="full"
+        className="dash-card-vehicle-photo border-[#cbd5e1] bg-[#f8fafc]"
+      />
     );
   }
 

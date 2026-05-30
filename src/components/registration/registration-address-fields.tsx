@@ -31,7 +31,8 @@ export function RegistrationAddressFields({
       </p>
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-street`} className="text-xs">
-          Street address {mark}
+          Street address{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
         </Label>
         <Input
           id={`${idPrefix}-street`}
