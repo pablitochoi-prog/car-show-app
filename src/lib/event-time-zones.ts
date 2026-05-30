@@ -1,5 +1,7 @@
 /** US zones for event schedule rows (stored as IANA IDs in `dailyHours` JSON). */
 
+import { parseDailyHours } from "@/lib/daily-hours";
+
 export const EVENT_TIME_ZONE_OPTIONS = [
   { label: "Pacific", value: "America/Los_Angeles" },
   { label: "Mountain", value: "America/Denver" },
@@ -32,4 +34,14 @@ export function eventTimeZoneLabel(
   if (!iana) return null;
   const row = EVENT_TIME_ZONE_OPTIONS.find((z) => z.value === iana);
   return row?.label ?? null;
+}
+
+/** Resolve IANA zone from event `dailyHours` JSON, else platform default. */
+export function resolveEventTimeZoneFromDailyHours(
+  dailyHours: unknown,
+): EventTimeZoneIana {
+  const rows = parseDailyHours(dailyHours);
+  const tz = rows?.[0]?.timeZone;
+  if (tz && isEventTimeZoneIana(tz)) return tz;
+  return DEFAULT_EVENT_TIME_ZONE;
 }

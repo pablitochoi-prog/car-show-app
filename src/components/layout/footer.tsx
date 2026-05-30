@@ -17,7 +17,10 @@ export async function Footer() {
             Find Events
           </Link>
           <Link href="/terms" className="hover:text-foreground transition-colors">
-            SMS Terms
+            SMS Text Policy
+          </Link>
+          <Link href="/privacy" className="hover:text-foreground transition-colors">
+            Privacy Policy
           </Link>
           <Link href="/login" className="hover:text-foreground transition-colors">
             Log In

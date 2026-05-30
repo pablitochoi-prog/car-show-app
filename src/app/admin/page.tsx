@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { listSpecialAwardsForAdmin } from "@/lib/sms/sms-voting-eligible-awards";
 import { AdminClubsSection } from "@/components/admin/admin-clubs-section";
@@ -14,12 +15,18 @@ import { AdminConvenienceFee } from "@/components/admin/admin-convenience-fee";
 import { AdminEventSetupFee } from "@/components/admin/admin-event-setup-fee";
 import { AdminPlatformStripe } from "@/components/admin/admin-platform-stripe";
 import { AdminPlatformSponsor } from "@/components/admin/admin-platform-sponsor";
+import { AdminLegalPolicyEditor } from "@/components/admin/admin-legal-policy-editor";
+import { AdminEmailTest } from "@/components/admin/admin-email-test";
+import { DEFAULT_SMS_TEXT_POLICY_HTML } from "@/lib/legal-policy-defaults";
+import { LEGAL_POLICIES_SETTING_KEY } from "@/lib/legal-policies";
 import {
   adminAccountListSelect,
   serializeAdminAccountRow,
 } from "@/lib/admin-account-rows";
 
 export default async function AdminDashboardPage() {
+  const adminUser = await getCurrentUser();
+
   const [awards, , users] = await Promise.all([
     listSpecialAwardsForAdmin(),
     Promise.all([
@@ -37,6 +44,17 @@ export default async function AdminDashboardPage() {
         create: {
           key: "event_setup_fee",
           value: { amountCents: 7500 },
+        },
+      }),
+      prisma.globalSetting.upsert({
+        where: { key: LEGAL_POLICIES_SETTING_KEY },
+        update: {},
+        create: {
+          key: LEGAL_POLICIES_SETTING_KEY,
+          value: {
+            smsTextPolicyHtml: DEFAULT_SMS_TEXT_POLICY_HTML,
+            privacyPolicyHtml: null,
+          },
         },
       }),
     ]),
@@ -84,6 +102,12 @@ export default async function AdminDashboardPage() {
 
         <CollapsibleCard title="Vehicles" defaultOpen={false}>
           <AdminVehiclesSection />
+        </CollapsibleCard>
+
+        <CollapsibleCard title="Email Test" defaultOpen={false}>
+          <AdminEmailTest
+            defaultRecipientEmail={adminUser?.email?.trim() ?? ""}
+          />
         </CollapsibleCard>
 
         <CollapsibleCard title="Global Settings" defaultOpen={false}>
@@ -147,6 +171,24 @@ export default async function AdminDashboardPage() {
 
             <CollapsibleCard title="Platform Sponsor" defaultOpen={false}>
               <AdminPlatformSponsor />
+            </CollapsibleCard>
+
+            <CollapsibleCard title="SMS Text Policy" defaultOpen={false}>
+              <AdminLegalPolicyEditor
+                field="smsTextPolicyHtml"
+                title="SMS Text Policy"
+                description="Content shown publicly at /terms for SMS voting, registration, and event messaging compliance."
+                publicPath="/terms"
+              />
+            </CollapsibleCard>
+
+            <CollapsibleCard title="Privacy Policy" defaultOpen={false}>
+              <AdminLegalPolicyEditor
+                field="privacyPolicyHtml"
+                title="Privacy Policy"
+                description="Content shown publicly at /privacy. Describe how CarShowScout collects, uses, and protects personal data."
+                publicPath="/privacy"
+              />
             </CollapsibleCard>
           </div>
         </CollapsibleCard>

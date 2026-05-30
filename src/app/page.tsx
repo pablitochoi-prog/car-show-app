@@ -244,7 +244,14 @@ export default function HomePage() {
                     href="/terms"
                     className="font-medium text-foreground underline-offset-4 hover:underline"
                   >
-                    SMS terms
+                    SMS Text Policy
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    href="/privacy"
+                    className="font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    Privacy Policy
                   </Link>{" "}
                   for details.
                 </p>
@@ -289,6 +296,23 @@ export default function HomePage() {
                 )}
               >
                 View public events calendar
+              </Link>
+            </nav>
+            <nav
+              className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground"
+              aria-label="Legal policies"
+            >
+              <Link
+                href="/terms"
+                className="font-medium underline-offset-4 hover:text-foreground hover:underline"
+              >
+                SMS Text Policy
+              </Link>
+              <Link
+                href="/privacy"
+                className="font-medium underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Privacy Policy
               </Link>
             </nav>
           </div>

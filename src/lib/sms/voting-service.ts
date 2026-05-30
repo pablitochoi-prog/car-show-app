@@ -1,19 +1,24 @@
-import type { SmsProvider as PrismaSmsProvider } from "@prisma/client";
+import type { EventStatus, SmsProvider as PrismaSmsProvider } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { findVehicleEntryByCode } from "@/lib/vehicle-entry-lookup";
 import { hashPhoneNumber } from "@/lib/sms/hash-phone";
 import { parseInboundSmsBody } from "@/lib/sms/normalize-vote-code";
 import type { InboundSmsMessage, SmsVotingResult } from "@/lib/sms/types";
 import {
+  buildSmsVotingWindowClosedMessage,
   isCategoryVotingOpen,
   isSmsVotingOpenForEvent,
+  MSG_SMS_VOTING_NOT_OPEN,
 } from "@/lib/sms/voting-window";
+import {
+  resolveEventTimeZoneFromDailyHours,
+  type EventTimeZoneIana,
+} from "@/lib/event-time-zones";
 
 const SESSION_TTL_MS = 10 * 60 * 1000;
 
 const MSG_INVALID =
   "We could not understand your vote. Please text the vehicle code shown on the dash card, such as AXY-004.";
-const MSG_VOTING_CLOSED = "SMS voting is not open for this event.";
 const MSG_NO_CATEGORIES =
   "SMS voting is not configured for this event yet. Please contact the event organizer.";
 const MSG_SMS_UNAVAILABLE =
@@ -40,10 +45,19 @@ async function loadActiveCategories(eventId: string, now: Date) {
       smsVotingStartsAt: true,
       smsVotingEndsAt: true,
       status: true,
+      dailyHours: true,
     },
   });
-  if (!event) return { event: null, categories: [], eventOpen: false };
+  if (!event) {
+    return {
+      event: null,
+      categories: [],
+      eventOpen: false,
+      timeZone: resolveEventTimeZoneFromDailyHours(null),
+    };
+  }
 
+  const timeZone = resolveEventTimeZoneFromDailyHours(event.dailyHours);
   const eventOpen = isSmsVotingOpenForEvent(event, now);
   const rows = await prisma.votingCategory.findMany({
     where: { eventId, isActive: true },
@@ -52,7 +66,25 @@ async function loadActiveCategories(eventId: string, now: Date) {
   const categories = rows.filter((c) =>
     isCategoryVotingOpen(c, eventOpen, now),
   );
-  return { event, categories, eventOpen };
+  return { event, categories, eventOpen, timeZone };
+}
+
+function votingClosedResponse(
+  event: {
+    smsVotingEnabled: boolean;
+    smsVotingStartsAt: Date | null;
+    smsVotingEndsAt: Date | null;
+    status: EventStatus;
+  } | null,
+  now: Date,
+  timeZone: EventTimeZoneIana,
+): SmsVotingResult {
+  if (!event) {
+    return { responseText: MSG_SMS_VOTING_NOT_OPEN };
+  }
+  return {
+    responseText: buildSmsVotingWindowClosedMessage(event, now, timeZone),
+  };
 }
 
 async function findPendingSession(fromPhoneHash: string, now: Date) {
@@ -135,12 +167,12 @@ async function handleVehicleCode(
     return { responseText: MSG_INVALID };
   }
 
-  const { categories, eventOpen } = await loadActiveCategories(
+  const { categories, eventOpen, event, timeZone } = await loadActiveCategories(
     entry.eventId,
     now,
   );
   if (!eventOpen) {
-    return { responseText: MSG_VOTING_CLOSED };
+    return votingClosedResponse(event, now, timeZone);
   }
   if (categories.length === 0) {
     return { responseText: MSG_NO_CATEGORIES };
@@ -211,12 +243,12 @@ async function handleCategoryNumber(
     return { responseText: MSG_INVALID };
   }
 
-  const { categories, eventOpen } = await loadActiveCategories(
+  const { categories, eventOpen, event, timeZone } = await loadActiveCategories(
     session.eventId,
     now,
   );
   if (!eventOpen) {
-    return { responseText: MSG_VOTING_CLOSED };
+    return votingClosedResponse(event, now, timeZone);
   }
 
   const category = categories.find((c) => c.smsOptionNumber === optionNumber);

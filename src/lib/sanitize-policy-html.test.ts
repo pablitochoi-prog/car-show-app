@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+import { isPolicyHtmlEmpty, sanitizePolicyHtml } from "./sanitize-policy-html";
+
+describe("sanitizePolicyHtml", () => {
+  it("preserves basic formatting", () => {
+    const input =
+      '<p><strong>Bold</strong> and <a href="https://example.com">link</a></p>';
+    const out = sanitizePolicyHtml(input);
+    expect(out).toContain("<strong>Bold</strong>");
+    expect(out).toContain('href="https://example.com"');
+  });
+
+  it("strips script tags and handlers", () => {
+    const out = sanitizePolicyHtml(
+      '<p>Hi</p><script>alert(1)</script><img src=x onerror="alert(1)">',
+    );
+    expect(out).not.toContain("<script");
+    expect(out).not.toContain("onerror");
+    expect(out).not.toContain("<img");
+  });
+
+  it("blocks javascript: links", () => {
+    const out = sanitizePolicyHtml('<a href="javascript:alert(1)">x</a>');
+    expect(out).not.toContain("javascript:");
+  });
+
+  it("allows color and font-size inline styles", () => {
+    const out = sanitizePolicyHtml(
+      '<p><span style="color: rgb(255, 0, 0); font-size: 18px;">Red</span></p>',
+    );
+    expect(out).toContain("color:");
+    expect(out).toContain("font-size:");
+  });
+
+  it("removes disallowed style properties", () => {
+    const out = sanitizePolicyHtml(
+      '<p style="background-image: url(javascript:alert(1))">x</p>',
+    );
+    expect(out).not.toContain("background-image");
+  });
+});
+
+describe("isPolicyHtmlEmpty", () => {
+  it("treats empty and whitespace-only HTML as empty", () => {
+    expect(isPolicyHtmlEmpty(null)).toBe(true);
+    expect(isPolicyHtmlEmpty("<p></p>")).toBe(true);
+    expect(isPolicyHtmlEmpty("<p>&nbsp;</p>")).toBe(true);
+    expect(isPolicyHtmlEmpty("<p>Hello</p>")).toBe(false);
+  });
+});
