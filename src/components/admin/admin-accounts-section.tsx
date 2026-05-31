@@ -1,51 +1,92 @@
 "use client";
 
-import { useState } from "react";
-import { Pencil, Trash2, Check, X, Eye, Ban, PauseCircle, UserCheck } from "lucide-react";
+import { Suspense, useState } from "react";
+import {
+  Pencil,
+  Trash2,
+  Check,
+  X,
+  Eye,
+  Ban,
+  PauseCircle,
+  UserCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useAdminSearch, AdminSearchBar, AdminEmptyState } from "./admin-search-table";
-import { SortableHeader, sortRows, type SortState } from "./sortable-header";
+import type { AdminAccountRow } from "@/lib/admin-account-rows";
+import {
+  PLATFORM_ROLES,
+  USER_STATUSES,
+  usersAdminTableConfig,
+} from "@/lib/admin-table/users-table-config";
 import { AdminUserDetailDrawer } from "./admin-user-detail-drawer";
 import { AdminDeleteUserDialog } from "./admin-delete-user-dialog";
-import type { AdminAccountRow } from "@/lib/admin-account-rows";
-
-type ColKey =
-  | "firstName"
-  | "lastName"
-  | "email"
-  | "platformRole"
-  | "status"
-  | "createdAt";
+import { AdminEmptyState } from "./admin-search-table";
+import { useAdminTableFetch } from "./data-table/use-admin-table-fetch";
+import { useAdminTableColumns } from "./data-table/use-admin-table-columns";
+import { AdminTableHeaderCell } from "./data-table/admin-table-header-cell";
+import {
+  AdminTablePagination,
+  AdminTableSkeleton,
+  AdminTableToolbar,
+} from "./data-table/admin-table-toolbar";
 
 const ROLE_OPTIONS = ["USER", "ORGANIZER", "ADMIN"];
 
-function statusVariant(
-  status: string,
-): "success" | "warning" | "danger" | "muted" {
+const COLUMN_DEFS = [
+  { id: "firstName", label: "First Name", sortable: true, filterable: true, minWidth: 110 },
+  { id: "lastName", label: "Last Name", sortable: true, filterable: true, minWidth: 110 },
+  { id: "email", label: "Email", sortable: true, filterable: true, minWidth: 160 },
+  { id: "platformRole", label: "Role", sortable: true, filterable: true, enum: true, minWidth: 100 },
+  { id: "status", label: "Status", sortable: true, filterable: true, enum: true, minWidth: 100 },
+  { id: "createdAt", label: "Joined", sortable: true, filterable: true, dateRange: true, minWidth: 100 },
+] as const;
+
+function statusVariant(status: string): "success" | "warning" | "danger" | "muted" {
   if (status === "ACTIVE") return "success";
   if (status === "SUSPENDED") return "warning";
   if (status === "BANNED") return "danger";
   return "muted";
 }
 
+function roleVariant(role: string) {
+  if (role === "ADMIN") return "default" as const;
+  if (role === "ORGANIZER") return "secondary" as const;
+  return "muted" as const;
+}
 
-export function AdminAccountsSection({
-  initialAccounts = [],
-}: {
-  initialAccounts?: AdminAccountRow[];
-}) {
-  const { query, setQuery, rows, setRows, loading, loaded, error, search } =
-    useAdminSearch<AdminAccountRow>(
-      "/api/admin/accounts",
-      "accounts",
-      initialAccounts,
-    );
-  const [sort, setSort] = useState<SortState<ColKey>>({
-    key: "lastName",
-    dir: null,
-  });
+function AccountsTableInner() {
+  const {
+    params,
+    qInput,
+    setQInput,
+    setSort,
+    setFilter,
+    setFilters,
+    setPage,
+    setPageSize,
+    clearAllFilters,
+    activeFilterCount,
+    rows,
+    setRows,
+    meta,
+    loading,
+    error,
+    loaded,
+    refetch,
+  } = useAdminTableFetch<AdminAccountRow>(
+    "/api/admin/accounts",
+    "accounts",
+    usersAdminTableConfig,
+  );
+
+  const columns = useAdminTableColumns(
+    "users",
+    COLUMN_DEFS.map((c) => c.id),
+    { minWidth: Object.fromEntries(COLUMN_DEFS.map((c) => [c.id, c.minWidth])) },
+  );
+
   const [editId, setEditId] = useState<string | null>(null);
   const [editFirst, setEditFirst] = useState("");
   const [editLast, setEditLast] = useState("");
@@ -53,8 +94,6 @@ export function AdminAccountsSection({
   const [saving, setSaving] = useState(false);
   const [detailUserId, setDetailUserId] = useState<string | null>(null);
   const [deleteUser, setDeleteUser] = useState<AdminAccountRow | null>(null);
-
-  const sorted = sortRows(rows, sort.key, sort.dir);
 
   function startEdit(a: AdminAccountRow) {
     setEditId(a.id);
@@ -86,16 +125,12 @@ export function AdminAccountsSection({
     setSaving(false);
   }
 
-  async function patchStatus(
-    id: string,
-    status: string,
-    statusReason?: string,
-  ) {
+  async function patchStatus(id: string, status: string) {
     const res = await fetch("/api/admin/accounts", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ id, status, statusReason: statusReason ?? null }),
+      body: JSON.stringify({ id, status, statusReason: null }),
     });
     if (res.ok) {
       const data = (await res.json()) as { account: { status: string } };
@@ -107,10 +142,8 @@ export function AdminAccountsSection({
     }
   }
 
-  function roleVariant(role: string) {
-    if (role === "ADMIN") return "default" as const;
-    if (role === "ORGANIZER") return "secondary" as const;
-    return "muted" as const;
+  function sortDirFor(columnId: string) {
+    return params.sort === columnId ? params.sortDir : null;
   }
 
   return (
@@ -119,248 +152,289 @@ export function AdminAccountsSection({
         Search users, edit profiles and login email, change roles, suspend, ban,
         or permanently delete with reassignment.
       </p>
-      <AdminSearchBar
-        query={query}
-        onQueryChange={setQuery}
-        onSearch={() => void search()}
+      <AdminTableToolbar
+        qInput={qInput}
+        onQChange={setQInput}
         loading={loading}
-        placeholder="Filter by name or email…"
+        placeholder="Search by name or email…"
+        activeFilterCount={activeFilterCount}
+        onClearAllFilters={clearAllFilters}
+        pageSize={params.pageSize}
+        onPageSizeChange={setPageSize}
+        columnOptions={COLUMN_DEFS.map((c) => ({
+          id: c.id,
+          label: c.label,
+          visible: columns.isVisible(c.id),
+          onToggle: (v) => columns.toggleColumn(c.id, v),
+        }))}
       />
-      {loaded && rows.length === 0 && (
+      {loaded && !loading && rows.length === 0 && (
         <AdminEmptyState message="No users found." error={error} />
       )}
-      {sorted.length > 0 && (
+      {(loading || rows.length > 0) && (
         <div className="overflow-x-auto rounded-md border">
-          <table className="w-full min-w-[800px] text-sm">
+          <table className="w-full min-w-[800px] text-sm" style={{ tableLayout: "fixed" }}>
             <thead>
               <tr className="border-b bg-muted/40 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                <SortableHeader
-                  label="First Name"
-                  sortKey="firstName"
-                  current={sort}
-                  onSort={setSort}
-                />
-                <SortableHeader
-                  label="Last Name"
-                  sortKey="lastName"
-                  current={sort}
-                  onSort={setSort}
-                />
-                <SortableHeader
-                  label="Email"
-                  sortKey="email"
-                  current={sort}
-                  onSort={setSort}
-                />
-                <SortableHeader
-                  label="Role"
-                  sortKey="platformRole"
-                  current={sort}
-                  onSort={setSort}
-                />
-                <SortableHeader
-                  label="Status"
-                  sortKey="status"
-                  current={sort}
-                  onSort={setSort}
-                />
-                <SortableHeader
-                  label="Joined"
-                  sortKey="createdAt"
-                  current={sort}
-                  onSort={setSort}
-                />
+                {COLUMN_DEFS.filter((c) => columns.isVisible(c.id)).map((col) => (
+                  <AdminTableHeaderCell
+                    key={col.id}
+                    label={col.label}
+                    columnId={col.id}
+                    sortable={col.sortable}
+                    filterable={col.filterable}
+                    enumOptions={
+                      col.id === "platformRole"
+                        ? PLATFORM_ROLES.map((r) => ({ value: r, label: r }))
+                        : col.id === "status"
+                          ? USER_STATUSES.map((s) => ({ value: s, label: s }))
+                          : undefined
+                    }
+                    activeSortDir={sortDirFor(col.id)}
+                    filterValue={
+                      col.id === "createdAt"
+                        ? params.filters.createdAtFrom
+                        : params.filters[col.id]
+                    }
+                    filterValueTo={
+                      col.id === "createdAt" ? params.filters.createdAtTo : undefined
+                    }
+                    dateRange={"dateRange" in col ? col.dateRange : false}
+                    width={columns.columnWidth(col.id)}
+                    onSort={(dir) => setSort(col.id, dir)}
+                    onFilter={(from, to) => {
+                      if (col.id === "createdAt") {
+                        setFilters({
+                          createdAtFrom: from || null,
+                          createdAtTo: to ?? null,
+                        });
+                      } else {
+                        setFilter(col.id, from || null);
+                      }
+                    }}
+                    onClearFilter={() => {
+                      if (col.id === "createdAt") {
+                        setFilters({ createdAtFrom: null, createdAtTo: null });
+                      } else {
+                        setFilter(col.id, null);
+                      }
+                    }}
+                  />
+                ))}
                 <th className="px-4 py-2 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {sorted.map((a) => (
-                <tr key={a.id} className="border-b last:border-0">
-                  {editId === a.id ? (
-                    <>
-                      <td className="px-4 py-2">
-                        <Input
-                          value={editFirst}
-                          onChange={(e) => setEditFirst(e.target.value)}
-                          className="h-8 text-sm"
-                          disabled={saving}
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <Input
-                          value={editLast}
-                          onChange={(e) => setEditLast(e.target.value)}
-                          className="h-8 text-sm"
-                          disabled={saving}
-                        />
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {a.email}
-                      </td>
-                      <td className="px-4 py-2">
-                        <select
-                          className="h-8 rounded border bg-background px-1.5 text-xs"
-                          value={editRole}
-                          onChange={(e) => setEditRole(e.target.value)}
-                          disabled={saving}
-                        >
-                          {ROLE_OPTIONS.map((r) => (
-                            <option key={r} value={r}>
-                              {r}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-2">
-                        <Badge variant={statusVariant(a.status)}>
-                          {a.status === "SUSPENDED"
-                            ? "Suspended"
-                            : a.status === "BANNED"
-                              ? "Banned"
-                              : "Active"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {new Date(a.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-7"
-                            onClick={() => void handleSave(a.id)}
-                            disabled={saving}
-                          >
-                            <Check className="size-3.5" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-7"
-                            onClick={() => setEditId(null)}
-                          >
-                            <X className="size-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="px-4 py-2.5 font-medium">
-                        {a.firstName || "—"}
-                      </td>
-                      <td className="px-4 py-2.5 font-medium">
-                        {a.lastName || "—"}
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {a.email}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge variant={roleVariant(a.platformRole)}>
-                          {a.platformRole}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge variant={statusVariant(a.status)}>
-                          {a.status === "SUSPENDED"
-                            ? "Suspended"
-                            : a.status === "BANNED"
-                              ? "Banned"
-                              : "Active"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {new Date(a.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        <div className="flex flex-wrap items-center justify-end gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            title="View & edit account"
-                            onClick={() => setDetailUserId(a.id)}
-                          >
-                            <Eye className="size-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            onClick={() => startEdit(a)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                          {a.status !== "SUSPENDED" && (
+            {loading ? (
+              <AdminTableSkeleton cols={COLUMN_DEFS.length + 1} />
+            ) : (
+              <tbody>
+                {rows.map((a) => (
+                  <tr key={a.id} className="border-b last:border-0">
+                    {editId === a.id ? (
+                      <>
+                        {columns.isVisible("firstName") && (
+                          <td className="px-4 py-2">
+                            <Input
+                              value={editFirst}
+                              onChange={(e) => setEditFirst(e.target.value)}
+                              className="h-8 text-sm"
+                              disabled={saving}
+                            />
+                          </td>
+                        )}
+                        {columns.isVisible("lastName") && (
+                          <td className="px-4 py-2">
+                            <Input
+                              value={editLast}
+                              onChange={(e) => setEditLast(e.target.value)}
+                              className="h-8 text-sm"
+                              disabled={saving}
+                            />
+                          </td>
+                        )}
+                        {columns.isVisible("email") && (
+                          <td className="px-4 py-2 text-muted-foreground">{a.email}</td>
+                        )}
+                        {columns.isVisible("platformRole") && (
+                          <td className="px-4 py-2">
+                            <select
+                              className="h-8 rounded border bg-background px-1.5 text-xs"
+                              value={editRole}
+                              onChange={(e) => setEditRole(e.target.value)}
+                              disabled={saving}
+                            >
+                              {ROLE_OPTIONS.map((r) => (
+                                <option key={r} value={r}>
+                                  {r}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
+                        {columns.isVisible("status") && (
+                          <td className="px-4 py-2">
+                            <Badge variant={statusVariant(a.status)}>
+                              {a.status === "SUSPENDED"
+                                ? "Suspended"
+                                : a.status === "BANNED"
+                                  ? "Banned"
+                                  : "Active"}
+                            </Badge>
+                          </td>
+                        )}
+                        {columns.isVisible("createdAt") && (
+                          <td className="px-4 py-2 text-muted-foreground">
+                            {new Date(a.createdAt).toLocaleDateString()}
+                          </td>
+                        )}
+                        <td className="px-4 py-2 text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-7"
+                              onClick={() => void handleSave(a.id)}
+                              disabled={saving}
+                            >
+                              <Check className="size-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-7"
+                              onClick={() => setEditId(null)}
+                            >
+                              <X className="size-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        {columns.isVisible("firstName") && (
+                          <td className="px-4 py-2.5 font-medium">{a.firstName || "—"}</td>
+                        )}
+                        {columns.isVisible("lastName") && (
+                          <td className="px-4 py-2.5 font-medium">{a.lastName || "—"}</td>
+                        )}
+                        {columns.isVisible("email") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">{a.email}</td>
+                        )}
+                        {columns.isVisible("platformRole") && (
+                          <td className="px-4 py-2.5">
+                            <Badge variant={roleVariant(a.platformRole)}>{a.platformRole}</Badge>
+                          </td>
+                        )}
+                        {columns.isVisible("status") && (
+                          <td className="px-4 py-2.5">
+                            <Badge variant={statusVariant(a.status)}>
+                              {a.status === "SUSPENDED"
+                                ? "Suspended"
+                                : a.status === "BANNED"
+                                  ? "Banned"
+                                  : "Active"}
+                            </Badge>
+                          </td>
+                        )}
+                        {columns.isVisible("createdAt") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">
+                            {new Date(a.createdAt).toLocaleDateString()}
+                          </td>
+                        )}
+                        <td className="px-4 py-2.5 text-right">
+                          <div className="flex flex-wrap items-center justify-end gap-1">
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="size-7 text-amber-600"
-                              title="Suspend"
-                              onClick={() => void patchStatus(a.id, "SUSPENDED")}
+                              className="size-7"
+                              title="View & edit account"
+                              onClick={() => setDetailUserId(a.id)}
                             >
-                              <PauseCircle className="size-3.5" />
+                              <Eye className="size-3.5" />
                             </Button>
-                          )}
-                          {a.status !== "BANNED" && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              onClick={() => startEdit(a)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            {a.status !== "SUSPENDED" && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-amber-600"
+                                title="Suspend"
+                                onClick={() => void patchStatus(a.id, "SUSPENDED")}
+                              >
+                                <PauseCircle className="size-3.5" />
+                              </Button>
+                            )}
+                            {a.status !== "BANNED" && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-destructive"
+                                title="Ban"
+                                onClick={() => void patchStatus(a.id, "BANNED")}
+                              >
+                                <Ban className="size-3.5" />
+                              </Button>
+                            )}
+                            {a.status !== "ACTIVE" && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-emerald-600"
+                                title="Reactivate"
+                                onClick={() => void patchStatus(a.id, "ACTIVE")}
+                              >
+                                <UserCheck className="size-3.5" />
+                              </Button>
+                            )}
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
                               className="size-7 text-destructive"
-                              title="Ban"
-                              onClick={() => void patchStatus(a.id, "BANNED")}
+                              title="Delete"
+                              onClick={() => setDeleteUser(a)}
                             >
-                              <Ban className="size-3.5" />
+                              <Trash2 className="size-3.5" />
                             </Button>
-                          )}
-                          {a.status !== "ACTIVE" && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 text-emerald-600"
-                              title="Reactivate"
-                              onClick={() => void patchStatus(a.id, "ACTIVE")}
-                            >
-                              <UserCheck className="size-3.5" />
-                            </Button>
-                          )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-destructive"
-                            title="Delete"
-                            onClick={() => setDeleteUser(a)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
+                          </div>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            )}
           </table>
         </div>
       )}
-      {loaded && rows.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          Showing {rows.length} user{rows.length !== 1 ? "s" : ""}
-        </p>
+      {loaded && (
+        <AdminTablePagination
+          page={meta.page}
+          totalPages={meta.totalPages}
+          total={meta.total}
+          pageSize={meta.pageSize}
+          loading={loading}
+          onPageChange={setPage}
+        />
       )}
 
       <AdminUserDetailDrawer
         userId={detailUserId}
         open={!!detailUserId}
         onClose={() => setDetailUserId(null)}
-        onUpdated={() => void search()}
+        onUpdated={() => void refetch()}
       />
 
       {deleteUser && (
@@ -371,10 +445,18 @@ export function AdminAccountsSection({
           onClose={() => setDeleteUser(null)}
           onDeleted={() => {
             setDeleteUser(null);
-            void search();
+            void refetch();
           }}
         />
       )}
     </div>
+  );
+}
+
+export function AdminAccountsSection() {
+  return (
+    <Suspense fallback={<AdminTableSkeleton rows={8} cols={7} />}>
+      <AccountsTableInner />
+    </Suspense>
   );
 }

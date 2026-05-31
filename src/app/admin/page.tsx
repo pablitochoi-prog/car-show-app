@@ -20,15 +20,11 @@ import { AdminLegalPolicyEditor } from "@/components/admin/admin-legal-policy-ed
 import { AdminEmailTest } from "@/components/admin/admin-email-test";
 import { DEFAULT_SMS_TEXT_POLICY_HTML } from "@/lib/legal-policy-defaults";
 import { LEGAL_POLICIES_SETTING_KEY } from "@/lib/legal-policies";
-import {
-  adminAccountListSelect,
-  serializeAdminAccountRow,
-} from "@/lib/admin-account-rows";
 
 export default async function AdminDashboardPage() {
   const adminUser = await getCurrentUser();
 
-  const [awards, , users] = await Promise.all([
+  const [awards] = await Promise.all([
     listSpecialAwardsForAdmin(),
     Promise.all([
       prisma.globalSetting.upsert({
@@ -59,14 +55,7 @@ export default async function AdminDashboardPage() {
         },
       }),
     ]),
-    prisma.user.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: adminAccountListSelect,
-    }),
   ]);
-
-  const initialAccounts = users.map(serializeAdminAccountRow);
 
   const serializedAwards = awards.map((a) => ({
     id: a.id,
@@ -94,7 +83,7 @@ export default async function AdminDashboardPage() {
         </CollapsibleCard>
 
         <CollapsibleCard title="Users" defaultOpen={false} keepMounted>
-          <AdminAccountsSection initialAccounts={initialAccounts} />
+          <AdminAccountsSection />
         </CollapsibleCard>
 
         <CollapsibleCard title="Awards" defaultOpen={false}>

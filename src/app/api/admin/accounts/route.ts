@@ -7,6 +7,16 @@ import {
 } from "@/lib/admin-account-rows";
 import { applyAdminUserUpdate } from "@/lib/admin-update-user";
 import { isSiteAdmin } from "@/lib/permissions";
+import { parseAdminTableParams } from "@/lib/admin-table/parse-admin-table-params";
+import {
+  adminTableMeta,
+  adminTableSkip,
+} from "@/lib/admin-table/admin-table-response";
+import {
+  buildUsersAdminOrderBy,
+  buildUsersAdminWhere,
+  usersAdminTableConfig,
+} from "@/lib/admin-table/users-table-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,27 +26,28 @@ export async function GET(req: NextRequest) {
   if (!user || !isSiteAdmin(user))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
-  const where = q
-    ? {
-        OR: [
-          { firstName: { contains: q, mode: "insensitive" as const } },
-          { lastName: { contains: q, mode: "insensitive" as const } },
-          { name: { contains: q, mode: "insensitive" as const } },
-          { email: { contains: q, mode: "insensitive" as const } },
-        ],
-      }
-    : {};
+  const params = parseAdminTableParams(
+    req.nextUrl.searchParams,
+    usersAdminTableConfig,
+  );
+  const where = buildUsersAdminWhere(params);
+  const orderBy = buildUsersAdminOrderBy(params);
+  const skip = adminTableSkip(params.page, params.pageSize);
 
-  const users = await prisma.user.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    select: adminAccountListSelect,
-  });
+  const [total, users] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
+      orderBy,
+      skip,
+      take: params.pageSize,
+      select: adminAccountListSelect,
+    }),
+  ]);
 
   return NextResponse.json({
     accounts: users.map(serializeAdminAccountRow),
+    meta: adminTableMeta(total, params.page, params.pageSize),
   });
 }
 
