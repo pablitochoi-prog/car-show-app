@@ -15,6 +15,7 @@ type Props = {
   entry: VehicleEntryRecord;
   votingOpen: boolean;
   voteContext: VisitorPublicVoteContext;
+  buyerInquiryNotice?: string | null;
 };
 
 function categoryHelperText(
@@ -35,7 +36,12 @@ function categoryHelperText(
   }
 }
 
-export function PublicVotePanel({ entry, votingOpen, voteContext }: Props) {
+export function PublicVotePanel({
+  entry,
+  votingOpen,
+  voteContext,
+  buyerInquiryNotice,
+}: Props) {
   const [categoryStates, setCategoryStates] = useState(
     voteContext.categoryStates,
   );
@@ -103,6 +109,14 @@ export function PublicVotePanel({ entry, votingOpen, voteContext }: Props) {
 
   return (
     <div className="mx-auto max-w-lg space-y-6 px-4 py-8">
+      {buyerInquiryNotice ? (
+        <p
+          className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-center text-sm font-medium text-foreground"
+          role="status"
+        >
+          {buyerInquiryNotice}
+        </p>
+      ) : null}
       <VehicleEntryHeader
         entry={entry}
         subtitle={

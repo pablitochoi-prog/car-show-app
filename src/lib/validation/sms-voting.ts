@@ -3,6 +3,7 @@ import {
   MAX_CUSTOM_VOTING_CATEGORIES_PER_EVENT,
   MAX_VOTING_CATEGORIES_PER_EVENT,
 } from "@/lib/sms/voting-category-presets";
+import { isInstantInPast } from "@/lib/event-date-validation";
 
 export const eventSmsVotingCategorySchema = z.object({
   id: z.string().uuid().optional(),
@@ -75,6 +76,25 @@ export function createEventSmsVotingSettingsSchema(
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Voting close must be after voting open.",
+            path: ["smsVotingEndsAt"],
+          });
+        }
+      }
+
+      if (data.smsVotingEnabled && data.smsVotingStartsAt) {
+        if (isInstantInPast(data.smsVotingStartsAt)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "SMS voting start must be in the future.",
+            path: ["smsVotingStartsAt"],
+          });
+        }
+      }
+      if (data.smsVotingEnabled && data.smsVotingEndsAt) {
+        if (isInstantInPast(data.smsVotingEndsAt)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "SMS voting end must be in the future.",
             path: ["smsVotingEndsAt"],
           });
         }

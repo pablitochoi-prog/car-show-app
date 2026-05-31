@@ -30,3 +30,14 @@ export function userUnreadMessageWhere(userId: string): Prisma.MessageWhereInput
     },
   };
 }
+
+/** Unread inbox count for one event (organizer event messages screen). */
+export function userUnreadMessageForEventWhere(
+  userId: string,
+  eventId: string,
+): Prisma.MessageWhereInput {
+  return {
+    ...userUnreadMessageWhere(userId),
+    eventId,
+  };
+}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
-import { registrationTierWriteSchema } from "@/lib/validation/registration";
+import { registrationTierPatchSchema } from "@/lib/validation/registration";
 import {
   isTieredRegistrationFees,
   TIER_MANAGEMENT_FEE_TYPE_ERROR,
@@ -60,7 +60,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const parsed = registrationTierWriteSchema.partial().safeParse(body);
+  const parsed = registrationTierPatchSchema.safeParse(body);
   if (!parsed.success) {
     const msg = parsed.error.issues[0]?.message ?? "Invalid input";
     return NextResponse.json({ error: msg }, { status: 400 });

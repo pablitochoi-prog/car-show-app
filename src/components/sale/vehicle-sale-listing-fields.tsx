@@ -241,8 +241,12 @@ export function VehicleSaleListingFields({
                     htmlFor={`sale-min-offer-${value.listingId}`}
                     className="text-xs"
                   >
-                    Minimum offer (optional)
+                    Private minimum offer screening amount
                   </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Used only to filter low offers. This amount is never shown to
+                    buyers.
+                  </p>
                   <Input
                     id={`sale-min-offer-${value.listingId}`}
                     inputMode="numeric"
@@ -265,7 +269,7 @@ export function VehicleSaleListingFields({
                   htmlFor={`sale-desc-${value.listingId}`}
                   className="text-xs"
                 >
-                  Listing description (optional)
+                  Vehicle story (optional)
                 </Label>
                 <RichTextEditor
                   idPrefix={`sale-desc-${value.listingId}`}
@@ -274,8 +278,8 @@ export function VehicleSaleListingFields({
                     patch({ description: isPolicyHtmlEmpty(html) ? "" : html })
                   }
                   compact
-                  placeholder="Share details buyers should know about your vehicle."
-                  aria-label="Listing description"
+                  placeholder="Share your vehicle's story — history, modifications, or what makes it special."
+                  aria-label="Vehicle story"
                 />
               </div>
 
@@ -373,9 +377,6 @@ export function VehicleSaleListingFields({
           onChange={(e) =>
             patch({
               enabled: e.target.checked,
-              sellerAcknowledged: e.target.checked
-                ? value.sellerAcknowledged
-                : false,
             })
           }
         />
@@ -384,7 +385,7 @@ export function VehicleSaleListingFields({
             htmlFor={`sale-enabled-${value.listingId}`}
             className="cursor-pointer font-medium"
           >
-            Owner accepting inquiries — {vehicleLabel}
+            Open to Buyer Inquiries about Vehicle
           </Label>
           <p className="text-xs text-muted-foreground">
             {VEHICLE_SALE_SELLER_DISCLAIMER}

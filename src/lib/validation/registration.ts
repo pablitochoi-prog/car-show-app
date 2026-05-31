@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { validateTierWindowNotInPast } from "@/lib/event-date-validation";
 import { vehicleSaleListingInputSchema } from "@/lib/validation/vehicle-sale-listing";
 import {
   addSmsOptInRequiresPhoneRefinement,
   smsNotificationsOptInFieldSchema,
 } from "@/lib/validation/sms-notifications-consent";
 
-export const registrationTierWriteSchema = z.object({
+const registrationTierFieldsSchema = z.object({
   name: z.string().min(1, "Name is required"),
   priceCents: z.coerce.number().int().min(0),
   opensAt: z.union([z.string(), z.null()]).optional(),
@@ -13,6 +14,31 @@ export const registrationTierWriteSchema = z.object({
   memberOnly: z.boolean().optional(),
   sortOrder: z.coerce.number().int().optional(),
 });
+
+function refineTierDatesNotInPast(
+  data: {
+    opensAt?: string | null;
+    closesAt?: string | null;
+  },
+  ctx: z.RefinementCtx,
+) {
+  const msg = validateTierWindowNotInPast(data);
+  if (!msg) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: msg,
+    path: [msg.includes("open") ? "opensAt" : "closesAt"],
+  });
+}
+
+export const registrationTierWriteSchema = registrationTierFieldsSchema.superRefine(
+  refineTierDatesNotInPast,
+);
+
+/** PATCH body — must not use `.partial()` on a refined schema (Zod throws). */
+export const registrationTierPatchSchema = registrationTierFieldsSchema
+  .partial()
+  .superRefine(refineTierDatesNotInPast);
 
 const optionalVehicleNickname = z.preprocess((val) => {
   if (val === undefined || val === null) return undefined;
@@ -104,9 +130,13 @@ export const registerForEventSchema = z
     vehicleIds: z.array(z.string().uuid()).default([]),
     newVehicles: z.array(vehicleWriteSchema).optional(),
     vehicleCategories: z.record(z.string().uuid(), z.string().uuid()).optional(),
-    /** Per-vehicle nickname saved to the garage vehicle at registration time. */
+    /** Per-vehicle nickname saved on the RegistrationVehicle row (event-specific copy). */
     vehicleNicknames: z
       .record(z.string().uuid(), optionalVehicleNickname)
+      .optional(),
+    /** Per-vehicle story saved on the RegistrationVehicle row (event-specific copy). */
+    vehicleStories: z
+      .record(z.string().uuid(), z.string().max(5000))
       .optional(),
     /** Per-vehicle VIN saved to the garage vehicle at registration time (optional). */
     vehicleVins: z

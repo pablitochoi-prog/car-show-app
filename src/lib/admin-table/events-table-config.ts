@@ -19,7 +19,7 @@ export const eventsAdminTableConfig: AdminTableConfig = {
   maxPageSize: 100,
   columns: [
     { id: "name", sortable: true, filterable: true, filterType: "text" },
-    { id: "location", sortable: true, filterable: true, filterType: "text" },
+    { id: "state", sortable: true, filterable: true, filterType: "text" },
     { id: "startDate", sortable: true, filterable: false, filterType: "dateFrom" },
     { id: "startDateFrom", filterable: true, filterType: "dateFrom" },
     { id: "startDateTo", filterable: true, filterType: "dateTo" },
@@ -59,13 +59,10 @@ export function buildEventsAdminWhere(
     and.push({ name: { contains: params.filters.name, mode: "insensitive" } });
   }
 
-  if (params.filters.location) {
-    const term = params.filters.location;
+  if (params.filters.state) {
+    const term = params.filters.state.trim();
     and.push({
-      OR: [
-        { city: { contains: term, mode: "insensitive" } },
-        { state: { contains: term, mode: "insensitive" } },
-      ],
+      state: { contains: term, mode: "insensitive" },
     });
   }
 
@@ -115,8 +112,8 @@ export function buildEventsAdminOrderBy(
   switch (params.sort) {
     case "name":
       return { name: dir };
-    case "location":
-      return [{ city: dir }, { state: dir }];
+    case "state":
+      return { state: dir };
     case "startDate":
       return { startDate: dir };
     case "orgName":

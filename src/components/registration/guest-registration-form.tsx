@@ -158,6 +158,9 @@ export function GuestRegistrationForm({
   const [saleDialogClientId, setSaleDialogClientId] = useState<string | null>(
     null,
   );
+  const [saleDialogMode, setSaleDialogMode] = useState<"enable" | "edit">(
+    "enable",
+  );
 
   const isDonationEvent = feeType === "DONATION";
   const requiresVehicleClass = eventCategories.length > 0;
@@ -340,12 +343,13 @@ export function GuestRegistrationForm({
       updateVehicle(clientId, {
         saleListing: { ...vehicle.saleListing, enabled: true },
       });
+      setSaleDialogMode("enable");
       setSaleDialogClientId(clientId);
     } else {
       updateVehicle(clientId, {
         saleListing: {
-          ...emptyVehicleSaleListingFormState(),
-          listingId: vehicle.saleListing.listingId,
+          ...vehicle.saleListing,
+          enabled: false,
         },
       });
     }
@@ -881,6 +885,9 @@ export function GuestRegistrationForm({
                     const saleActive =
                       v.saleListing.enabled &&
                       v.saleListing.sellerAcknowledged;
+                    const canEditListingDetails =
+                      v.saleListing.sellerAcknowledged ||
+                      Boolean(v.saleListing.listingId);
                     return (
                     <tr key={v.clientId} className="max-md:relative hover:bg-muted/30">
                       <td className="px-3 py-2.5 max-md:pr-10">
@@ -936,15 +943,16 @@ export function GuestRegistrationForm({
                                 Open to Buyer Inquiries about Vehicle
                               </span>
                             </label>
-                            {saleActive ? (
+                            {canEditListingDetails ? (
                               <Button
                                 type="button"
                                 variant="link"
                                 size="sm"
                                 className="mt-1 h-auto px-0 text-xs"
-                                onClick={() =>
-                                  setSaleDialogClientId(v.clientId)
-                                }
+                                onClick={() => {
+                                  setSaleDialogMode("edit");
+                                  setSaleDialogClientId(v.clientId);
+                                }}
                               >
                                 Edit listing details
                               </Button>
@@ -1024,6 +1032,7 @@ export function GuestRegistrationForm({
         return (
           <VehicleSaleListingDialog
             open
+            mode={saleDialogMode}
             onOpenChange={handleSaleDialogOpenChange}
             eventId={eventId}
             vehicleLabel={`${dialogVehicle.year} ${dialogVehicle.make} ${dialogVehicle.model}`}
@@ -1031,7 +1040,9 @@ export function GuestRegistrationForm({
             onChange={(next) =>
               updateVehicle(saleDialogClientId, { saleListing: next })
             }
-            onSave={() => {}}
+            onSave={(saved) =>
+              updateVehicle(saleDialogClientId, { saleListing: saved })
+            }
           />
         );
       })() : null}

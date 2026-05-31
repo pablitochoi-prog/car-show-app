@@ -15,6 +15,8 @@ export type VehicleEntryRecord = {
   model: string;
   trim: string | null;
   nickname: string | null;
+  /** Event-specific vehicle story for public pages and dash cards. */
+  vehicleStory: string | null;
   classLabel: string;
   /** Public http(s) URL or same-origin API path for event-published photo. */
   photoUrl: string | null;

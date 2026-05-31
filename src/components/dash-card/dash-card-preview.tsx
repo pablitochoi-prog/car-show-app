@@ -5,7 +5,6 @@ import {
   Calendar,
   Car,
   MapPin,
-  Tag,
   Trophy,
   User,
 } from "lucide-react";
@@ -276,20 +275,22 @@ function DashCardSponsorLogo({
 function SponsorshipBlock({
   eventSponsor,
   siteSponsor,
+  className,
 }: {
   eventSponsor: DashCardSponsorModel;
   siteSponsor: DashCardSponsorModel;
+  className?: string;
 }) {
   const hasEventLogo = Boolean(eventSponsor.logoUrl?.trim());
 
   return (
-    <div className="dash-card-sponsor mt-auto shrink-0 pt-2">
+    <div className={cn("dash-card-sponsor mt-auto shrink-0 pt-2", className)}>
       <p className="dash-card-field-label font-bold uppercase tracking-wide text-[#142047]">
         Show sponsored by:
       </p>
       <div
         className={cn(
-          "dash-card-sponsor-logo mt-1 rounded border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-2",
+          "dash-card-sponsor-logo mt-1 rounded border border-dashed border-[#cbd5e1] bg-white px-2",
           !hasEventLogo && "dash-card-sponsor-logo--site-only-left",
         )}
       >
@@ -369,28 +370,39 @@ function VotePanel({
   );
 }
 
-function SaleListingQrBlock({ sale }: { sale: DashCardSaleModel }) {
+function SaleCalloutPanel({
+  sale,
+}: {
+  sale: DashCardSaleModel;
+}) {
   return (
-    <div className="dash-card-sale-sidebar shrink-0">
-      <p className="dash-card-sale-text text-center text-[0.6875rem] font-semibold leading-snug text-[#334155] sm:text-xs">
-        Scan for vehicle listing details
-      </p>
-      <div className="dash-card-qr-row-center py-0.5">
-        <div className="dash-card-qr-stage dash-card-qr-stage--sale">
-          <div className="dash-card-qr-wrap dash-card-qr-wrap--sale">
-            {sale.qrImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={sale.qrImageUrl}
-                alt="Scan for vehicle listing details"
-              />
-            ) : (
-              <DashCardQrPlaceholder />
-            )}
-          </div>
-        </div>
+    <aside
+      className="dash-card-sale-callout shrink-0 overflow-hidden rounded-md border border-[#cbd5e1] bg-white"
+      aria-label="Interested in buying this vehicle"
+    >
+      <div className="dash-card-sale-callout-header border-b border-[#142047] bg-white px-2 py-1 text-center text-[0.625rem] font-bold tracking-wide text-[#142047] sm:text-xs">
+        Interested in Buying?
       </div>
-    </div>
+      <div className="dash-card-sale-callout-body flex flex-col items-center gap-1 px-2 py-1.5 sm:gap-1.5 sm:py-2">
+        <p className="dash-card-sale-callout-helper text-center text-[0.625rem] leading-snug text-[#475569] sm:text-[0.6875rem]">
+          Owner is open to inquiries. Scan to view details and connect.
+        </p>
+        <div className="dash-card-sale-qr-wrap">
+          {sale.qrImageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={sale.qrImageUrl}
+              alt="Scan for vehicle listing and inquiry form"
+            />
+          ) : (
+            <DashCardQrPlaceholder />
+          )}
+        </div>
+        <p className="dash-card-sale-callout-url break-all text-center text-[0.5625rem] font-medium leading-tight text-[#64748b] sm:text-[0.625rem]">
+          {sale.salePageUrl}
+        </p>
+      </div>
+    </aside>
   );
 }
 
@@ -480,13 +492,8 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
           />
           {sale ? (
             <>
-              <SidebarInfoRow
-                icon={Tag}
-                label="Listing"
-                value={sale.badgeLabel}
-                valueClassName="dash-card-sale-badge text-sm leading-snug sm:text-base"
-              />
-              <SaleListingQrBlock sale={sale} />
+              <div className="dash-card-sale-spacer min-h-4 flex-1" aria-hidden />
+              <SaleCalloutPanel sale={sale} />
             </>
           ) : (
             <SidebarInfoRow
@@ -497,6 +504,7 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
             />
           )}
           <SponsorshipBlock
+            className={sale ? "mt-0 pt-3" : undefined}
             eventSponsor={{
               logoUrl: event.sponsorLogoUrl,
               websiteUrl: event.sponsorWebsiteUrl,

@@ -5,6 +5,49 @@ import { loadVehicleSaleListingsByVehicleId } from "@/lib/vehicle-sale-listings-
 
 export type { ExistingRegistrationForEvent } from "@/lib/registration-for-event-types";
 
+function mapRegistrationVehicleFields(
+  vehicles: Array<{
+    vehicleId: string;
+    eventCategoryId: string | null;
+    publicVehicleId: string | null;
+    vehicleNickname: string | null;
+    vehicleStory: string | null;
+  }>,
+) {
+  const vehicleCategories: Record<string, string> = {};
+  const vehiclePublicIds: Record<string, string> = {};
+  const vehicleNicknames: Record<string, string> = {};
+  const vehicleStories: Record<string, string> = {};
+  for (const rv of vehicles) {
+    if (rv.eventCategoryId) {
+      vehicleCategories[rv.vehicleId] = rv.eventCategoryId;
+    }
+    if (rv.publicVehicleId) {
+      vehiclePublicIds[rv.vehicleId] = rv.publicVehicleId;
+    }
+    if (rv.vehicleNickname?.trim()) {
+      vehicleNicknames[rv.vehicleId] = rv.vehicleNickname.trim();
+    }
+    if (rv.vehicleStory?.trim()) {
+      vehicleStories[rv.vehicleId] = rv.vehicleStory.trim();
+    }
+  }
+  return {
+    vehicleCategories,
+    vehiclePublicIds,
+    vehicleNicknames,
+    vehicleStories,
+  };
+}
+
+const registrationVehicleSelect = {
+  vehicleId: true,
+  eventCategoryId: true,
+  publicVehicleId: true,
+  vehicleNickname: true,
+  vehicleStory: true,
+} as const;
+
 export async function getExistingRegistrationForEvent(
   eventId: string,
   userId: string,
@@ -40,27 +83,19 @@ export async function getExistingRegistrationForEvent(
         },
       },
       vehicles: {
-        select: {
-          vehicleId: true,
-          eventCategoryId: true,
-          publicVehicleId: true,
-        },
+        select: registrationVehicleSelect,
       },
     },
   });
 
   if (!row || row.status === "CANCELLED") return null;
 
-  const vehicleCategories: Record<string, string> = {};
-  const vehiclePublicIds: Record<string, string> = {};
-  for (const rv of row.vehicles) {
-    if (rv.eventCategoryId) {
-      vehicleCategories[rv.vehicleId] = rv.eventCategoryId;
-    }
-    if (rv.publicVehicleId) {
-      vehiclePublicIds[rv.vehicleId] = rv.publicVehicleId;
-    }
-  }
+  const {
+    vehicleCategories,
+    vehiclePublicIds,
+    vehicleNicknames,
+    vehicleStories,
+  } = mapRegistrationVehicleFields(row.vehicles);
 
   const contact: RegistrationContact = {
     firstName:
@@ -92,6 +127,8 @@ export async function getExistingRegistrationForEvent(
     vehicleIds: row.vehicles.map((v) => v.vehicleId),
     vehicleCategories,
     vehiclePublicIds,
+    vehicleNicknames,
+    vehicleStories,
     contact,
     paymentStatus: row.paymentStatus,
     registrationStatus: row.status,
@@ -154,27 +191,19 @@ export async function getRegistrationByIdForOrganizer(
         },
       },
       vehicles: {
-        select: {
-          vehicleId: true,
-          eventCategoryId: true,
-          publicVehicleId: true,
-        },
+        select: registrationVehicleSelect,
       },
     },
   });
 
   if (!row) return null;
 
-  const vehicleCategories: Record<string, string> = {};
-  const vehiclePublicIds: Record<string, string> = {};
-  for (const rv of row.vehicles) {
-    if (rv.eventCategoryId) {
-      vehicleCategories[rv.vehicleId] = rv.eventCategoryId;
-    }
-    if (rv.publicVehicleId) {
-      vehiclePublicIds[rv.vehicleId] = rv.publicVehicleId;
-    }
-  }
+  const {
+    vehicleCategories,
+    vehiclePublicIds,
+    vehicleNicknames,
+    vehicleStories,
+  } = mapRegistrationVehicleFields(row.vehicles);
 
   const contact: RegistrationContact = {
     firstName:
@@ -227,6 +256,8 @@ export async function getRegistrationByIdForOrganizer(
     vehicleIds: row.vehicles.map((v) => v.vehicleId),
     vehicleCategories,
     vehiclePublicIds,
+    vehicleNicknames,
+    vehicleStories,
     contact,
     paymentStatus: row.paymentStatus,
     registrationStatus: row.status,

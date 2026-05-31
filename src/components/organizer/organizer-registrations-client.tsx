@@ -32,7 +32,7 @@ import {
   buildOrganizerRegistrationsListQueryString,
   type OrganizerRegistrationsListParams,
   type OrganizerRegistrationsSortKey,
-} from "@/lib/organizer-registrations-list";
+} from "@/lib/organizer-registrations-list-query";
 import {
   RegistrationsColumnFilter,
   RegistrationsFilterSummary,

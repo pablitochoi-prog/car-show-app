@@ -16,6 +16,11 @@ import { hashSaleInquiryClientValue } from "@/lib/vehicle-sale-inquiry-client-ha
 import { checkVehicleSaleInquiryRateLimit } from "@/lib/vehicle-sale-inquiry-rate-limit";
 import { sellerDashboardInquiryUrl } from "@/lib/vehicle-sale-inquiries-for-seller";
 import { parseListingPriceCents } from "@/lib/validation/vehicle-sale-listing";
+import {
+  BELOW_OFFER_INQUIRY_MESSAGE,
+  INQUIRIES_CLOSED_API_MESSAGE,
+} from "@/lib/vehicle-sale-inquiry-messages";
+import { sendVehicleSaleInquiryInAppMessage } from "@/lib/vehicle-sale-inquiry-in-app-message";
 import { vehicleSaleInquirySchema, formatVehicleSaleInquiryBuyerName, normalizeInquiryMessage } from "@/lib/validation/vehicle-sale-inquiry";
 
 export const runtime = "nodejs";
@@ -78,7 +83,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   const loaded = await loadActiveVehicleSaleListingForInquiry(vehicleEntryCode);
   if (!loaded) {
     return NextResponse.json(
-      { error: "This vehicle is not accepting inquiries." },
+      { error: INQUIRIES_CLOSED_API_MESSAGE },
       { status: 404 },
     );
   }
@@ -111,7 +116,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     offerCents < loaded.listing.minimumOfferCents
   ) {
     return NextResponse.json(
-      { error: "Your offer is below the owner's minimum." },
+      { error: BELOW_OFFER_INQUIRY_MESSAGE },
       { status: 400 },
     );
   }
@@ -176,6 +181,33 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   }
 
+  const vehicleLabel = [
+    loaded.entry.year > 0 ? loaded.entry.year : null,
+    loaded.entry.make,
+    loaded.entry.model,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  await sendVehicleSaleInquiryInAppMessage({
+    inquiryId: inquiry.id,
+    sellerUserId: loaded.listing.sellerUserId,
+    eventId: loaded.listing.eventId,
+    orgId: loaded.listing.event.orgId,
+    eventShowNumber: loaded.listing.event.showNumber,
+    eventName: loaded.listing.event.name,
+    vehicleLabel,
+    vehicleEntryCode: loaded.entry.vehicleEntryCode,
+    buyerName: inquiry.buyerName,
+    buyerEmail: inquiry.buyerEmail,
+    buyerPhone: inquiry.buyerPhone,
+    smsNotificationsOptIn: inquiry.smsNotificationsOptIn,
+    offerAmountCents: inquiry.offerAmountCents,
+    message: inquiry.message,
+    currentUserId: currentUser?.id ?? null,
+    registration: loaded.listing.registration,
+  });
+
   const sellerEmail = resolveSellerEmail(loaded.listing.registration);
   const inquiryDetailUrl = loaded.listing.sellerUserId
     ? `${getSiteOrigin()}${sellerDashboardInquiryUrl(inquiry.id)}`
@@ -189,13 +221,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       eventName: loaded.listing.event.name,
       eventShowNumber: loaded.listing.event.showNumber,
       vehicleEntryCode: loaded.entry.vehicleEntryCode,
-      vehicleLabel: [
-        loaded.entry.year > 0 ? loaded.entry.year : null,
-        loaded.entry.make,
-        loaded.entry.model,
-      ]
-        .filter(Boolean)
-        .join(" "),
+      vehicleLabel,
       buyerName: inquiry.buyerName,
       buyerEmail: inquiry.buyerEmail,
       buyerPhone: inquiry.buyerPhone,

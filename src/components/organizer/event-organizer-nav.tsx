@@ -46,7 +46,7 @@ const TABS: {
   },
   {
     id: "messages",
-    label: "My Messages",
+    label: "Event Messages",
     href: (id) => `/organizer/events/${id}/messages`,
     icon: Mail,
   },

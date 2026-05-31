@@ -10,6 +10,7 @@ import {
   scheduleRegistrationPostSubmitSideEffects,
 } from "@/lib/registration-post-submit";
 import { syncVehicleSaleListingsForGuestVehicles } from "@/lib/sync-vehicle-sale-listings";
+import { revalidateRegistrationVehicleSalePages } from "@/lib/revalidate-vehicle-sale-pages";
 import {
   buildSmsNotificationsConsentFields,
   resolveRequestClientMetadata,
@@ -204,6 +205,8 @@ async function postRegisterGuest(request: Request, eventId: string) {
     const message = resolveRegistrationSaveError(err);
     return NextResponse.json({ error: message }, { status: 400 });
   }
+
+  await revalidateRegistrationVehicleSalePages(registration.id);
 
   const postSubmitCtx = {
     route: "api.events.register-guest",

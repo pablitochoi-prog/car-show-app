@@ -22,6 +22,8 @@ import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
 import { CompletedBadge } from "@/components/ui/completed-badge";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
+import { EventMessagesButton } from "@/components/organizer/event-messages-button";
+import { countUnreadMessagesForUserAndEvent } from "@/lib/unread-messages";
 import { Suspense } from "react";
 import { StripeReturnBanner } from "@/components/stripe/stripe-return-banner";
 import { fulfillPlatformSetupFeeFromCheckoutSession } from "@/lib/stripe-fulfill-platform-setup-fee";
@@ -164,9 +166,10 @@ export default async function EditEventPage({
   const convenienceFeeLabel = formatFeeLabel(platformFee);
   const flatSetupFeeLabel = formatEventSetupFeeLabel(eventSetupFee.amountCents);
 
-  const organizerContacts = staff
-    .filter((s) => s.roles.some((r) => r.slug === "organizer"))
-    .map((s) => ({ name: s.name, email: s.email }));
+  const unreadEventMessageCount = await countUnreadMessagesForUserAndEvent(
+    user.id,
+    id,
+  );
 
   const initialTiers = tierRows.map((t) => ({
     id: t.id,
@@ -277,10 +280,16 @@ export default async function EditEventPage({
               />
             </h1>
           </div>
-          <ContactSiteAdminButton
-            eventId={event.id}
-            eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
-          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <EventMessagesButton
+              eventId={event.id}
+              initialUnreadCount={unreadEventMessageCount}
+            />
+            <ContactSiteAdminButton
+              eventId={event.id}
+              eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
+            />
+          </div>
         </div>
       </div>
 
@@ -303,7 +312,6 @@ export default async function EditEventPage({
         organizations={organizations}
         eventId={event.id}
         initialTiers={initialTiers}
-        eventOrganizerContacts={organizerContacts}
         betweenOrganizerAndActions={
           <>
             <CollapsibleCard

@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  EyeOff,
   Filter,
   ListFilter,
   X,
@@ -33,6 +34,8 @@ export function AdminColumnMenu({
   onSort,
   onFilter,
   onClearFilter,
+  onHide,
+  canHide = true,
 }: {
   label: string;
   columnId: string;
@@ -47,6 +50,8 @@ export function AdminColumnMenu({
   onSort: (dir: AdminSortDir) => void;
   onFilter: (value: string, valueTo?: string) => void;
   onClearFilter: () => void;
+  onHide?: () => void;
+  canHide?: boolean;
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [draft, setDraft] = useState(filterValue ?? "");
@@ -188,6 +193,15 @@ export function AdminColumnMenu({
               ) : null}
             </>
           )
+        ) : null}
+        {canHide && onHide ? (
+          <>
+            {(sortable || filterable) ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuItem onClick={onHide}>
+              <EyeOff className="mr-2 size-3.5" />
+              Hide this column
+            </DropdownMenuItem>
+          </>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>

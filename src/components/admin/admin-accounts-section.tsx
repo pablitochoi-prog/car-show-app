@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, type CSSProperties } from "react";
 import {
   Pencil,
   Trash2,
@@ -42,6 +42,12 @@ const COLUMN_DEFS = [
   { id: "status", label: "Status", sortable: true, filterable: true, enum: true, minWidth: 100 },
   { id: "createdAt", label: "Joined", sortable: true, filterable: true, dateRange: true, minWidth: 100 },
 ] as const;
+
+const ACTIONS_COLUMN_WIDTH = 200;
+
+function columnStyle(width: number): CSSProperties {
+  return { width, minWidth: width, maxWidth: width };
+}
 
 function statusVariant(status: string): "success" | "warning" | "danger" | "muted" {
   if (status === "ACTIVE") return "success";
@@ -173,7 +179,13 @@ function AccountsTableInner() {
       )}
       {(loading || rows.length > 0) && (
         <div className="overflow-x-auto rounded-md border">
-          <table className="w-full min-w-[800px] text-sm" style={{ tableLayout: "fixed" }}>
+          <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              {COLUMN_DEFS.filter((c) => columns.isVisible(c.id)).map((col) => (
+                <col key={col.id} style={columnStyle(columns.columnWidth(col.id))} />
+              ))}
+              <col style={columnStyle(ACTIONS_COLUMN_WIDTH)} />
+            </colgroup>
             <thead>
               <tr className="border-b bg-muted/40 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {COLUMN_DEFS.filter((c) => columns.isVisible(c.id)).map((col) => (
@@ -201,6 +213,8 @@ function AccountsTableInner() {
                     }
                     dateRange={"dateRange" in col ? col.dateRange : false}
                     width={columns.columnWidth(col.id)}
+                    onResizeStart={(e) => columns.beginColumnResize(col.id, e.clientX)}
+                    onHide={() => columns.hideColumn(col.id)}
                     onSort={(dir) => setSort(col.id, dir)}
                     onFilter={(from, to) => {
                       if (col.id === "createdAt") {
@@ -221,7 +235,12 @@ function AccountsTableInner() {
                     }}
                   />
                 ))}
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th
+                  className="px-2 py-2 text-right"
+                  style={columnStyle(ACTIONS_COLUMN_WIDTH)}
+                >
+                  Actions
+                </th>
               </tr>
             </thead>
             {loading ? (
@@ -287,8 +306,11 @@ function AccountsTableInner() {
                             {new Date(a.createdAt).toLocaleDateString()}
                           </td>
                         )}
-                        <td className="px-4 py-2 text-right">
-                          <div className="flex justify-end gap-1">
+                        <td
+                          className="px-2 py-2 text-right"
+                          style={columnStyle(ACTIONS_COLUMN_WIDTH)}
+                        >
+                          <div className="flex shrink-0 justify-end gap-0.5">
                             <Button
                               size="icon"
                               variant="ghost"
@@ -341,8 +363,11 @@ function AccountsTableInner() {
                             {new Date(a.createdAt).toLocaleDateString()}
                           </td>
                         )}
-                        <td className="px-4 py-2.5 text-right">
-                          <div className="flex flex-wrap items-center justify-end gap-1">
+                        <td
+                          className="px-2 py-2.5 text-right"
+                          style={columnStyle(ACTIONS_COLUMN_WIDTH)}
+                        >
+                          <div className="flex shrink-0 flex-wrap items-center justify-end gap-0.5">
                             <Button
                               type="button"
                               variant="ghost"

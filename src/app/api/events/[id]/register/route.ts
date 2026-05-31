@@ -10,7 +10,7 @@ import {
   replaceAllRegistrationVehiclesWithPublicIds,
   syncRegistrationVehiclesWithPublicIds,
 } from "@/lib/event-sms-vehicle-id";
-import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
+import { applyRegistrationVehicleEventCopyFromRegistration } from "@/lib/registration-vehicle-event-copy";
 import { applyVehicleVinsFromRegistration } from "@/lib/registration-vehicle-vins";
 import {
   isRegistrationPostSubmitBackgroundEnabled,
@@ -18,6 +18,7 @@ import {
   scheduleRegistrationPostSubmitSideEffects,
 } from "@/lib/registration-post-submit";
 import { syncVehicleSaleListingsForLoggedInVehicles } from "@/lib/sync-vehicle-sale-listings";
+import { revalidateRegistrationVehicleSalePages } from "@/lib/revalidate-vehicle-sale-pages";
 import {
   buildSmsNotificationsConsentFields,
   buildUserSmsNotificationsConsentUpdate,
@@ -239,6 +240,7 @@ async function postRegister(request: Request, eventId: string) {
     }),
   };
   const vehicleNicknames = parsed.data.vehicleNicknames;
+  const vehicleStories = parsed.data.vehicleStories;
   const vehicleVins = parsed.data.vehicleVins;
   const vehicleSaleListings = parsed.data.vehicleSaleListings;
 
@@ -290,11 +292,12 @@ async function postRegister(request: Request, eventId: string) {
         allVehicleIds,
         vehicleCategories,
       );
-      await applyVehicleNicknamesFromRegistration(
+      await applyRegistrationVehicleEventCopyFromRegistration(
         tx,
-        user.id,
+        reg.id,
         allVehicleIds,
         vehicleNicknames,
+        vehicleStories,
       );
       await applyVehicleVinsFromRegistration(
         tx,
@@ -326,11 +329,12 @@ async function postRegister(request: Request, eventId: string) {
         allVehicleIds,
         vehicleCategories,
       );
-      await applyVehicleNicknamesFromRegistration(
+      await applyRegistrationVehicleEventCopyFromRegistration(
         tx,
-        user.id,
+        reg.id,
         allVehicleIds,
         vehicleNicknames,
+        vehicleStories,
       );
       await applyVehicleVinsFromRegistration(
         tx,
@@ -356,11 +360,12 @@ async function postRegister(request: Request, eventId: string) {
         allVehicleIds,
         vehicleCategories,
       );
-      await applyVehicleNicknamesFromRegistration(
+      await applyRegistrationVehicleEventCopyFromRegistration(
         tx,
-        user.id,
+        reg.id,
         allVehicleIds,
         vehicleNicknames,
+        vehicleStories,
       );
       await applyVehicleVinsFromRegistration(
         tx,
@@ -394,6 +399,8 @@ async function postRegister(request: Request, eventId: string) {
         : "Registration could not be saved.";
     return NextResponse.json({ error: message }, { status: 400 });
   }
+
+  await revalidateRegistrationVehicleSalePages(registration.id);
 
   if (parsed.data.smsNotificationsOptIn) {
     await prisma.user.update({

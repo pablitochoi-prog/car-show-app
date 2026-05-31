@@ -592,35 +592,74 @@
   white-space: nowrap;
 }
 
-.dash-card-sale-sidebar {
+.dash-card-sale-callout {
   width: 100%;
 }
 
-.dash-card-col-sidebar .dash-card-qr-stage--sale {
-  height: 4.5rem;
+.dash-card-sale-spacer {
+  flex: 1 1 auto;
+  min-height: 1rem;
 }
 
-.dash-card-col-sidebar .dash-card-qr-wrap--sale {
-  width: 4rem;
-  height: 4rem;
-  min-width: 4rem;
-  min-height: 4rem;
-  max-width: 4rem;
-  max-height: 4rem;
-}
-
-.dash-card-col-sidebar .dash-card-qr-wrap--sale img {
+.dash-card-sale-callout-body {
   width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  max-width: 100%;
-  max-height: 100%;
 }
 
-.dash-card-sale-text {
-  font-size: 0.6875rem;
+.dash-card-sale-qr-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 2cm;
+  height: 2cm;
+  min-width: 2cm;
+  min-height: 2cm;
+  max-width: 2cm;
+  max-height: 2cm;
+  flex-shrink: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.25rem;
+  background: #fff;
+  overflow: hidden;
+}
+
+.dash-card-sale-qr-wrap img {
+  display: block;
+  box-sizing: border-box;
+  width: 2cm;
+  height: 2cm;
+  min-width: 2cm;
+  min-height: 2cm;
+  max-width: 2cm;
+  max-height: 2cm;
+  object-fit: contain;
+}
+
+.dash-card-sale-qr-wrap .dash-card-qr-placeholder {
+  width: 2cm;
+  height: 2cm;
+  min-width: 2cm;
+  min-height: 2cm;
+  max-width: 2cm;
+  max-height: 2cm;
+  border: none;
+  background: transparent;
+}
+
+.dash-card-sale-qr-wrap .dash-card-qr-placeholder svg {
+  width: 1.4cm;
+  height: 1.4cm;
+}
+
+.dash-card-sale-callout-helper {
+  font-size: 0.625rem;
+  line-height: 1.3;
+}
+
+.dash-card-sale-callout-url {
+  font-size: 0.5625rem;
   line-height: 1.25;
+  word-break: break-all;
 }
 
 @media (min-width: 640px) {
@@ -855,39 +894,63 @@
     padding-top: 0 !important;
   }
 
-  .dash-card-sale-text {
+  .dash-card-sale-callout-helper {
+    font-size: 6.5pt !important;
+    line-height: 1.25 !important;
+    color: #475569 !important;
+  }
+
+  .dash-card-sale-callout-url {
+    font-size: 6pt !important;
+    line-height: 1.2 !important;
+    color: #64748b !important;
+    word-break: break-all !important;
+  }
+
+  .dash-card-sale-callout-header {
     font-size: 7pt !important;
     line-height: 1.2 !important;
-    font-weight: 600 !important;
+    padding: 0.04in 0.06in !important;
+    background: #fff !important;
+    color: #142047 !important;
+    border-bottom: 1px solid #142047 !important;
   }
 
-  .dash-card-col-sidebar .dash-card-sale-badge {
-    font-size: 11pt !important;
-    line-height: 1.15 !important;
-    font-weight: 700 !important;
+  .dash-card-sale-callout-body {
+    padding: 0.06in 0.08in 0.07in !important;
+    gap: 0.045in !important;
   }
 
-  .dash-card-col-sidebar .dash-card-qr-stage--sale {
-    height: 1.35cm !important;
-    flex-shrink: 0 !important;
+  .dash-card-sale-qr-wrap {
+    width: 2cm !important;
+    height: 2cm !important;
+    min-width: 2cm !important;
+    min-height: 2cm !important;
+    max-width: 2cm !important;
+    max-height: 2cm !important;
+    border-color: #cbd5e1 !important;
+    background: #fff !important;
   }
 
-  .dash-card-col-sidebar .dash-card-qr-wrap--sale {
-    width: 1.35cm !important;
-    height: 1.35cm !important;
-    min-width: 1.35cm !important;
-    min-height: 1.35cm !important;
-    max-width: 1.35cm !important;
-    max-height: 1.35cm !important;
+  .dash-card-sale-qr-wrap img {
+    width: 2cm !important;
+    height: 2cm !important;
+    min-width: 2cm !important;
+    min-height: 2cm !important;
+    max-width: 2cm !important;
+    max-height: 2cm !important;
+    object-fit: contain !important;
   }
 
-  .dash-card-col-sidebar .dash-card-qr-wrap--sale img {
-    width: 1.35cm !important;
-    height: 1.35cm !important;
-    min-width: 1.35cm !important;
-    min-height: 1.35cm !important;
-    max-width: 1.35cm !important;
-    max-height: 1.35cm !important;
+  .dash-card-sale-spacer {
+    flex: 1 1 auto !important;
+    min-height: 0.35in !important;
+  }
+
+  .dash-card-sale-callout {
+    border-color: #cbd5e1 !important;
+    background: #fff !important;
+    box-shadow: none !important;
   }
 
   .dash-card-vote {
@@ -948,6 +1011,7 @@
     height: auto !important;
     padding-top: var(--dash-card-sponsor-logo-padding-y) !important;
     padding-bottom: var(--dash-card-sponsor-logo-padding-y) !important;
+    background: #fff !important;
   }
 
   .dash-card-sponsor-logo-image {

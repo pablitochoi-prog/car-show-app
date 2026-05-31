@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, type CSSProperties } from "react";
 import Link from "next/link";
-import { ExternalLink, Trash2, Archive, ArchiveRestore, RotateCcw } from "lucide-react";
+import { Trash2, Archive, ArchiveRestore, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
@@ -31,14 +31,78 @@ type EventRow = {
 };
 
 const COLUMN_DEFS = [
-  { id: "name", label: "Name", sortable: true, filterable: true, minWidth: 160 },
-  { id: "location", label: "Location", sortable: true, filterable: true, minWidth: 120 },
-  { id: "startDate", label: "Date", sortable: true, filterable: true, dateRange: true, minWidth: 100 },
-  { id: "registrants", label: "Registrants", sortable: false, filterable: false, minWidth: 90 },
-  { id: "orgName", label: "Club", sortable: true, filterable: true, minWidth: 120 },
-  { id: "organizer", label: "Event Organizer", sortable: false, filterable: true, minWidth: 140 },
-  { id: "status", label: "Status", sortable: true, filterable: true, enum: true, minWidth: 100 },
+  { id: "name", label: "Name", sortable: true, filterable: true, minWidth: 128 },
+  {
+    id: "state",
+    label: "State",
+    sortable: true,
+    filterable: true,
+    minWidth: 44,
+    align: "center" as const,
+    compact: true,
+  },
+  {
+    id: "startDate",
+    label: "Date",
+    sortable: true,
+    filterable: true,
+    dateRange: true,
+    minWidth: 72,
+    compact: true,
+  },
+  {
+    id: "registrants",
+    label: "#",
+    headerTitle: "Registrants",
+    sortable: false,
+    filterable: false,
+    minWidth: 36,
+    align: "center" as const,
+    compact: true,
+  },
+  { id: "orgName", label: "Club", sortable: true, filterable: true, minWidth: 84, compact: true },
+  {
+    id: "organizer",
+    label: "Organizer",
+    sortable: false,
+    filterable: true,
+    minWidth: 104,
+    compact: true,
+  },
+  {
+    id: "status",
+    label: "Status",
+    sortable: true,
+    filterable: true,
+    enum: true,
+    minWidth: 84,
+    compact: true,
+  },
 ] as const;
+
+const ACTIONS_COLUMN_WIDTH = 96;
+
+function columnStyle(width: number): CSSProperties {
+  return { width, minWidth: width, maxWidth: width };
+}
+
+function formatStateAbbrev(state: string | null): string {
+  if (!state?.trim()) return "—";
+  const trimmed = state.trim();
+  return trimmed.length <= 2 ? trimmed.toUpperCase() : trimmed.slice(0, 2).toUpperCase();
+}
+
+function formatEventDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    year: "2-digit",
+  });
+}
+
+function cellPadding(compact?: boolean): string {
+  return compact ? "px-1.5 py-2" : "px-3 py-2";
+}
 
 function EventsTableInner() {
   const {
@@ -174,7 +238,13 @@ function EventsTableInner() {
       )}
       {(loading || rows.length > 0) && (
         <div className="overflow-x-auto rounded-md border">
-          <table className="w-full min-w-[950px] text-sm" style={{ tableLayout: "fixed" }}>
+          <table className="w-full text-xs" style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              {COLUMN_DEFS.filter((c) => columns.isVisible(c.id)).map((col) => (
+                <col key={col.id} style={columnStyle(columns.columnWidth(col.id))} />
+              ))}
+              <col style={columnStyle(ACTIONS_COLUMN_WIDTH)} />
+            </colgroup>
             <thead>
               <tr className="border-b bg-muted/40 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {COLUMN_DEFS.filter((c) => columns.isVisible(c.id)).map((col) => (
@@ -200,6 +270,11 @@ function EventsTableInner() {
                     }
                     dateRange={"dateRange" in col ? col.dateRange : false}
                     width={columns.columnWidth(col.id)}
+                    align={"align" in col ? col.align : "left"}
+                    compact={"compact" in col ? col.compact : false}
+                    headerTitle={"headerTitle" in col ? col.headerTitle : undefined}
+                    onResizeStart={(e) => columns.beginColumnResize(col.id, e.clientX)}
+                    onHide={() => columns.hideColumn(col.id)}
                     onSort={(dir) => setSort(col.id, dir)}
                     onFilter={(from, to) => {
                       if (col.id === "startDate") {
@@ -220,7 +295,13 @@ function EventsTableInner() {
                     }}
                   />
                 ))}
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th
+                  className="px-1 py-2 text-right"
+                  style={columnStyle(ACTIONS_COLUMN_WIDTH)}
+                  aria-label="Actions"
+                >
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             {loading ? (
@@ -230,34 +311,51 @@ function EventsTableInner() {
                 {rows.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
                     {columns.isVisible("name") && (
-                      <td className="px-4 py-2.5 font-medium">
-                        <EventNameWithNumber name={e.name} showNumber={e.showNumber} />
+                      <td className={`overflow-hidden font-medium ${cellPadding()}`}>
+                        <Link
+                          href={`/organizer/events/${e.id}/edit`}
+                          className="block truncate text-primary hover:underline"
+                        >
+                          <EventNameWithNumber name={e.name} showNumber={e.showNumber} />
+                        </Link>
                       </td>
                     )}
-                    {columns.isVisible("location") && (
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {[e.city, e.state].filter(Boolean).join(", ") || "—"}
+                    {columns.isVisible("state") && (
+                      <td
+                        className={`text-center tabular-nums text-muted-foreground ${cellPadding(true)}`}
+                      >
+                        {formatStateAbbrev(e.state)}
                       </td>
                     )}
                     {columns.isVisible("startDate") && (
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {new Date(e.startDate).toLocaleDateString()}
+                      <td className={`whitespace-nowrap text-muted-foreground ${cellPadding(true)}`}>
+                        {formatEventDate(e.startDate)}
                       </td>
                     )}
                     {columns.isVisible("registrants") && (
-                      <td className="px-4 py-2.5 text-muted-foreground">{e.registrants}</td>
+                      <td
+                        className={`text-center tabular-nums text-muted-foreground ${cellPadding(true)}`}
+                        title={`${e.registrants} registrant${e.registrants === 1 ? "" : "s"}`}
+                      >
+                        {e.registrants}
+                      </td>
                     )}
                     {columns.isVisible("orgName") && (
-                      <td className="px-4 py-2.5 text-muted-foreground">{e.orgName ?? "—"}</td>
+                      <td className={`overflow-hidden truncate text-muted-foreground ${cellPadding(true)}`}>
+                        {e.orgName ?? "—"}
+                      </td>
                     )}
                     {columns.isVisible("organizer") && (
-                      <td className="px-4 py-2.5 text-muted-foreground">
+                      <td className={`overflow-hidden text-muted-foreground ${cellPadding(true)}`}>
                         {e.organizers.length > 0 ? (
-                          <ul className="space-y-1">
+                          <ul className="space-y-0.5">
                             {e.organizers.map((organizer) => (
-                              <li key={organizer.email}>
-                                <span className="text-foreground">{organizer.name}</span>
-                                <span className="block text-xs">{organizer.email}</span>
+                              <li
+                                key={organizer.email}
+                                className="truncate text-foreground"
+                                title={`${organizer.name} · ${organizer.email}`}
+                              >
+                                {organizer.name}
                               </li>
                             ))}
                           </ul>
@@ -267,22 +365,22 @@ function EventsTableInner() {
                       </td>
                     )}
                     {columns.isVisible("status") && (
-                      <td className="px-4 py-2.5">
-                        <Badge variant={statusVariant(e.status)}>{e.status}</Badge>
+                      <td className={cellPadding(true)}>
+                        <Badge variant={statusVariant(e.status)} className="px-1.5 py-0 text-[10px]">
+                          {e.status}
+                        </Badge>
                       </td>
                     )}
-                    <td className="px-4 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Link href={`/organizer/events/${e.id}/edit`}>
-                          <Button type="button" variant="ghost" size="icon" className="size-7" aria-label={`Edit ${e.name}`}>
-                            <ExternalLink className="size-3.5" />
-                          </Button>
-                        </Link>
+                    <td
+                      className="px-1 py-2 text-right"
+                      style={columnStyle(ACTIONS_COLUMN_WIDTH)}
+                    >
+                      <div className="flex shrink-0 items-center justify-end gap-0">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="size-7 text-violet-600 hover:bg-violet-500/10"
+                          className="size-6 text-violet-600 hover:bg-violet-500/10"
                           onClick={() => void handleResetVoting(e)}
                           aria-label={`Reset voting for ${e.name}`}
                           title="Reset voting data"
@@ -290,15 +388,15 @@ function EventsTableInner() {
                           <RotateCcw className="size-3.5" />
                         </Button>
                         {e.status === "ARCHIVED" ? (
-                          <Button type="button" variant="ghost" size="icon" className="size-7 text-emerald-600 hover:bg-emerald-500/10" onClick={() => void handleArchive(e.id, false)} aria-label={`Restore ${e.name}`}>
+                          <Button type="button" variant="ghost" size="icon" className="size-6 text-emerald-600 hover:bg-emerald-500/10" onClick={() => void handleArchive(e.id, false)} aria-label={`Restore ${e.name}`}>
                             <ArchiveRestore className="size-3.5" />
                           </Button>
                         ) : (
-                          <Button type="button" variant="ghost" size="icon" className="size-7 text-amber-600 hover:bg-amber-500/10" onClick={() => void handleArchive(e.id, true)} aria-label={`Archive ${e.name}`}>
+                          <Button type="button" variant="ghost" size="icon" className="size-6 text-amber-600 hover:bg-amber-500/10" onClick={() => void handleArchive(e.id, true)} aria-label={`Archive ${e.name}`}>
                             <Archive className="size-3.5" />
                           </Button>
                         )}
-                        <Button type="button" variant="ghost" size="icon" className="size-7 text-destructive hover:bg-destructive/10" onClick={() => void handleDelete(e.id)} aria-label={`Delete ${e.name}`}>
+                        <Button type="button" variant="ghost" size="icon" className="size-6 text-destructive hover:bg-destructive/10" onClick={() => void handleDelete(e.id)} aria-label={`Delete ${e.name}`}>
                           <Trash2 className="size-3.5" />
                         </Button>
                       </div>

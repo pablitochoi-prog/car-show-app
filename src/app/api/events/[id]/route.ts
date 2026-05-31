@@ -14,8 +14,10 @@ import type { EventStatus, Prisma } from "@prisma/client";
 import { syncGeneralAdmissionTier } from "@/lib/general-admission-tier";
 import {
   FLAT_PLATFORM_FEE_UNPAID_LISTING_MESSAGE,
+  isEventPlatformBillingConfigured,
   requiresFlatPlatformFeePaymentBeforeListing,
 } from "@/lib/event-platform-fee";
+import { validateEventListingDates } from "@/lib/event-listing-date-guards";
 
 type FeeType = "FREE" | "PAID" | "PAID_TIERED" | "DONATION";
 
@@ -256,7 +258,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       where: { id: existing.orgId },
       select: { stripeChargesEnabled: true },
     });
-    if (org?.stripeChargesEnabled && !existing.paymentEnabled) {
+    if (org?.stripeChargesEnabled && !isEventPlatformBillingConfigured(existing)) {
       return NextResponse.json(
         {
           error:
@@ -275,6 +277,23 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         { error: FLAT_PLATFORM_FEE_UNPAID_LISTING_MESSAGE },
         { status: 400 },
       );
+    }
+
+    const mergedDailyHours =
+      dailyHoursPatch !== undefined ? d.dailyHours : existing.dailyHours;
+    const mergedRainDate =
+      d.rainDate !== undefined ? d.rainDate : existing.rainDate;
+    const dateError = await validateEventListingDates(prisma, eventId, {
+      dailyHours: mergedDailyHours,
+      rainDate:
+        mergedRainDate instanceof Date
+          ? mergedRainDate.toISOString().slice(0, 10)
+          : typeof mergedRainDate === "string"
+            ? mergedRainDate
+            : null,
+    });
+    if (dateError) {
+      return NextResponse.json({ error: dateError }, { status: 400 });
     }
   }
 

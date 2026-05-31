@@ -567,6 +567,11 @@ model RegistrationVehicle {
   eventCategoryId String?
   eventCategory   EventCategory? @relation(fields: [eventCategoryId], references: [id], onDelete: SetNull)
 
+  /// Event-specific nickname for dash cards and public pages (may differ from garage Vehicle.nickname).
+  vehicleNickname String?
+  /// Event-specific story/notes for dash cards and public pages (may differ from garage Vehicle.notes).
+  vehicleStory    String? @db.Text
+
   eventPhotoObjectKey String?
 
   publicVotes   VehiclePublicVote[]

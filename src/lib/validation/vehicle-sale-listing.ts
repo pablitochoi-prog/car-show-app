@@ -112,9 +112,10 @@ export function normalizeVehicleSaleListingInput(
     description: input.description
       ? sanitizeListingDescriptionHtml(input.description)
       : null,
-    sellerAcknowledgedAt: input.enabled && input.sellerAcknowledged
-      ? new Date()
-      : null,
+    sellerAcknowledgedAt:
+      input.sellerAcknowledged || input.enabled
+        ? new Date()
+        : null,
     photos: input.photos ?? [],
   };
 }

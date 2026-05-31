@@ -9,7 +9,7 @@ import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 import { validateDonationNotDecreasedAfterPayment } from "@/lib/registration-payment-display";
 import { syncRegistrationVehiclesWithPublicIds } from "@/lib/event-sms-vehicle-id";
 import { syncVehicleEntryIndexForRegistration } from "@/lib/vehicle-entry-index";
-import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
+import { applyRegistrationVehicleEventCopyFromRegistration } from "@/lib/registration-vehicle-event-copy";
 import { applyVehicleVinsFromRegistration } from "@/lib/registration-vehicle-vins";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 import {
@@ -17,6 +17,7 @@ import {
   parseGuestVehicleRecords,
 } from "@/lib/organizer-guest-registration-update";
 import { syncVehicleSaleListingsForGuestVehicles, syncVehicleSaleListingsForLoggedInVehicles } from "@/lib/sync-vehicle-sale-listings";
+import { revalidateRegistrationVehicleSalePages } from "@/lib/revalidate-vehicle-sale-pages";
 import {
   buildSmsNotificationsConsentFields,
   buildUserSmsNotificationsConsentUpdate,
@@ -193,6 +194,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       console.error("PATCH guest registration staff photo snapshot:", e);
     }
 
+    await revalidateRegistrationVehicleSalePages(registration.id);
+
     return NextResponse.json({
       id: registration.id,
       updated: true,
@@ -346,6 +349,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }),
   };
   const vehicleNicknames = parsed.data.vehicleNicknames;
+  const vehicleStories = parsed.data.vehicleStories;
   const vehicleVins = parsed.data.vehicleVins;
   const vehicleSaleListings = parsed.data.vehicleSaleListings;
 
@@ -395,11 +399,12 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       allVehicleIds,
       vehicleCategories,
     );
-    await applyVehicleNicknamesFromRegistration(
+    await applyRegistrationVehicleEventCopyFromRegistration(
       tx,
-      registrantUserId,
+      reg.id,
       allVehicleIds,
       vehicleNicknames,
+      vehicleStories,
     );
     await applyVehicleVinsFromRegistration(
       tx,
@@ -446,6 +451,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   } catch (e) {
     console.error("PATCH registration staff photo snapshot:", e);
   }
+
+  await revalidateRegistrationVehicleSalePages(registration.id);
 
   const paymentComplete = registration.paymentStatus === "PAID";
 

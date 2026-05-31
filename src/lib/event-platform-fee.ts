@@ -112,6 +112,18 @@ export function requiresFlatPlatformFeePaymentBeforeListing(input: {
   );
 }
 
+/**
+ * Cloned events inherit platform fee mode from the source template; treat that
+ * as a saved billing choice without forcing a redundant Payment Settings save.
+ */
+export function isEventPlatformBillingConfigured(input: {
+  paymentEnabled: boolean;
+  clonedFromId?: string | null;
+}): boolean {
+  if (input.paymentEnabled) return true;
+  return Boolean(input.clonedFromId?.trim());
+}
+
 export function dashCardsBlockedMessage(platformFeeMode: EventPlatformFeeMode): string {
   if (platformFeeMode === "FLAT_EVENT") {
     return "The flat platform fee must be paid before printing dash cards. It is collected on the first online registration payment for this event.";

@@ -2,6 +2,10 @@ import { Prisma } from "@prisma/client";
 import type { GuestVehicleRecord } from "@/lib/event-sms-vehicle-id";
 import { prisma } from "@/lib/db";
 import { normalizeVehicleEntryCode } from "@/lib/vehicle-entry-code";
+import {
+  resolveRegistrationVehicleNickname,
+  resolveRegistrationVehicleStory,
+} from "@/lib/registration-vehicle-event-copy";
 import type { VehicleEntryRecord } from "@/lib/vehicle-entry-types";
 import {
   logPerfTiming,
@@ -56,6 +60,8 @@ function buildFromRegistrationVehicle(
   rv: {
     id: string;
     vehicleId: string;
+    vehicleNickname: string | null;
+    vehicleStory: string | null;
     eventPhotoObjectKey: string | null;
     vehicleQrObjectKey: string | null;
     vehicleQrUrl: string | null;
@@ -67,6 +73,7 @@ function buildFromRegistrationVehicle(
       model: string;
       trim: string | null;
       nickname: string | null;
+      notes: string | null;
       photoUrl: string | null;
     };
     eventCategory: {
@@ -105,7 +112,14 @@ function buildFromRegistrationVehicle(
     make: rv.vehicle.make,
     model: rv.vehicle.model,
     trim: rv.vehicle.trim,
-    nickname: rv.vehicle.nickname,
+    nickname: resolveRegistrationVehicleNickname(
+      rv.vehicleNickname,
+      rv.vehicle.nickname,
+    ),
+    vehicleStory: resolveRegistrationVehicleStory(
+      rv.vehicleStory,
+      rv.vehicle.notes,
+    ),
     classLabel: categoryLabel(rv.eventCategory),
     photoUrl,
     votingStatus: rv.votingStatus,
@@ -158,6 +172,7 @@ function buildFromGuest(
     model: (gv.model ?? "").trim() || "",
     trim: gv.trim ?? null,
     nickname: gv.nickname?.trim() || null,
+    vehicleStory: gv.notes?.trim() || null,
     classLabel,
     photoUrl,
     votingStatus: null,

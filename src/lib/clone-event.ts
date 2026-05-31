@@ -4,6 +4,12 @@ import { allocateUniqueVotePrefixForNewEvent } from "@/lib/event-sms-vehicle-id"
 import { allocateEventShowNumber } from "@/lib/event-show-number";
 import { buildClonedEventName } from "@/lib/clone-event-name";
 import {
+  cloneEventStartDate,
+  nullIfCalendarDateInPast,
+  nullIfInstantInPast,
+  sanitizeDailyHoursPastDates,
+} from "@/lib/event-date-validation";
+import {
   ensureDefaultEventRoles,
   upsertStaffMemberWithRoles,
 } from "@/lib/event-staff";
@@ -13,7 +19,9 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
   const source = await prisma.event.findUnique({
     where: { id: sourceEventId },
     include: {
+      organization: { select: { stripeChargesEnabled: true } },
       registrationTiers: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] },
+      votingCategories: { orderBy: { smsOptionNumber: "asc" } },
       eventCategories: true,
       eventAwards: true,
       roleDefinitions: true,
@@ -38,6 +46,12 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
     nameCandidates.map((e) => e.name),
   );
 
+  const inheritedPaymentEnabled =
+    source.paymentEnabled ||
+    (Boolean(source.orgId) && source.organization?.stripeChargesEnabled === true);
+
+  const sanitizedDailyHours = sanitizeDailyHoursPastDates(source.dailyHours);
+
   const newEvent = await prisma.$transaction(async (tx) => {
     const showNumber = await allocateEventShowNumber(tx);
     const smsVotePrefix = await allocateUniqueVotePrefixForNewEvent(tx);
@@ -59,13 +73,14 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
         zip: source.zip,
         lat: source.lat,
         lng: source.lng,
-        startDate: source.startDate,
-        endDate: source.endDate,
-        rainDate: source.rainDate,
+        startDate: cloneEventStartDate(source.startDate),
+        endDate: nullIfCalendarDateInPast(source.endDate),
+        rainDate: nullIfCalendarDateInPast(source.rainDate),
         startTime: source.startTime,
         endTime: source.endTime,
         isMultiDay: source.isMultiDay,
-        dailyHours: source.dailyHours as Prisma.InputJsonValue | undefined,
+        dailyHours: (sanitizedDailyHours ??
+          source.dailyHours) as Prisma.InputJsonValue | undefined,
         registrationFeeType: source.registrationFeeType,
         registrationFeeDollars: source.registrationFeeDollars,
         contactName: source.contactName,
@@ -95,7 +110,7 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
         charityPhone: source.charityPhone,
         charityLogoUrl: source.charityLogoUrl,
         vehicleSaleInquiriesEnabled: source.vehicleSaleInquiriesEnabled,
-        paymentEnabled: source.paymentEnabled,
+        paymentEnabled: inheritedPaymentEnabled,
         platformFeeMode: source.platformFeeMode,
         platformSetupFeeCollected: false,
         platformFeeType: source.platformFeeType,
@@ -103,6 +118,9 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
         platformFeePercent: source.platformFeePercent,
         currency: source.currency,
         listingScheduledAt: null,
+        smsVotingEnabled: source.smsVotingEnabled,
+        smsVotingStartsAt: nullIfInstantInPast(source.smsVotingStartsAt),
+        smsVotingEndsAt: nullIfInstantInPast(source.smsVotingEndsAt),
       },
     });
 
@@ -112,10 +130,25 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
           eventId: created.id,
           name: tier.name,
           priceCents: tier.priceCents,
-          opensAt: tier.opensAt,
-          closesAt: tier.closesAt,
+          opensAt: nullIfInstantInPast(tier.opensAt),
+          closesAt: nullIfInstantInPast(tier.closesAt),
           memberOnly: tier.memberOnly,
           sortOrder: tier.sortOrder,
+        })),
+      });
+    }
+
+    if (source.votingCategories.length > 0) {
+      await tx.votingCategory.createMany({
+        data: source.votingCategories.map((category) => ({
+          eventId: created.id,
+          name: category.name,
+          smsOptionNumber: category.smsOptionNumber,
+          isActive: category.isActive,
+          isCustom: category.isCustom,
+          maxVotesPerPhone: category.maxVotesPerPhone,
+          votingStartsAt: nullIfInstantInPast(category.votingStartsAt),
+          votingEndsAt: nullIfInstantInPast(category.votingEndsAt),
         })),
       });
     }

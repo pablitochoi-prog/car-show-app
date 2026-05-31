@@ -84,15 +84,38 @@ async function upsertListing(
   );
   if (photoError) return photoError;
 
+  const listingFields = {
+    askingPriceCents: normalized.askingPriceCents,
+    showAskingPricePublicly: normalized.showAskingPricePublicly,
+    allowOffers: normalized.allowOffers,
+    minimumOfferCents: normalized.minimumOfferCents,
+    description: normalized.description,
+  };
+
   if (!normalized.enabled) {
     if (args.existingListingId) {
       await tx.vehicleSaleListing.update({
         where: { id: args.existingListingId },
-        data: { enabled: false },
+        data: {
+          enabled: false,
+          ...listingFields,
+        },
       });
+      await replaceListingPhotos(tx, args.existingListingId, normalized.photos);
     }
     return null;
   }
+
+  const acknowledgedAt =
+    normalized.sellerAcknowledgedAt ??
+    (args.existingListingId
+      ? (
+          await tx.vehicleSaleListing.findUnique({
+            where: { id: args.existingListingId },
+            select: { sellerAcknowledgedAt: true },
+          })
+        )?.sellerAcknowledgedAt ?? null
+      : null);
 
   const listing = await tx.vehicleSaleListing.upsert({
     where: args.existingListingId
@@ -113,22 +136,14 @@ async function upsertListing(
       guestVehicleIndex: args.guestVehicleIndex ?? null,
       sellerUserId: args.sellerUserId ?? null,
       enabled: true,
-      askingPriceCents: normalized.askingPriceCents,
-      showAskingPricePublicly: normalized.showAskingPricePublicly,
-      allowOffers: normalized.allowOffers,
-      minimumOfferCents: normalized.minimumOfferCents,
-      description: normalized.description,
-      sellerAcknowledgedAt: normalized.sellerAcknowledgedAt,
+      ...listingFields,
+      sellerAcknowledgedAt: normalized.sellerAcknowledgedAt ?? acknowledgedAt,
     },
     update: {
       sellerUserId: args.sellerUserId ?? null,
       enabled: true,
-      askingPriceCents: normalized.askingPriceCents,
-      showAskingPricePublicly: normalized.showAskingPricePublicly,
-      allowOffers: normalized.allowOffers,
-      minimumOfferCents: normalized.minimumOfferCents,
-      description: normalized.description,
-      sellerAcknowledgedAt: normalized.sellerAcknowledgedAt,
+      ...listingFields,
+      sellerAcknowledgedAt: normalized.sellerAcknowledgedAt ?? acknowledgedAt,
     },
     select: { id: true },
   });

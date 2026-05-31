@@ -74,6 +74,7 @@ export type DashCardVotingModel = {
 
 /** Shown when owner opted in to buyer inquiries for this vehicle at the event. */
 export type DashCardSaleModel = {
+  /** Panel header badge, e.g. "Interested in buying?". */
   badgeLabel: string;
   salePageUrl: string;
   qrImageUrl: string | null;

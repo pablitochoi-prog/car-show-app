@@ -8,9 +8,8 @@ import { resolveVehicleSaleQrUrlForDashCard } from "@/lib/vehicle-qr";
 /** Bounded concurrency for dash-card sale QR inline generation. */
 export const DASH_CARD_SALE_QR_CONCURRENCY = 10;
 
-/** Sidebar label when a vehicle sale listing is active on the dash card. */
-export const DASH_CARD_SALE_BADGE_LABEL =
-  "Owner Accepting Inquiries on this Vehicle";
+/** Header badge text for the dash-card sale callout panel. */
+export const DASH_CARD_SALE_BADGE_LABEL = "Interested in Buying?";
 
 export function buildDashCardSaleModel(
   vehicleEntryCode: string,

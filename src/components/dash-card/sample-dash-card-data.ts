@@ -45,7 +45,7 @@ export const SAMPLE_DASH_CARD_DATA: DashCardModel = {
     qrImageUrl: null,
   },
   sale: {
-    badgeLabel: "Owner Accepting Inquiries on this Vehicle",
+    badgeLabel: "Interested in buying?",
     salePageUrl: "https://events.carshowscout.com/v/AXY-005/sale",
     qrImageUrl: null,
   },

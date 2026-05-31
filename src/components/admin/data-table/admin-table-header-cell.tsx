@@ -16,9 +16,14 @@ export function AdminTableHeaderCell({
   dateRange,
   width,
   onResizeStart,
+  align = "left",
+  compact = false,
+  headerTitle,
   onSort,
   onFilter,
   onClearFilter,
+  onHide,
+  canHide = true,
 }: {
   label: string;
   columnId: string;
@@ -32,14 +37,25 @@ export function AdminTableHeaderCell({
   dateRange?: boolean;
   width?: number;
   onResizeStart?: (e: React.MouseEvent) => void;
+  align?: "left" | "center" | "right";
+  compact?: boolean;
+  headerTitle?: string;
   onSort: (dir: AdminSortDir) => void;
   onFilter: (value: string, valueTo?: string) => void;
   onClearFilter: () => void;
+  onHide?: () => void;
+  canHide?: boolean;
 }) {
+  const showMenu = sortable || filterable || (canHide && onHide);
+
   return (
     <th
-      className="relative px-4 py-2"
-      style={width ? { width, minWidth: width } : undefined}
+      className={`relative select-none py-2 ${compact ? "px-1.5" : "px-3"} ${
+        align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left"
+      }`}
+      style={width ? { width, minWidth: width, maxWidth: width } : undefined}
+      title={headerTitle}
+      aria-label={headerTitle ?? label}
       aria-sort={
         activeSortDir === "asc"
           ? "ascending"
@@ -48,9 +64,17 @@ export function AdminTableHeaderCell({
             : "none"
       }
     >
-      <div className="flex items-center gap-1">
+      <div
+        className={`flex items-center gap-0.5 pr-1 ${
+          align === "center"
+            ? "justify-center"
+            : align === "right"
+              ? "justify-end"
+              : ""
+        }`}
+      >
         <span className="truncate">{label}</span>
-        {(sortable || filterable) ? (
+        {showMenu ? (
           <AdminColumnMenu
             label={label}
             columnId={columnId}
@@ -65,15 +89,22 @@ export function AdminTableHeaderCell({
             onSort={onSort}
             onFilter={onFilter}
             onClearFilter={onClearFilter}
+            onHide={onHide}
+            canHide={canHide}
           />
         ) : null}
       </div>
       {onResizeStart ? (
-        <button
-          type="button"
+        <div
+          role="separator"
+          aria-orientation="vertical"
           aria-label={`Resize ${label} column`}
-          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40"
-          onMouseDown={onResizeStart}
+          className="absolute -right-px top-0 z-10 h-full w-2 cursor-col-resize touch-none hover:bg-primary/30 active:bg-primary/50"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onResizeStart(e);
+          }}
         />
       ) : null}
     </th>

@@ -16,6 +16,10 @@ export type ExistingRegistrationForEvent = {
   amountCents: number | null;
   platformFeeCents: number | null;
   refundedCents: number;
+  /** Per garage vehicle id — event-specific nickname on RegistrationVehicle. */
+  vehicleNicknames?: Record<string, string>;
+  /** Per garage vehicle id — event-specific story on RegistrationVehicle. */
+  vehicleStories?: Record<string, string>;
   /** Per garage vehicle id when sale inquiries are enabled on the event. */
   vehicleSaleListings?: Record<string, VehicleSaleListingSnapshot>;
 };

@@ -24,6 +24,32 @@ function formatMoney(cents: number) {
   }).format(cents / 100);
 }
 
+function toTierIso(local: string): string | null {
+  if (!local.trim()) return null;
+  const d = new Date(local);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function tierDatePayload(
+  useTimeWindow: boolean,
+  opensAt: string,
+  closesAt: string,
+): { opensAt: string | null; closesAt: string | null } | { error: string } {
+  if (!useTimeWindow) {
+    return { opensAt: null, closesAt: null };
+  }
+  const openIso = opensAt.trim() ? toTierIso(opensAt) : null;
+  const closeIso = closesAt.trim() ? toTierIso(closesAt) : null;
+  if (opensAt.trim() && !openIso) {
+    return { error: "Enter a valid start date and time." };
+  }
+  if (closesAt.trim() && !closeIso) {
+    return { error: "Enter a valid end date and time." };
+  }
+  return { opensAt: openIso, closesAt: closeIso };
+}
+
 function toLocalDatetime(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -252,14 +278,19 @@ export function TierManager({
         return;
       }
       const priceCents = Math.round(dollars * 100);
+      const dates = tierDatePayload(useTimeWindow, opensAt, closesAt);
+      if ("error" in dates) {
+        setError(dates.error);
+        return;
+      }
       const res = await fetch(`/api/events/${eventId}/tiers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
           priceCents,
-          opensAt: useTimeWindow && opensAt ? new Date(opensAt).toISOString() : null,
-          closesAt: useTimeWindow && closesAt ? new Date(closesAt).toISOString() : null,
+          opensAt: dates.opensAt,
+          closesAt: dates.closesAt,
         }),
       });
       const data = await res.json();
@@ -300,14 +331,19 @@ export function TierManager({
         return;
       }
       const priceCents = Math.round(dollars * 100);
+      const dates = tierDatePayload(editUseTimeWindow, editOpensAt, editClosesAt);
+      if ("error" in dates) {
+        setError(dates.error);
+        return;
+      }
       const res = await fetch(`/api/events/${eventId}/tiers/${tierId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editName,
           priceCents,
-          opensAt: editUseTimeWindow && editOpensAt ? new Date(editOpensAt).toISOString() : null,
-          closesAt: editUseTimeWindow && editClosesAt ? new Date(editClosesAt).toISOString() : null,
+          opensAt: dates.opensAt,
+          closesAt: dates.closesAt,
         }),
       });
       const data = await res.json();

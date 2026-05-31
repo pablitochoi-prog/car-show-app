@@ -12,6 +12,9 @@ import {
 } from "@/lib/vehicle-entry-access";
 import { getJudgeScoreForEntry } from "@/lib/vehicle-judging";
 import {
+  loadVehicleBuyerInquiryNotice,
+} from "@/lib/public-vehicle-sale-listing";
+import {
   entryAllowsPublicVoting,
   getVisitorPublicVoteContext,
   readVoterFingerprint,
@@ -87,12 +90,14 @@ export default async function VehicleEntrySmartRoutePage({
   const votingOpen =
     entryAllowsPublicVoting(entry, entry.event.status) &&
     voteContext.hasAnyOpenCategory;
+  const buyerInquiryNotice = await loadVehicleBuyerInquiryNotice(entry);
 
   return (
     <PublicVotePanel
       entry={entry}
       votingOpen={votingOpen}
       voteContext={voteContext}
+      buyerInquiryNotice={buyerInquiryNotice}
     />
   );
 }

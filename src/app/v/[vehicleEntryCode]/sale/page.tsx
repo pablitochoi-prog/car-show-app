@@ -7,6 +7,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { loadPublicVehicleSalePageData } from "@/lib/public-vehicle-sale-listing";
 import { userHasActiveSmsNotificationsOptIn } from "@/lib/sms-notifications-consent";
 
+export const dynamic = "force-dynamic";
+
 type Props = {
   params: Promise<{ vehicleEntryCode: string }>;
 };
@@ -41,8 +43,8 @@ export default async function VehicleSaleListingPage({ params }: Props) {
           subtitle="This vehicle is not accepting buyer inquiries right now."
         />
         <p className="text-sm text-muted-foreground">
-          The owner may have turned off their listing, or this show may not have
-          sale inquiries enabled.
+          The owner may not have set up a listing yet, or this show may not have
+          buyer inquiries enabled.
         </p>
         <Link
           href={`/v/${encodeURIComponent(result.entry.vehicleEntryCode)}`}

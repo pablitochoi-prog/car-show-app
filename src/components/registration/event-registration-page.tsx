@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { VehicleClassSelect } from "@/components/registration/vehicle-class-select";
 import {
   Loader2,
   Check,
@@ -32,14 +31,13 @@ import { GuestRegistrationForm } from "./guest-registration-form";
 import { isTierOpen, formatMoney, formatDate } from "./reg-utils";
 import { totalPlatformFeeForCheckout, type EventPlatformFeeMode } from "@/lib/event-platform-fee";
 import { dollarsToCents } from "@/lib/money";
-import { RequiredFieldMark } from "./required-field-mark";
 import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
 import {
   REGISTRATION_CLASS_REQUIRED_MSG,
   REGISTRATION_VEHICLE_REQUIRED_MSG,
   loggedInVehiclesHaveRequiredClasses,
 } from "@/lib/registration-vehicle-classes";
-import { RegistrationVehiclePhoto } from "./registration-vehicle-photo";
+import { RegisteredVehicleEditor } from "./registered-vehicle-editor";
 import { AddVehicleForm } from "@/components/forms/add-vehicle-form";
 import { RegistrationContactSection } from "./registration-contact-section";
 import {
@@ -68,10 +66,7 @@ import {
   suggestedDonationTotalDollars,
 } from "@/lib/donation";
 import { DonationAmountField } from "./donation-amount-field";
-import {
-  RegistrationFeeRow,
-  registrationVehiclesTableClassName,
-} from "./registration-fee-row";
+import { RegistrationFeeRow } from "./registration-fee-row";
 import { CancelRegistrationButton } from "@/components/dashboard/events/cancel-registration-button";
 import {
   derivePaidVehicleCount,
@@ -245,6 +240,9 @@ function EventRegistrationPageContent({
   const [saleDialogVehicleId, setSaleDialogVehicleId] = useState<string | null>(
     null,
   );
+  const [saleDialogMode, setSaleDialogMode] = useState<"enable" | "edit">(
+    "enable",
+  );
   const allGarageVehicles = useMemo(() => {
     const byId = new Map<string, VehicleOption>();
     for (const v of vehicles) {
@@ -264,10 +262,32 @@ function EventRegistrationPageContent({
     () => ({ ...existingRegistration?.vehicleCategories }),
   );
   const [vehicleNicknames, setVehicleNicknames] = useState<Record<string, string>>(
-    () =>
-      Object.fromEntries(
-        allGarageVehicles.map((v) => [v.id, v.nickname?.trim() ?? ""]),
-      ),
+    () => {
+      const registered = new Set(existingRegistration?.vehicleIds ?? []);
+      const initial: Record<string, string> = {};
+      for (const v of vehicles) {
+        if (!registered.has(v.id)) continue;
+        initial[v.id] =
+          existingRegistration?.vehicleNicknames?.[v.id] ??
+          v.nickname?.trim() ??
+          "";
+      }
+      return initial;
+    },
+  );
+  const [vehicleStories, setVehicleStories] = useState<Record<string, string>>(
+    () => {
+      const registered = new Set(existingRegistration?.vehicleIds ?? []);
+      const initial: Record<string, string> = {};
+      for (const v of vehicles) {
+        if (!registered.has(v.id)) continue;
+        initial[v.id] =
+          existingRegistration?.vehicleStories?.[v.id] ??
+          v.notes?.trim() ??
+          "";
+      }
+      return initial;
+    },
   );
   const [vehiclePhotos, setVehiclePhotos] = useState<Record<string, string | null>>(
     () => Object.fromEntries(allGarageVehicles.map((v) => [v.id, v.photoUrl])),
@@ -346,13 +366,22 @@ function EventRegistrationPageContent({
     setVehicleNicknames((prev) => {
       const next = { ...prev };
       for (const v of allGarageVehicles) {
-        if (next[v.id] === undefined) {
+        if (next[v.id] === undefined && registeredVehicles.has(v.id)) {
           next[v.id] = v.nickname?.trim() ?? "";
         }
       }
       return next;
     });
-  }, [allGarageVehicles]);
+    setVehicleStories((prev) => {
+      const next = { ...prev };
+      for (const v of allGarageVehicles) {
+        if (next[v.id] === undefined && registeredVehicles.has(v.id)) {
+          next[v.id] = v.notes?.trim() ?? "";
+        }
+      }
+      return next;
+    });
+  }, [allGarageVehicles, registeredVehicles]);
 
   useEffect(() => {
     const addedId = searchParams.get("addedVehicle");
@@ -366,6 +395,14 @@ function EventRegistrationPageContent({
 
     setRegisteredVehicles((prev) => new Set([...prev, addedId]));
     setVehiclePhotos((prev) => ({ ...prev, [addedId]: vehicle.photoUrl }));
+    setVehicleNicknames((prev) => ({
+      ...prev,
+      [addedId]: prev[addedId] ?? vehicle.nickname?.trim() ?? "",
+    }));
+    setVehicleStories((prev) => ({
+      ...prev,
+      [addedId]: prev[addedId] ?? vehicle.notes?.trim() ?? "",
+    }));
     setVehicleSaleListings((prev) =>
       prev[addedId] ? prev : { ...prev, [addedId]: emptyVehicleSaleListingFormState() },
     );
@@ -382,6 +419,7 @@ function EventRegistrationPageContent({
     nickname?: string | null;
     vin?: string | null;
     photoUrl?: string | null;
+    notes?: string | null;
   }) {
     const option: VehicleOption = {
       id: vehicle.id,
@@ -392,7 +430,7 @@ function EventRegistrationPageContent({
       nickname: vehicle.nickname ?? null,
       vin: vehicle.vin ?? null,
       photoUrl: vehicle.photoUrl ?? null,
-      notes: null,
+      notes: vehicle.notes ?? null,
     };
     setAddedGarageVehicles((prev) => [
       ...prev.filter((v) => v.id !== option.id),
@@ -404,6 +442,10 @@ function EventRegistrationPageContent({
       ...prev,
       [option.id]: option.nickname?.trim() ?? "",
     }));
+    setVehicleStories((prev) => ({
+      ...prev,
+      [option.id]: option.notes?.trim() ?? "",
+    }));
     setVehicleSaleListings((prev) =>
       prev[option.id] ? prev : { ...prev, [option.id]: emptyVehicleSaleListingFormState() },
     );
@@ -414,7 +456,16 @@ function EventRegistrationPageContent({
 
   function addVehicleToRegistration(vehicleId: string) {
     setError("");
+    const vehicle = allGarageVehicles.find((v) => v.id === vehicleId);
     setRegisteredVehicles((prev) => new Set([...prev, vehicleId]));
+    setVehicleNicknames((prev) => ({
+      ...prev,
+      [vehicleId]: prev[vehicleId] ?? vehicle?.nickname?.trim() ?? "",
+    }));
+    setVehicleStories((prev) => ({
+      ...prev,
+      [vehicleId]: prev[vehicleId] ?? vehicle?.notes?.trim() ?? "",
+    }));
     setVehicleSaleListings((prev) =>
       prev[vehicleId]
         ? prev
@@ -451,12 +502,35 @@ function EventRegistrationPageContent({
     const current = saleListingFor(vehicleId);
     if (checked) {
       updateSaleListing(vehicleId, { ...current, enabled: true });
+      setSaleDialogMode("enable");
       setSaleDialogVehicleId(vehicleId);
     } else {
       updateSaleListing(vehicleId, {
-        ...emptyVehicleSaleListingFormState(),
-        listingId: current.listingId,
+        ...current,
+        enabled: false,
       });
+    }
+  }
+
+  async function persistSaleListingFromDialog(
+    vehicleId: string,
+    listing: VehicleSaleListingFormState,
+  ) {
+    updateSaleListing(vehicleId, listing);
+    if (!isUpdating) return;
+
+    const payload = vehicleSaleListingFormStateToPayload(listing);
+    const res = await fetch(
+      `/api/events/${event.id}/my-registration/sale-listing`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicleId, saleListing: payload }),
+      },
+    );
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      throw new Error(data.error ?? "Could not save listing details.");
     }
   }
 
@@ -836,6 +910,9 @@ function EventRegistrationPageContent({
           vehicleNicknames: Object.fromEntries(
             vehicleIds.map((id) => [id, vehicleNicknames[id]?.trim() ?? ""]),
           ),
+          vehicleStories: Object.fromEntries(
+            vehicleIds.map((id) => [id, vehicleStories[id]?.trim() ?? ""]),
+          ),
           vehicleVins: Object.fromEntries(
             vehicleIds.map((id) => {
               const v = allGarageVehicles.find((g) => g.id === id);
@@ -1194,9 +1271,9 @@ function EventRegistrationPageContent({
                     </p>
                   ) : null}
                   {garageVehicles.length > 0 && (
-                    <div className="rounded-lg border">
+                    <div className="space-y-3">
                       {editingRegisteredVehicles ? (
-                        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
                           <input
                             type="checkbox"
                             className="size-4 rounded border-input"
@@ -1230,200 +1307,75 @@ function EventRegistrationPageContent({
                           )}
                         </div>
                       ) : null}
-                      <table className={registrationVehiclesTableClassName}>
-                        <thead>
-                          <tr className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-                            {editingRegisteredVehicles ? (
-                              <th className="w-10 px-3 py-2" />
-                            ) : null}
-                            <th className="w-[5.5rem] px-3 py-2">Photo</th>
-                            <th className="px-3 py-2">Vehicle</th>
-                            <th className="px-3 py-2">Vehicle nickname</th>
-                            <th className="px-3 py-2">
-                              Class
-                              <RequiredFieldMark />
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y md:divide-y">
-                          {garageVehicles.map((v) => {
-                            const saleListing = saleListingFor(v.id);
-                            const saleActive =
-                              saleListing.enabled &&
-                              saleListing.sellerAcknowledged;
-                            const vinMask = garageVehicleVinMask(v.id);
-                            return (
-                            <tr
-                              key={v.id}
-                              className={cn(
-                                "max-md:relative hover:bg-muted/30",
-                                editingRegisteredVehicles &&
-                                  selectedRegisteredForRemoval.has(v.id) &&
-                                  "bg-primary/5",
-                              )}
-                            >
-                              {editingRegisteredVehicles ? (
-                                <td className="max-md:absolute max-md:left-2 max-md:top-2 max-md:z-10 max-md:p-0 md:px-3 md:py-2.5">
-                                  <input
-                                    type="checkbox"
-                                    className="size-4 rounded border-input"
-                                    checked={selectedRegisteredForRemoval.has(
-                                      v.id,
-                                    )}
-                                    onChange={() =>
-                                      toggleRegisteredVehicleSelected(v.id)
-                                    }
-                                    aria-label={`Select ${v.year} ${v.make} ${v.model}`}
-                                  />
-                                </td>
-                              ) : null}
-                              <td className="px-3 py-2.5 max-md:pr-10">
-                                <RegistrationVehiclePhoto
-                                  vehicleId={v.id}
-                                  photoUrl={vehiclePhotos[v.id] ?? null}
-                                  onPhotoChange={(url) =>
-                                    setVehiclePhotos((prev) => ({
-                                      ...prev,
-                                      [v.id]: url,
-                                    }))
-                                  }
-                                />
-                              </td>
-                              <td className="px-3 py-2.5 max-md:pr-10">
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    {!vehiclePhotos[v.id] ? (
-                                      <Car className="size-4 shrink-0 text-muted-foreground" />
-                                    ) : null}
-                                    <span className="font-medium">
-                                      {v.year} {v.make} {v.model}
-                                    </span>
-                                    {v.trim && (
-                                      <span className="text-muted-foreground">
-                                        {v.trim}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {vinMask ? (
-                                    <p className="mt-1 font-mono text-xs text-muted-foreground">
-                                      {vinMask}
-                                    </p>
-                                  ) : null}
-                                  {requiresVehicleClass ? (
-                                    <p className="mt-1 text-xs">
-                                      <span className="text-muted-foreground">
-                                        Class:{" "}
-                                      </span>
-                                      <span
-                                        className={cn(
-                                          "font-medium",
-                                          !vehicleCategories[v.id] &&
-                                            "text-destructive",
-                                        )}
-                                      >
-                                        {vehicleClassLabel(v.id)}
-                                      </span>
-                                    </p>
-                                  ) : null}
-                                  {existingRegistration?.vehiclePublicIds?.[
-                                    v.id
-                                  ] ? (
-                                    <p className="mt-1 text-xs">
-                                      <span className="text-muted-foreground">
-                                        Show ID:{" "}
-                                      </span>
-                                      <span className="font-mono font-semibold text-foreground">
-                                        {
-                                          existingRegistration
-                                            .vehiclePublicIds[v.id]
-                                        }
-                                      </span>
-                                    </p>
-                                  ) : isUpdating &&
-                                    registeredVehicles.has(v.id) ? (
-                                    <p className="mt-1 text-xs italic text-muted-foreground">
-                                      Show ID assigned after you save
-                                    </p>
-                                  ) : null}
-                                  {saleInquiriesEnabled ? (
-                                    <div className="mt-3 border-t border-border/60 pt-3">
-                                      <label className="flex items-start gap-2 text-sm">
-                                        <input
-                                          type="checkbox"
-                                          className="mt-0.5 size-4 shrink-0 rounded border-input"
-                                          checked={saleActive}
-                                          onChange={(e) =>
-                                            handleBuyerInquiryCheck(
-                                              v.id,
-                                              e.target.checked,
-                                            )
-                                          }
-                                        />
-                                        <span className="leading-snug">
-                                          Open to Buyer Inquiries about Vehicle
-                                        </span>
-                                      </label>
-                                      {saleActive ? (
-                                        <Button
-                                          type="button"
-                                          variant="link"
-                                          size="sm"
-                                          className="mt-1 h-auto px-0 text-xs"
-                                          onClick={() =>
-                                            setSaleDialogVehicleId(v.id)
-                                          }
-                                        >
-                                          Edit listing details
-                                        </Button>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </td>
-                              <td
-                                className="px-3 py-2.5"
-                                data-label="Vehicle nickname"
-                              >
-                                <Input
-                                  value={vehicleNicknames[v.id] ?? ""}
-                                  onChange={(e) =>
-                                    setVehicleNicknames((prev) => ({
-                                      ...prev,
-                                      [v.id]: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="Vehicle nickname"
-                                  aria-label={`Vehicle nickname for ${v.year} ${v.make} ${v.model}`}
-                                  maxLength={48}
-                                  className="h-8 w-full min-w-0 text-sm md:min-w-[8rem]"
-                                />
-                              </td>
-                              <td
-                                className="px-3 py-2.5"
-                                data-label="Class"
-                              >
-                                {requiresVehicleClass ? (
-                                  <VehicleClassSelect
-                                    value={vehicleCategories[v.id]}
-                                    onChange={(categoryId) =>
-                                      setCategoryForVehicle(v.id, categoryId)
-                                    }
-                                    categories={registrationCategories}
-                                    invalid={missingClassVehicleIds.includes(
-                                      v.id,
-                                    )}
-                                  />
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">
-                                    No classes configured
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      {garageVehicles.map((v) => {
+                        const saleListing = saleListingFor(v.id);
+                        const saleActive =
+                          saleListing.enabled &&
+                          saleListing.sellerAcknowledged;
+                        const canEditListingDetails =
+                          saleListing.sellerAcknowledged ||
+                          Boolean(saleListing.listingId);
+                        return (
+                          <RegisteredVehicleEditor
+                            key={v.id}
+                            vehicle={v}
+                            photoUrl={vehiclePhotos[v.id] ?? null}
+                            vinMask={garageVehicleVinMask(v.id)}
+                            showId={
+                              existingRegistration?.vehiclePublicIds?.[v.id] ??
+                              null
+                            }
+                            showIdPending={
+                              Boolean(isUpdating && registeredVehicles.has(v.id)) &&
+                              !existingRegistration?.vehiclePublicIds?.[v.id]
+                            }
+                            nickname={vehicleNicknames[v.id] ?? ""}
+                            story={vehicleStories[v.id] ?? ""}
+                            eventCategoryId={vehicleCategories[v.id]}
+                            categories={registrationCategories}
+                            requiresVehicleClass={requiresVehicleClass}
+                            classInvalid={missingClassVehicleIds.includes(v.id)}
+                            saleInquiriesEnabled={saleInquiriesEnabled}
+                            saleActive={saleActive}
+                            canEditListingDetails={canEditListingDetails}
+                            editingRemoval={editingRegisteredVehicles}
+                            selectedForRemoval={selectedRegisteredForRemoval.has(
+                              v.id,
+                            )}
+                            onPhotoChange={(url) =>
+                              setVehiclePhotos((prev) => ({
+                                ...prev,
+                                [v.id]: url,
+                              }))
+                            }
+                            onNicknameChange={(value) =>
+                              setVehicleNicknames((prev) => ({
+                                ...prev,
+                                [v.id]: value,
+                              }))
+                            }
+                            onStoryChange={(value) =>
+                              setVehicleStories((prev) => ({
+                                ...prev,
+                                [v.id]: value,
+                              }))
+                            }
+                            onCategoryChange={(categoryId) =>
+                              setCategoryForVehicle(v.id, categoryId)
+                            }
+                            onBuyerInquiryCheck={(checked) =>
+                              handleBuyerInquiryCheck(v.id, checked)
+                            }
+                            onEditListingDetails={() => {
+                              setSaleDialogMode("edit");
+                              setSaleDialogVehicleId(v.id);
+                            }}
+                            onToggleSelected={() =>
+                              toggleRegisteredVehicleSelected(v.id)
+                            }
+                          />
+                        );
+                      })}
                     </div>
                   )}
 
@@ -1813,6 +1765,7 @@ function EventRegistrationPageContent({
               {saleDialogVehicleId ? (
                 <VehicleSaleListingDialog
                   open
+                  mode={saleDialogMode}
                   onOpenChange={handleSaleDialogOpenChange}
                   eventId={event.id}
                   vehicleLabel={(() => {
@@ -1827,7 +1780,9 @@ function EventRegistrationPageContent({
                   onChange={(next) =>
                     updateSaleListing(saleDialogVehicleId, next)
                   }
-                  onSave={() => {}}
+                  onSave={(saved) =>
+                    persistSaleListingFromDialog(saleDialogVehicleId, saved)
+                  }
                   profileSmsOptInActive={
                     userContact?.smsNotificationsOptInDefault ?? false
                   }

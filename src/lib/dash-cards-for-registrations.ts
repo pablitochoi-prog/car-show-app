@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
 import { buildDashCardEventModel } from "@/lib/dash-card-event";
 import {
+  resolveRegistrationVehicleNickname,
+  resolveRegistrationVehicleStory,
+} from "@/lib/registration-vehicle-event-copy";
+import {
   attachSaleQrsToDashCards,
   buildDashCardSaleModel,
 } from "@/lib/dash-card-sale";
@@ -444,7 +448,10 @@ export async function loadDashCardModelsForRegistrations(
           make: v.make,
           model: v.model,
           trim: v.trim,
-          nickname: v.nickname,
+          nickname: resolveRegistrationVehicleNickname(
+            rv.vehicleNickname,
+            v.nickname,
+          ),
           classLabel,
           vehiclePhotoUrl,
         },
@@ -454,9 +461,8 @@ export async function loadDashCardModelsForRegistrations(
           ownerPhotoUrl,
         },
         vehicleStory:
-          (v.notes?.trim() || "").length > 0
-            ? v.notes!.trim()
-            : "Vehicle notes will appear here when the owner adds them to their garage entry.",
+          resolveRegistrationVehicleStory(rv.vehicleStory, v.notes) ??
+          "Add a vehicle story on your registration to share more about this car at the event.",
         voting: buildVotingBlock({
           vehicleId: pid ?? "",
           smsNumber: displaySmsNumber,
@@ -522,9 +528,8 @@ export async function loadDashCardModelsForRegistrations(
             ownerPhotoUrl: null,
           },
           vehicleStory:
-            (gv.notes?.trim() || "").length > 0
-              ? gv.notes!.trim()
-              : "Vehicle details for this registration.",
+            gv.notes?.trim() ||
+            "Add a vehicle story on your registration to share more about this car at the event.",
           voting: buildVotingBlock({
             vehicleId: pid ?? "",
             smsNumber: displaySmsNumber,

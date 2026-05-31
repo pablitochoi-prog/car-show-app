@@ -1,25 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ColumnLayoutState = {
   hidden: Record<string, boolean>;
   widths: Record<string, number>;
 };
 
-const DEFAULT_MIN_WIDTH = 96;
+const DEFAULT_MIN_WIDTH = 72;
 
 export function useAdminTableColumns(
   tableId: string,
   columnIds: string[],
   defaults?: { minWidth?: Record<string, number> },
 ) {
-  const storageKey = `admin-table:${tableId}:layout`;
+  const storageKey = `admin-table:${tableId}:layout:v2`;
+  const layoutRef = useRef<ColumnLayoutState>({ hidden: {}, widths: {} });
 
   const [layout, setLayout] = useState<ColumnLayoutState>(() => ({
     hidden: {},
     widths: {},
   }));
+
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
 
   useEffect(() => {
     try {
@@ -32,6 +37,7 @@ export function useAdminTableColumns(
 
   const persist = useCallback(
     (next: ColumnLayoutState) => {
+      layoutRef.current = next;
       setLayout(next);
       try {
         localStorage.setItem(storageKey, JSON.stringify(next));
@@ -42,6 +48,11 @@ export function useAdminTableColumns(
     [storageKey],
   );
 
+  const minWidthFor = useCallback(
+    (columnId: string) => defaults?.minWidth?.[columnId] ?? DEFAULT_MIN_WIDTH,
+    [defaults?.minWidth],
+  );
+
   const isVisible = useCallback(
     (columnId: string) => !layout.hidden[columnId],
     [layout.hidden],
@@ -50,24 +61,56 @@ export function useAdminTableColumns(
   const toggleColumn = useCallback(
     (columnId: string, visible: boolean) => {
       persist({
-        ...layout,
-        hidden: { ...layout.hidden, [columnId]: !visible },
+        ...layoutRef.current,
+        hidden: { ...layoutRef.current.hidden, [columnId]: !visible },
       });
     },
-    [layout, persist],
+    [persist],
+  );
+
+  const hideColumn = useCallback(
+    (columnId: string) => {
+      persist({
+        ...layoutRef.current,
+        hidden: { ...layoutRef.current.hidden, [columnId]: true },
+      });
+    },
+    [persist],
   );
 
   const setColumnWidth = useCallback(
     (columnId: string, width: number) => {
       persist({
-        ...layout,
+        ...layoutRef.current,
         widths: {
-          ...layout.widths,
-          [columnId]: Math.max(width, defaults?.minWidth?.[columnId] ?? DEFAULT_MIN_WIDTH),
+          ...layoutRef.current.widths,
+          [columnId]: Math.max(width, minWidthFor(columnId)),
         },
       });
     },
-    [defaults?.minWidth, layout, persist],
+    [minWidthFor, persist],
+  );
+
+  const beginColumnResize = useCallback(
+    (columnId: string, clientX: number) => {
+      const startWidth = layoutRef.current.widths[columnId] ?? minWidthFor(columnId);
+
+      const onMove = (e: MouseEvent) => {
+        setColumnWidth(columnId, startWidth + (e.clientX - clientX));
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [minWidthFor, setColumnWidth],
   );
 
   const visibleColumnIds = columnIds.filter((id) => isVisible(id));
@@ -75,9 +118,11 @@ export function useAdminTableColumns(
   return {
     isVisible,
     toggleColumn,
+    hideColumn,
     setColumnWidth,
+    beginColumnResize,
     visibleColumnIds,
     columnWidth: (id: string) =>
-      layout.widths[id] ?? defaults?.minWidth?.[id] ?? DEFAULT_MIN_WIDTH,
+      layout.widths[id] ?? minWidthFor(id),
   };
 }
