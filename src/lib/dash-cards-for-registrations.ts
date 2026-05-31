@@ -21,7 +21,6 @@ import {
   guestVehicleStaffPhotoViewPath,
   registrationRegistrantStaffPhotoViewPath,
   registrationVehicleStaffPhotoViewPath,
-  syncAllRegistrationStaffPhotos,
 } from "@/lib/event-registration-staff-photos";
 import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
 import { vehicleQrStorageId } from "@/lib/vehicle-qr";
@@ -242,17 +241,6 @@ export async function loadDashCardModelsForRegistrations(
   }
 
   try {
-  // Ensure staff snapshots exist for private garage / profile photos used on dash cards.
-  await Promise.all(
-    uniqueRegIds.map(async (registrationId) => {
-      try {
-        await syncAllRegistrationStaffPhotos(registrationId);
-      } catch (e) {
-        console.error("dash card staff photo sync:", registrationId, e);
-      }
-    }),
-  );
-
   const [event, categoryRows, smsNumber, platformSponsor] = await Promise.all([
     prisma.event.findUnique({
       where: { id: eventId },
@@ -409,6 +397,7 @@ export async function loadDashCardModelsForRegistrations(
     .filter((r): r is NonNullable<typeof r> => !!r);
 
   const cards: DashCardModel[] = [];
+  const prefetchedVoteQrUrls = new Map<string, string>();
 
   for (const reg of ordered) {
     const resolved = resolveRegistrationContact(reg);
@@ -428,6 +417,10 @@ export async function loadDashCardModelsForRegistrations(
           : "Class — to be assigned";
 
       const pid = rv.publicVehicleId;
+      const persistedQrUrl = rv.vehicleQrUrl?.trim();
+      if (pid && persistedQrUrl) {
+        prefetchedVoteQrUrls.set(pid, persistedQrUrl);
+      }
       const votingHint = pid
         ? vehicleSmartRouteUrl(pid)
         : `${origin.replace(/\/$/, "")}/events/${eventId}`;
@@ -574,7 +567,14 @@ export async function loadDashCardModelsForRegistrations(
   const codes = cards
     .map((c) => c.vehicle.publicVehicleId)
     .filter((id): id is string => !!id?.trim());
-  const qrByCode = await ensureVehicleQrsForEntryCodes(codes);
+  const {
+    qrByCode,
+    qrEnsuredCount,
+    qrSkippedCount,
+    qrFailureCount,
+  } = await ensureVehicleQrsForEntryCodes(codes, {
+    prefetchedUrls: prefetchedVoteQrUrls,
+  });
 
   for (const card of cards) {
     const pid = card.vehicle.publicVehicleId;
@@ -583,14 +583,21 @@ export async function loadDashCardModelsForRegistrations(
     }
   }
 
+  let saleQrEnsuredCount = 0;
+  let saleQrFailureCount = 0;
   if (saleQrTargets.length > 0) {
-    await attachSaleQrsToDashCards(saleQrTargets, (code, qrImageUrl) => {
-      for (const card of cards) {
-        if (card.sale && card.vehicle.publicVehicleId === code) {
-          card.sale.qrImageUrl = qrImageUrl;
+    const saleStats = await attachSaleQrsToDashCards(
+      saleQrTargets,
+      (code, qrImageUrl) => {
+        for (const card of cards) {
+          if (card.sale && card.vehicle.publicVehicleId === code) {
+            card.sale.qrImageUrl = qrImageUrl;
+          }
         }
-      }
-    });
+      },
+    );
+    saleQrEnsuredCount = saleStats.saleQrEnsuredCount;
+    saleQrFailureCount = saleStats.saleQrFailureCount;
   }
 
   logPerfTiming({
@@ -600,6 +607,12 @@ export async function loadDashCardModelsForRegistrations(
     eventId,
     registrationCount: uniqueRegIds.length,
     cardCount: cards.length,
+    qrEnsuredCount,
+    qrSkippedCount,
+    qrFailureCount,
+    staffPhotoSyncSkipped: uniqueRegIds.length,
+    saleQrEnsuredCount,
+    saleQrFailureCount,
   });
 
   return cards;

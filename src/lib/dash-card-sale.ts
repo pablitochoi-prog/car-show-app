@@ -1,5 +1,9 @@
+import { mapWithConcurrency } from "@/lib/map-with-concurrency";
 import { vehicleSalePageUrl } from "@/lib/vehicle-entry-code";
-import { ensureVehicleSaleQrForStorage } from "@/lib/vehicle-qr";
+import { resolveVehicleSaleQrUrlForDashCard } from "@/lib/vehicle-qr";
+
+/** Bounded concurrency for dash-card sale QR inline generation. */
+export const DASH_CARD_SALE_QR_CONCURRENCY = 10;
 
 /** Sidebar label when a vehicle sale listing is active on the dash card. */
 export const DASH_CARD_SALE_BADGE_LABEL =
@@ -25,25 +29,44 @@ type SaleQrTarget = {
   storageId: string;
 };
 
-/** Attach sale QR images to dash cards that opted in to buyer inquiries. */
+export type DashCardSaleQrAttachResult = {
+  saleQrEnsuredCount: number;
+  saleQrFailureCount: number;
+};
+
+/** Attach sale QR images to dash cards — inline SVG only (no R2 upload on print load). */
 export async function attachSaleQrsToDashCards(
   targets: SaleQrTarget[],
   applyQr: (vehicleEntryCode: string, qrImageUrl: string) => void,
-): Promise<void> {
+): Promise<DashCardSaleQrAttachResult> {
   const unique = new Map<string, SaleQrTarget>();
   for (const target of targets) {
     if (!target.vehicleEntryCode.trim()) continue;
     unique.set(target.vehicleEntryCode, target);
   }
 
-  await Promise.all(
-    [...unique.entries()].map(async ([code, target]) => {
-      const qrImageUrl = await ensureVehicleSaleQrForStorage(
-        code,
-        target.eventId,
-        target.storageId,
-      );
-      if (qrImageUrl) applyQr(code, qrImageUrl);
-    }),
+  const entries = [...unique.entries()];
+  const rows = await mapWithConcurrency(
+    entries,
+    DASH_CARD_SALE_QR_CONCURRENCY,
+    async ([code]): Promise<"ensured" | "failed"> => {
+      try {
+        const qrImageUrl = await resolveVehicleSaleQrUrlForDashCard(code);
+        applyQr(code, qrImageUrl);
+        return "ensured";
+      } catch (e) {
+        console.warn("[dash-card-qr] sale QR ensure failed:", code, e);
+        return "failed";
+      }
+    },
   );
+
+  let saleQrEnsuredCount = 0;
+  let saleQrFailureCount = 0;
+  for (const outcome of rows) {
+    if (outcome === "ensured") saleQrEnsuredCount++;
+    else saleQrFailureCount++;
+  }
+
+  return { saleQrEnsuredCount, saleQrFailureCount };
 }

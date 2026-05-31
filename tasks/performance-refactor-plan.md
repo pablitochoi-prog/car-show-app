@@ -17,7 +17,7 @@ This plan turns audit findings into **seven implementation phases**, ordered to 
 | 3 | P0-2 | Public endpoint rate limits | Yes |
 | 4 | P0-3 | Async registration side effects | Yes |
 | 5 | P0-4 | Organizer registration pagination | Yes (2 commits: API, then page) |
-| 6 | P0-5 | Dash-card print improvements | Yes (2–3 commits) |
+| 6 | P0-5 | Dash-card print improvements | Yes — **Complete** |
 | 7 | P0-6 | Observability + route timing | Yes |
 
 **Deferred (post-launch or needs review):** P1-1 public events pagination, P2-1 ISR/caching layer, trigram search on `Event.name`, middleware matcher narrowing, full async PDF dash cards. Marked **needs review** where product or infra decision is unresolved.
@@ -604,8 +604,81 @@ Bounded query size and HTML payload regardless of event size.
 
 ## Phase 6 — P0-5: Dash-card print async / batch improvements
 
+**Status:** Complete (2026-05-31)
+
 ### Objective
-Reduce synchronous work when organizers open dash-card print for many registrations; avoid N× staff-photo sync on every page load.
+Reduce synchronous work when organizers open dash-card print for many registrations; avoid N× staff-photo sync and unbounded R2 QR uploads on every page load.
+
+### Before (dash-card load path)
+1. **`loadDashCardModelsForRegistrations`** — `Promise.all` over every registration id calling **`syncAllRegistrationStaffPhotos`** (R2 copy per registration, blocking).
+2. Deep Prisma **`registration.findMany`** with vehicles + guest JSON.
+3. Build card models; collect public vehicle codes.
+4. **`ensureVehicleQrsForEntryCodes`** — unbounded `Promise.all`: per code **`findVehicleEntryByCode`** + **`ensureVehicleQrForEntry`** (R2 upload + DB persist when missing).
+5. **`attachSaleQrsToDashCards`** — unbounded `Promise.all`: **`ensureVehicleSaleQrForStorage`** (R2 upload per sale listing).
+
+### After (dash-card load path)
+1. **No eager staff-photo sync** — rely on Phase 4 post-registration background sync, organizer PATCH sync, or lazy staff-photo view routes. Cards use existing `eventPhotoObjectKey` / staff-photo view URLs / http legacy URLs / placeholders.
+2. Same Prisma load; while building cards, collect **prefetched `vehicleQrUrl`** from member `RegistrationVehicle` rows.
+3. **`ensureVehicleQrsForEntryCodes`** (bounded concurrency **10**):
+   - **Skipped** when prefetched R2 URL exists for code (`qrSkippedCount`).
+   - **Ensured** inline SVG data URL only when missing (`resolveVehicleQrUrlForDashCard`) — **no R2 upload or DB write** on dash-card path (`qrEnsuredCount`).
+   - Individual failures logged; load continues (`qrFailureCount`).
+4. **`attachSaleQrsToDashCards`** (bounded concurrency **10**): inline SVG sale QRs only via **`resolveVehicleSaleQrUrlForDashCard`** — no R2 upload on print load.
+
+### Operations classification
+
+| Operation | Before | After |
+|-----------|--------|-------|
+| Staff photo R2 sync per registration | Blocking eager | **Skipped** on dash-card load |
+| Staff photo view URL resolution | Critical | **Critical** (unchanged) |
+| Vote QR — existing R2 URL | Re-lookup + skip upload | **Skipped** via prefetch (`qrSkippedCount`) |
+| Vote QR — missing URL | R2 upload + DB persist | **Inline SVG only** (bounded batch) |
+| Sale QR | R2 upload per card | **Inline SVG only** (bounded batch) |
+| Card model shape | Critical | **Unchanged** |
+| QR destination URLs | `/v/{code}`, `/v/{code}/sale` | **Unchanged** |
+
+### Performance logging (`dashCards.load`)
+Extended metadata (no PII):
+- `eventId`, `registrationCount`, `cardCount`
+- `qrEnsuredCount`, `qrSkippedCount`, `qrFailureCount`
+- `staffPhotoSyncSkipped` (count of registrations that would have been synced pre-Phase 6)
+- `saleQrEnsuredCount`, `saleQrFailureCount`
+
+### Files changed
+- `src/lib/dash-cards-for-registrations.ts` — remove eager sync; prefetch vote QR URLs; extended perf logs
+- `src/lib/ensure-dash-card-vehicle-qrs.ts` — prefetch skip + bounded inline ensure
+- `src/lib/dash-card-sale.ts` — bounded inline sale QR attach
+- `src/lib/vehicle-qr.ts` — `resolveVehicleQrUrlForDashCard`, `resolveVehicleSaleQrUrlForDashCard`
+- `src/lib/map-with-concurrency.ts` (new)
+- `src/lib/ensure-dash-card-vehicle-qrs.test.ts` (new)
+- `src/lib/dash-card-phase6.test.ts` (new)
+- `src/lib/vehicle-qr-dash-card.test.ts` (new)
+- `src/lib/map-with-concurrency.test.ts` (new)
+
+### Rollback strategy
+1. Restore `Promise.all(uniqueRegIds.map(syncAllRegistrationStaffPhotos))` at top of `loadDashCardModelsForRegistrations`.
+2. Revert `ensure-dash-card-vehicle-qrs.ts` to use `findVehicleEntryByCode` + `ensureVehicleQrForEntry` (R2 persist path).
+3. Revert `dash-card-sale.ts` to `ensureVehicleSaleQrForStorage` with unbounded `Promise.all`.
+4. No migration rollback needed.
+
+### Deferred follow-up
+- Persist vote/sale QRs to R2 in background when first generated inline (optional dedup across print sessions).
+- Full async PDF generation job (product change).
+
+### Verification
+```bash
+npm run test -- src/lib/ensure-dash-card-vehicle-qrs.test.ts src/lib/dash-card-phase6.test.ts src/lib/map-with-concurrency.test.ts src/lib/vehicle-qr-dash-card.test.ts
+npm run build
+```
+
+Manual: organizer dash-cards page for an event with 10+ registrations — cards render, vote QRs scan to `/v/{code}`, sale QRs to `/v/{code}/sale`, missing photos show placeholders, logs show `staffPhotoSyncSkipped` and lower `qrEnsuredCount` when URLs prefetched.
+
+### Separate commit
+**Yes** — `perf: batch dash-card QR ensure and remove eager staff-photo sync`
+
+---
+
+### Original plan notes (reference)
 
 ### Exact files likely involved
 - `src/lib/dash-cards-for-registrations.ts` — L229–237 `syncAllRegistrationStaffPhotos` loop

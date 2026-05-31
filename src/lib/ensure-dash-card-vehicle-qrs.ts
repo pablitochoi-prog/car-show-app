@@ -1,40 +1,69 @@
-import { findVehicleEntryByCode } from "@/lib/vehicle-entry-lookup";
-import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
-import {
-  ensureVehicleQrForEntry,
-  vehicleQrSvgDataUrl,
-} from "@/lib/vehicle-qr";
+import { mapWithConcurrency } from "@/lib/map-with-concurrency";
+import { resolveVehicleQrUrlForDashCard } from "@/lib/vehicle-qr";
 
-/** QR image URL for dash cards — R2 when available, inline SVG data URL as fallback. */
+/** Bounded concurrency for dash-card QR resolution (inline SVG or existing R2 URL). */
+export const DASH_CARD_QR_CONCURRENCY = 10;
+
+export type DashCardQrEnsureResult = {
+  qrByCode: Map<string, string>;
+  qrEnsuredCount: number;
+  qrSkippedCount: number;
+  qrFailureCount: number;
+};
+
+type DashCardQrEnsureOptions = {
+  /** Existing persisted vote QR URLs keyed by public vehicle id. */
+  prefetchedUrls?: Map<string, string>;
+};
+
+type QrEnsureRowResult =
+  | { code: string; url: string; outcome: "skipped" | "ensured" }
+  | { code: string; outcome: "failed" };
+
+/**
+ * QR image URLs for dash cards — reuse persisted R2 URLs when available;
+ * otherwise generate inline SVG data URLs (no R2 upload on this path).
+ */
 export async function ensureVehicleQrsForEntryCodes(
   codes: string[],
-): Promise<Map<string, string>> {
+  options: DashCardQrEnsureOptions = {},
+): Promise<DashCardQrEnsureResult> {
   const out = new Map<string, string>();
   const unique = [...new Set(codes.filter(Boolean))];
+  const prefetched = options.prefetchedUrls ?? new Map<string, string>();
 
-  await Promise.all(
-    unique.map(async (code) => {
-      try {
-        const entry = await findVehicleEntryByCode(code);
-        if (entry) {
-          const qr = await ensureVehicleQrForEntry(entry);
-          if (qr?.qrUrl) {
-            out.set(code, qr.qrUrl);
-            return;
-          }
-        }
-      } catch (e) {
-        console.error("vehicle QR ensure failed:", code, e);
+  const rows = await mapWithConcurrency(
+    unique,
+    DASH_CARD_QR_CONCURRENCY,
+    async (code): Promise<QrEnsureRowResult> => {
+      const existing = prefetched.get(code)?.trim();
+      if (existing) {
+        return { code, url: existing, outcome: "skipped" };
       }
 
       try {
-        const fallback = await vehicleQrSvgDataUrl(vehicleSmartRouteUrl(code));
-        out.set(code, fallback);
+        const url = await resolveVehicleQrUrlForDashCard(null, code);
+        return { code, url, outcome: "ensured" };
       } catch (e) {
-        console.error("vehicle QR inline fallback failed:", code, e);
+        console.warn("[dash-card-qr] vote QR ensure failed:", code, e);
+        return { code, outcome: "failed" };
       }
-    }),
+    },
   );
 
-  return out;
+  let qrEnsuredCount = 0;
+  let qrSkippedCount = 0;
+  let qrFailureCount = 0;
+
+  for (const row of rows) {
+    if (row.outcome === "failed") {
+      qrFailureCount++;
+      continue;
+    }
+    out.set(row.code, row.url);
+    if (row.outcome === "skipped") qrSkippedCount++;
+    else qrEnsuredCount++;
+  }
+
+  return { qrByCode: out, qrEnsuredCount, qrSkippedCount, qrFailureCount };
 }

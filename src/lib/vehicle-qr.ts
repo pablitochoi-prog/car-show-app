@@ -99,6 +99,52 @@ export async function ensureVehicleQrForEntry(
   return { qrUrl: publicUrl ?? inlineDataUrl, objectKey };
 }
 
+/**
+ * Vote/judge QR for dash-card print — reuse persisted R2 URL when present;
+ * otherwise inline SVG only (no R2 upload or DB write on the dash-card path).
+ */
+export async function resolveVehicleQrUrlForDashCard(
+  entry: Pick<
+    VehicleEntryRecord,
+    | "eventId"
+    | "vehicleEntryCode"
+    | "registrationVehicleId"
+    | "registrationId"
+    | "vehicleQrObjectKey"
+    | "vehicleQrUrl"
+  > | null,
+  vehicleEntryCode: string,
+): Promise<string> {
+  const code = vehicleEntryCode.trim();
+  if (!code) {
+    throw new Error("vehicle entry code required");
+  }
+
+  if (entry?.vehicleEntryCode) {
+    const storageId = vehicleQrStorageId(entry);
+    const objectKey = vehicleQrObjectKey(entry.eventId, storageId);
+    if (
+      entry.vehicleQrObjectKey === objectKey &&
+      entry.vehicleQrUrl?.trim()
+    ) {
+      return entry.vehicleQrUrl.trim();
+    }
+  }
+
+  return vehicleQrSvgDataUrl(vehicleSmartRouteUrl(code));
+}
+
+/** Sale listing QR for dash cards — inline SVG only (no R2 upload on print load). */
+export async function resolveVehicleSaleQrUrlForDashCard(
+  vehicleEntryCode: string,
+): Promise<string> {
+  const code = vehicleEntryCode.trim();
+  if (!code) {
+    throw new Error("vehicle entry code required");
+  }
+  return vehicleQrSvgDataUrl(vehicleSalePageUrl(code));
+}
+
 /** Sale listing QR for dash cards — separate SVG from the vote/judge smart-route QR. */
 export async function ensureVehicleSaleQrForStorage(
   vehicleEntryCode: string,
