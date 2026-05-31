@@ -13,6 +13,8 @@ import {
   checkTwilioInboundRateLimit,
   logRateLimitBlock,
 } from "@/lib/rate-limit";
+import { captureObservabilityException } from "@/lib/sentry-observability";
+import { logObservabilityError } from "@/lib/structured-logging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,7 +88,13 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "text/xml" },
     });
   } catch (err) {
-    console.error("[twilio-sms] Voting handler error:", err);
+    logObservabilityError({
+      source: "twilio_inbound_voting",
+      error: err,
+    });
+    captureObservabilityException(err, {
+      source: "twilio_inbound_voting",
+    });
     return new NextResponse(
       buildTwilioTwimlResponse(
         "Sorry, we could not process your vote right now. Please try again.",

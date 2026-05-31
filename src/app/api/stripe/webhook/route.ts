@@ -8,6 +8,8 @@ import { fulfillRegistrationFromCheckoutSession } from "@/lib/stripe-fulfill-che
 import { fulfillPlatformSetupFeeFromCheckoutSession } from "@/lib/stripe-fulfill-platform-setup-fee";
 import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
 import { isFullStripeChargeRefund } from "@/lib/stripe-refund-status";
+import { captureObservabilityException } from "@/lib/sentry-observability";
+import { logObservabilityError } from "@/lib/structured-logging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,7 +71,15 @@ export async function POST(request: Request) {
         break;
     }
   } catch (err) {
-    console.error(`[webhook] Error handling ${event.type}:`, err);
+    logObservabilityError({
+      source: "stripe_webhook",
+      error: err,
+      meta: { eventType: event.type },
+    });
+    captureObservabilityException(err, {
+      source: "stripe_webhook",
+      eventType: event.type,
+    });
     return NextResponse.json(
       { error: "Webhook handler error" },
       { status: 500 }

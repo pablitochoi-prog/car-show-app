@@ -2,6 +2,8 @@ import { after } from "next/server";
 import { runInteractiveTransaction } from "@/lib/db";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
+import { captureObservabilityException } from "@/lib/sentry-observability";
+import { logBackgroundTask } from "@/lib/structured-logging";
 import { syncVehicleEntryIndexForRegistration } from "@/lib/vehicle-entry-index";
 
 export type RegistrationPostSubmitContext = {
@@ -39,25 +41,32 @@ async function runSideEffect(
   try {
     await fn();
     const durationMs = Date.now() - startedAt;
-    console.info("[registration-post-submit] Side effect completed", {
+    logBackgroundTask({
+      name: sideEffect,
       route: ctx.route,
       eventId: ctx.eventId,
       registrationId: ctx.registrationId,
-      sideEffect,
       durationMs,
       success: true,
     });
     return { sideEffect, durationMs, success: true };
   } catch (error) {
     const durationMs = Date.now() - startedAt;
-    console.error("[registration-post-submit] Side effect failed", {
+    logBackgroundTask({
+      name: sideEffect,
+      route: ctx.route,
+      eventId: ctx.eventId,
+      registrationId: ctx.registrationId,
+      durationMs,
+      success: false,
+      error,
+    });
+    captureObservabilityException(error, {
+      source: "registration_post_submit",
       route: ctx.route,
       eventId: ctx.eventId,
       registrationId: ctx.registrationId,
       sideEffect,
-      durationMs,
-      success: false,
-      error,
     });
     return { sideEffect, durationMs, success: false };
   }

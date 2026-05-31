@@ -6,6 +6,10 @@ vi.mock("@/lib/vehicle-qr", () => ({
   resolveVehicleSaleQrUrlForDashCard: resolveSaleQrMock,
 }));
 
+vi.mock("@/lib/sentry-observability", () => ({
+  captureObservabilityException: vi.fn(),
+}));
+
 import { attachSaleQrsToDashCards } from "./dash-card-sale";
 
 describe("attachSaleQrsToDashCards", () => {

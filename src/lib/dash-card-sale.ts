@@ -1,4 +1,7 @@
 import { mapWithConcurrency } from "@/lib/map-with-concurrency";
+import { vehicleEntryCodePrefix } from "@/lib/perf-timing";
+import { captureObservabilityException } from "@/lib/sentry-observability";
+import { logDashCardQrFailure } from "@/lib/structured-logging";
 import { vehicleSalePageUrl } from "@/lib/vehicle-entry-code";
 import { resolveVehicleSaleQrUrlForDashCard } from "@/lib/vehicle-qr";
 
@@ -55,7 +58,11 @@ export async function attachSaleQrsToDashCards(
         applyQr(code, qrImageUrl);
         return "ensured";
       } catch (e) {
-        console.warn("[dash-card-qr] sale QR ensure failed:", code, e);
+        logDashCardQrFailure({ kind: "sale", vehicleEntryCode: code, error: e });
+        captureObservabilityException(e, {
+          source: "dash_card_sale_qr",
+          codePrefix: vehicleEntryCodePrefix(code) ?? "unknown",
+        });
         return "failed";
       }
     },

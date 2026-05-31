@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { InboundSmsMessage } from "@/lib/sms/types";
 import { hashPhoneNumber } from "@/lib/sms/hash-phone";
 import { vehicleEntryCodePrefix } from "@/lib/perf-timing";
+import { logRateLimitEvent } from "@/lib/structured-logging";
 import { hashSaleInquiryClientValue } from "@/lib/vehicle-sale-inquiry-client-hash";
 
 /** Sliding-window attempt timestamps keyed by opaque limiter key (no PII). */
@@ -112,14 +113,12 @@ export function logRateLimitBlock(args: {
   scope: string;
   retryAfterSeconds: number;
 }): void {
-  console.info(
-    JSON.stringify({
-      rateLimit: true,
-      route: args.route,
-      scope: args.scope,
-      retryAfterSeconds: args.retryAfterSeconds,
-    }),
-  );
+  logRateLimitEvent({
+    route: args.route,
+    scope: args.scope,
+    limited: true,
+    retryAfterSeconds: args.retryAfterSeconds,
+  });
 }
 
 export function rateLimitJsonResponse(denied: RateLimitDenied): NextResponse {

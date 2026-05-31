@@ -28,6 +28,10 @@ vi.mock("@/lib/vehicle-entry-index", () => ({
   syncVehicleEntryIndexForRegistration: syncIndexMock,
 }));
 
+vi.mock("@/lib/sentry-observability", () => ({
+  captureObservabilityException: vi.fn(),
+}));
+
 import {
   isRegistrationPostSubmitBackgroundEnabled,
   runRegistrationPostSubmitSideEffects,

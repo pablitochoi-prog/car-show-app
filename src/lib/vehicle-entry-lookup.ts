@@ -9,6 +9,10 @@ import {
   perfTimingStart,
   vehicleEntryCodePrefix,
 } from "@/lib/perf-timing";
+import {
+  isVehicleEntryIndexAnomalyLookupPath,
+  logVehicleEntryIndexAnomaly,
+} from "@/lib/structured-logging";
 
 function publicVehiclePhotoPath(vehicleEntryCode: string): string {
   return `/api/v/${encodeURIComponent(vehicleEntryCode)}/photo`;
@@ -440,5 +444,14 @@ export async function findVehicleEntryByCode(
       guestRegCount,
       eventId,
     });
+
+    if (isVehicleEntryIndexAnomalyLookupPath(lookupPath)) {
+      logVehicleEntryIndexAnomaly({
+        lookupPath,
+        codePrefix,
+        eventId,
+        guestRegCount,
+      });
+    }
   }
 }

@@ -1,4 +1,7 @@
 import { mapWithConcurrency } from "@/lib/map-with-concurrency";
+import { vehicleEntryCodePrefix } from "@/lib/perf-timing";
+import { captureObservabilityException } from "@/lib/sentry-observability";
+import { logDashCardQrFailure } from "@/lib/structured-logging";
 import { resolveVehicleQrUrlForDashCard } from "@/lib/vehicle-qr";
 
 /** Bounded concurrency for dash-card QR resolution (inline SVG or existing R2 URL). */
@@ -45,7 +48,11 @@ export async function ensureVehicleQrsForEntryCodes(
         const url = await resolveVehicleQrUrlForDashCard(null, code);
         return { code, url, outcome: "ensured" };
       } catch (e) {
-        console.warn("[dash-card-qr] vote QR ensure failed:", code, e);
+        logDashCardQrFailure({ kind: "vote", vehicleEntryCode: code, error: e });
+        captureObservabilityException(e, {
+          source: "dash_card_vote_qr",
+          codePrefix: vehicleEntryCodePrefix(code) ?? "unknown",
+        });
         return { code, outcome: "failed" };
       }
     },

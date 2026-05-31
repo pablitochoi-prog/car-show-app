@@ -18,7 +18,7 @@ This plan turns audit findings into **seven implementation phases**, ordered to 
 | 4 | P0-3 | Async registration side effects | Yes |
 | 5 | P0-4 | Organizer registration pagination | Yes (2 commits: API, then page) |
 | 6 | P0-5 | Dash-card print improvements | Yes — **Complete** |
-| 7 | P0-6 | Observability + route timing | Yes |
+| 7 | P0-6 | Observability + route timing | Yes — **Complete** |
 
 **Deferred (post-launch or needs review):** P1-1 public events pagination, P2-1 ISR/caching layer, trigram search on `Event.name`, middleware matcher narrowing, full async PDF dash cards. Marked **needs review** where product or infra decision is unresolved.
 
@@ -738,26 +738,109 @@ Dash-card page becomes read-heavy (DB + existing R2 URLs) instead of write-heavy
 
 ## Phase 7 — P0-6: Observability and route timing
 
-### Status: **Partial — structured timing baseline implemented (2026-05-31)**
+**Status:** Complete (2026-05-31)
 
-Sentry was **not** added (not previously configured). A minimal perf timing layer is in place for before/after refactor comparison.
+### Sentry status
+**Installed and configured** — `@sentry/nextjs@10.55.0` (Next.js 16 compatible).
 
-#### Implemented
+- Disabled when `SENTRY_DSN` is unset or `SENTRY_ENABLED=false`
+- `next.config.ts` wraps with `withSentryConfig` only when `SENTRY_DSN` is set (build works without DSN)
+- Source map upload disabled unless `SENTRY_AUTH_TOKEN` is set
+- Conservative defaults: `SENTRY_TRACES_SAMPLE_RATE=0.05`, `SENTRY_PROFILES_SAMPLE_RATE=0`
+- `serverExternalPackages: ["@opentelemetry/api"]` for Turbopack/Next 16 stability
+
+### Environment variables (Vercel / `.env.local`)
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `SENTRY_DSN` | For Sentry | Project DSN from Sentry.io — never commit |
+| `SENTRY_ENABLED` | No | Set `false` to disable without removing DSN |
+| `SENTRY_ENVIRONMENT` | No | Defaults to `VERCEL_ENV` or `NODE_ENV` |
+| `SENTRY_TRACES_SAMPLE_RATE` | No | Default `0.05` (5%) |
+| `SENTRY_PROFILES_SAMPLE_RATE` | No | Default `0` (off) |
+| `SENTRY_ORG` | For source maps | Build-time only |
+| `SENTRY_PROJECT` | For source maps | Build-time only |
+| `SENTRY_AUTH_TOKEN` | For source maps | Build-time only — never commit |
+
+### Structured log shapes (Vercel stdout — filter by JSON field)
+
+| Filter | Shape | Where |
+|--------|-------|-------|
+| `"perf":true` | `{ perf, name, durationMs, success, ... }` | Hot routes, lookup, dash cards, organizer registrations |
+| `"rateLimit":true` | `{ rateLimit, route, scope, limited, retryAfterSeconds? }` | Public rate limit blocks |
+| `"backgroundTask":true` | `{ backgroundTask, name, route, eventId, registrationId, durationMs, success, errorType?, errorMessage? }` | Registration post-submit side effects |
+| `"dashCardQr":true` | `{ dashCardQr, kind, codePrefix, errorType, errorMessage }` | Dash-card vote/sale QR failures |
+| `"vehicleEntryIndex":true` | `{ vehicleEntryIndex, lookupPath, codePrefix?, eventId?, guestRegCount? }` | Index miss / stale fallback |
+| `"observability":true` | `{ observability, source, errorType, errorMessage, ... }` | Twilio inbound / Stripe webhook handler errors |
+
+**Never logged:** names, emails, phones, addresses, payment data, raw Stripe IDs, full vehicle entry codes, Twilio message bodies.
+
+### Sentry error capture (when DSN configured)
+
+| Source | Trigger |
+|--------|---------|
+| `registration_post_submit` | Side effect failure (staff photos, email, index sync) |
+| `dash_card_vote_qr` / `dash_card_sale_qr` | Individual QR generation failure |
+| `twilio_inbound_voting` | Unexpected voting handler exception |
+| `stripe_webhook` | Unexpected handler exception after signature verified |
+
+**Not captured:** validation 400s, expected 404/403, rate-limit 429s, Twilio signature failures, Stripe signature failures, VehicleEntryIndex anomaly warnings (structured log only — avoids Sentry noise).
+
+### Files changed
+- `src/lib/structured-logging.ts` (new) — sanitization + standardized log helpers
+- `src/lib/structured-logging.test.ts` (new)
+- `src/lib/sentry-observability.ts` (new) — init options + safe `captureObservabilityException`
+- `src/lib/sentry-observability.test.ts` (new)
+- `sentry.server.config.ts`, `sentry.edge.config.ts` (new)
+- `src/instrumentation.ts`, `src/instrumentation-client.ts` (new)
+- `next.config.ts` — conditional Sentry wrapper + OpenTelemetry external package
+- `package.json` — `@sentry/nextjs`
+- `.env.example`
+- `src/lib/registration-post-submit.ts` — `backgroundTask` logs + Sentry on failure
+- `src/lib/rate-limit.ts` — `limited: true` on rate limit events
+- `src/lib/ensure-dash-card-vehicle-qrs.ts`, `src/lib/dash-card-sale.ts` — `dashCardQr` logs + Sentry
+- `src/lib/vehicle-entry-lookup.ts` — `vehicleEntryIndex` anomaly warnings
+- `src/app/api/sms/twilio/inbound/route.ts` — structured + Sentry on handler errors
+- `src/app/api/stripe/webhook/route.ts` — structured + Sentry on handler errors
+
+### Rollback strategy
+1. **Quick:** Unset `SENTRY_DSN` or set `SENTRY_ENABLED=false` — no Sentry init, no captures
+2. **Full:** Remove `@sentry/nextjs`, revert `next.config.ts`, delete Sentry/instrumentation files
+3. Structured logging changes are behavior-preserving and can remain
+
+### Verification
+```bash
+npm run test -- src/lib/perf-timing.test.ts src/lib/rate-limit.test.ts src/lib/registration-post-submit.test.ts src/lib/structured-logging.test.ts src/lib/sentry-observability.test.ts
+npm run test -- src/lib/ensure-dash-card-vehicle-qrs.test.ts src/lib/dash-card-phase6.test.ts src/lib/map-with-concurrency.test.ts src/lib/vehicle-qr-dash-card.test.ts
+npm run build   # without SENTRY_DSN
+SENTRY_DSN=https://example@sentry.io/1 npm run build   # optional local check
+```
+
+### Deferred follow-up
+- Sentry alert rules (manual in Sentry dashboard)
+- Route timing on sale inquiry POST
+- Staging-only Prisma slow-query logging (`PRISMA_LOG_QUERY_MS`)
+- Aggregate alerting on repeated `vehicleEntryIndex` anomalies
+
+### Separate commit
+**Yes** — `chore: add Sentry and structured observability logging`
+
+---
+
+### Original baseline (2026-05-31) — perf timing layer
+
+#### Implemented (unchanged)
 
 | Component | Location |
 |-----------|----------|
-| Timing helper | `src/lib/perf-timing.ts` — `logPerfTiming`, `withPerfTiming`, `withPerfTimingResponse`, `vehicleEntryCodePrefix` |
-| Unit tests | `src/lib/perf-timing.test.ts` |
-| Vehicle entry lookup | `src/lib/vehicle-entry-lookup.ts` — logs `lookupPath`, `guestRegCount`, `codePrefix`, `eventId` |
-| Member registration POST | `src/app/api/events/[id]/register/route.ts` — `api.events.register` |
-| Guest registration POST | `src/app/api/events/[id]/register-guest/route.ts` — `api.events.register-guest` |
-| Web vote POST | `src/app/api/v/[vehicleEntryCode]/vote/route.ts` — `api.v.vote` |
-| Organizer registrations load | `src/app/organizer/events/[id]/registrations/page.tsx` — `page.organizer.registrations.load` |
-| Dash-card generation | `src/lib/dash-cards-for-registrations.ts` — `dashCards.load` |
+| Timing helper | `src/lib/perf-timing.ts` |
+| Vehicle entry lookup | `src/lib/vehicle-entry-lookup.ts` |
+| Member/guest registration POST | register routes — `withPerfTimingResponse` |
+| Web vote POST | vote route |
+| Organizer registrations load | registrations page |
+| Dash-card generation | `dashCards.load` with Phase 6 metadata |
 
-#### Log format (Vercel stdout)
-
-Each line is JSON with `"perf": true`:
+#### Example perf log
 
 ```json
 {
@@ -772,21 +855,9 @@ Each line is JSON with `"perf": true`:
 }
 ```
 
-**Safe fields only** — no emails, phones, full vehicle codes, or payment data. Vote/lookup logs use **code prefix** (e.g. `AXY`), not full entry codes.
+---
 
-#### Querying in Vercel
-
-Logs → filter `"perf":true` or by `name` (e.g. `api.events.register-guest`). Compare `durationMs` distributions before and after Phases 1–6 refactors.
-
-#### Still TODO (original Phase 7 scope)
-
-- Sentry / error tracking
-- Route timing on sale inquiry POST and Twilio inbound
-- Staging-only Prisma slow-query logging (`PRISMA_LOG_QUERY_MS`)
-- Alert rules
-
-### Objective (remaining)
-Gain visibility into errors and slow routes before/at launch; measure impact of Phases 1–6.
+### Original plan notes (reference)
 
 ### Exact files likely involved
 - `sentry.client.config.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts` (new — Sentry Next.js wizard)
@@ -858,7 +929,7 @@ Phase 7 should start early (Sentry) but full route timing after Phase 4 is ideal
 | 4 | Phase 4 — async registration | p95 improved; emails still send |
 | 5 | Phase 5 — organizer pagination | Large event tested |
 | 6 | Phase 6 — dash-card batch | Organizer print workflow OK |
-| 7 | Phase 7 — observability | Timing baseline deployed; Sentry optional later |
+| 7 | Phase 7 — observability | Timing + Sentry baseline deployed |
 
 **Early win:** Phase 7 **timing baseline** landed before Phase 1 — use Vercel logs to measure refactor impact. Sentry can still be added as **Phase 7b** when ready.
 
@@ -934,4 +1005,4 @@ Implement Phase 7b from tasks/performance-refactor-plan.md: add @sentry/nextjs f
 
 ---
 
-*Phase 7 timing baseline implemented 2026-05-31. Remaining phases: planning only until implemented.*
+*All seven performance phases implemented as of 2026-05-31.*

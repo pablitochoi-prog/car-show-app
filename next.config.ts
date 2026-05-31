@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@opentelemetry/api"],
   experimental: {
     middlewareClientMaxBodySize: "12mb",
   },
@@ -39,4 +41,19 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const hasSentryDsn = Boolean(process.env.SENTRY_DSN?.trim());
+
+export default hasSentryDsn
+  ? withSentryConfig(nextConfig, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      silent: !process.env.CI,
+      widenClientFileUpload: true,
+      disableLogger: true,
+      automaticVercelMonitors: false,
+      sourcemaps: {
+        disable: !process.env.SENTRY_AUTH_TOKEN?.trim(),
+      },
+    })
+  : nextConfig;

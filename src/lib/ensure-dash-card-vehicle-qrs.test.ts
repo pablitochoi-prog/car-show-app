@@ -6,6 +6,10 @@ vi.mock("@/lib/vehicle-qr", () => ({
   resolveVehicleQrUrlForDashCard: resolveVoteQrMock,
 }));
 
+vi.mock("@/lib/sentry-observability", () => ({
+  captureObservabilityException: vi.fn(),
+}));
+
 import {
   DASH_CARD_QR_CONCURRENCY,
   ensureVehicleQrsForEntryCodes,
