@@ -12,12 +12,20 @@ import {
   resolveRequestClientMetadata,
   SMS_NOTIFICATIONS_OPT_IN_SOURCES,
 } from "@/lib/sms-notifications-consent";
+import { withPerfTimingResponse } from "@/lib/perf-timing";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: RouteParams) {
   const { id: eventId } = await params;
+  return withPerfTimingResponse(
+    "api.events.register-guest",
+    { eventId },
+    async () => postRegisterGuest(request, eventId),
+  );
+}
 
+async function postRegisterGuest(request: Request, eventId: string) {
   let body: unknown;
   try {
     body = await request.json();

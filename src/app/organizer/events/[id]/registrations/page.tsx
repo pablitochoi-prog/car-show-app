@@ -17,6 +17,7 @@ import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admi
 import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
 import { EventSaleInquirySummary } from "@/components/organizer/event-sale-inquiry-summary";
 import { loadEventSaleInquiryStats } from "@/lib/event-sale-inquiry-stats";
+import { withPerfTiming } from "@/lib/perf-timing";
 
 export default async function EventRegistrationsPage({
   params,
@@ -55,53 +56,62 @@ export default async function EventRegistrationsPage({
     : Promise.resolve(null);
 
   const [rawRows, platformFee, eventMeta, platformFeeStatus, saleInquiryStats] =
-    await Promise.all([
-    prisma.registration.findMany({
-      where: { eventId },
-      select: {
-        id: true,
-        userId: true,
-        status: true,
-        paymentStatus: true,
-        amountCents: true,
-        platformFeeCents: true,
-        refundedCents: true,
-        createdAt: true,
-        user: {
-          select: {
-            name: true,
-            email: true,
-            phone: true,
-            firstName: true,
-            lastName: true,
-            status: true,
-          },
-        },
-        tier: { select: { name: true, priceCents: true } },
-        vehicles: { select: { id: true } },
-        guestFirstName: true,
-        guestLastName: true,
-        guestEmail: true,
-        guestPhone: true,
-        registrantFirstName: true,
-        registrantLastName: true,
-        registrantEmail: true,
-        registrantPhone: true,
-        guestVehicles: true,
-      },
-      orderBy: { createdAt: "asc" },
-    }),
-    getPlatformFee(),
-    prisma.event.findUnique({
-      where: { id: eventId },
-      select: {
-        registrationFeeType: true,
-        registrationFeeDollars: true,
-      },
-    }),
-    getEventPlatformFeeStatus(eventId),
-    saleInquiryStatsPromise,
-  ]);
+    await withPerfTiming(
+      "page.organizer.registrations.load",
+      { eventId },
+      async () =>
+        Promise.all([
+          prisma.registration.findMany({
+            where: { eventId },
+            select: {
+              id: true,
+              userId: true,
+              status: true,
+              paymentStatus: true,
+              amountCents: true,
+              platformFeeCents: true,
+              refundedCents: true,
+              createdAt: true,
+              user: {
+                select: {
+                  name: true,
+                  email: true,
+                  phone: true,
+                  firstName: true,
+                  lastName: true,
+                  status: true,
+                },
+              },
+              tier: { select: { name: true, priceCents: true } },
+              vehicles: { select: { id: true } },
+              guestFirstName: true,
+              guestLastName: true,
+              guestEmail: true,
+              guestPhone: true,
+              registrantFirstName: true,
+              registrantLastName: true,
+              registrantEmail: true,
+              registrantPhone: true,
+              guestVehicles: true,
+            },
+            orderBy: { createdAt: "asc" },
+          }),
+          getPlatformFee(),
+          prisma.event.findUnique({
+            where: { id: eventId },
+            select: {
+              registrationFeeType: true,
+              registrationFeeDollars: true,
+            },
+          }),
+          getEventPlatformFeeStatus(eventId),
+          saleInquiryStatsPromise,
+        ]),
+      (result) => ({
+        success: result[2] != null,
+        registrationCount: result[0].length,
+      }),
+    );
 
   if (!eventMeta) notFound();
 

@@ -4,6 +4,11 @@ import {
   attachSaleQrsToDashCards,
   buildDashCardSaleModel,
 } from "@/lib/dash-card-sale";
+import {
+  logPerfTiming,
+  perfTimingElapsed,
+  perfTimingStart,
+} from "@/lib/perf-timing";
 import { ensureVehicleQrsForEntryCodes } from "@/lib/ensure-dash-card-vehicle-qrs";
 import {
   formatOwnerCityState,
@@ -222,9 +227,21 @@ export async function loadDashCardModelsForRegistrations(
   eventId: string,
   registrationIds: string[],
 ): Promise<DashCardModel[]> {
+  const start = perfTimingStart();
   const uniqueRegIds = [...new Set(registrationIds.filter(Boolean))];
-  if (uniqueRegIds.length === 0) return [];
+  if (uniqueRegIds.length === 0) {
+    logPerfTiming({
+      name: "dashCards.load",
+      durationMs: perfTimingElapsed(start),
+      success: true,
+      eventId,
+      registrationCount: 0,
+      cardCount: 0,
+    });
+    return [];
+  }
 
+  try {
   // Ensure staff snapshots exist for private garage / profile photos used on dash cards.
   await Promise.all(
     uniqueRegIds.map(async (registrationId) => {
@@ -576,5 +593,24 @@ export async function loadDashCardModelsForRegistrations(
     });
   }
 
+  logPerfTiming({
+    name: "dashCards.load",
+    durationMs: perfTimingElapsed(start),
+    success: true,
+    eventId,
+    registrationCount: uniqueRegIds.length,
+    cardCount: cards.length,
+  });
+
   return cards;
+  } catch (err) {
+    logPerfTiming({
+      name: "dashCards.load",
+      durationMs: perfTimingElapsed(start),
+      success: false,
+      eventId,
+      registrationCount: uniqueRegIds.length,
+    });
+    throw err;
+  }
 }

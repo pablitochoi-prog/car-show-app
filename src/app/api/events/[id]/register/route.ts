@@ -22,18 +22,26 @@ import {
   SMS_NOTIFICATIONS_OPT_IN_SOURCES,
   userHasActiveSmsNotificationsOptIn,
 } from "@/lib/sms-notifications-consent";
+import { withPerfTimingResponse } from "@/lib/perf-timing";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: RouteParams) {
+  const { id: eventId } = await params;
+  return withPerfTimingResponse(
+    "api.events.register",
+    { eventId },
+    async () => postRegister(request, eventId),
+  );
+}
+
+async function postRegister(request: Request, eventId: string) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const writeDenied = writeAccessDeniedResponse(user);
   if (writeDenied) return writeDenied;
-
-  const { id: eventId } = await params;
 
   let body: unknown;
   try {

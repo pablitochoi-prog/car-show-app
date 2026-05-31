@@ -3,6 +3,12 @@ import type { GuestVehicleRecord } from "@/lib/event-sms-vehicle-id";
 import { prisma } from "@/lib/db";
 import { normalizeVehicleEntryCode } from "@/lib/vehicle-entry-code";
 import type { VehicleEntryRecord } from "@/lib/vehicle-entry-types";
+import {
+  logPerfTiming,
+  perfTimingElapsed,
+  perfTimingStart,
+  vehicleEntryCodePrefix,
+} from "@/lib/perf-timing";
 
 function publicVehiclePhotoPath(vehicleEntryCode: string): string {
   return `/api/v/${encodeURIComponent(vehicleEntryCode)}/photo`;
@@ -148,73 +154,109 @@ function buildFromGuest(
 export async function findVehicleEntryByCode(
   rawCode: string,
 ): Promise<VehicleEntryRecord | null> {
-  const code = normalizeVehicleEntryCode(rawCode);
-  if (!code) return null;
+  const start = perfTimingStart();
+  const codePrefix = vehicleEntryCodePrefix(rawCode);
+  let lookupPath = "not_found";
+  let guestRegCount = 0;
+  let eventId: string | undefined;
+  let found = false;
 
-  const rv = await prisma.registrationVehicle.findUnique({
-    where: { publicVehicleId: code },
-    include: {
-      vehicle: true,
-      eventCategory: { include: { category: { select: { name: true } } } },
-      registration: { include: { event: { select: eventSelect } } },
-    },
-  });
-  if (rv?.publicVehicleId) {
-    return buildFromRegistrationVehicle(rv, code);
-  }
+  try {
+    const code = normalizeVehicleEntryCode(rawCode);
+    if (!code) {
+      lookupPath = "invalid";
+      return null;
+    }
 
-  const prefix = code.split("-")[0];
-  if (!prefix) return null;
-
-  const events = await prisma.event.findMany({
-    where: { smsVotePrefix: prefix },
-    select: { id: true },
-  });
-  if (events.length === 0) return null;
-
-  const eventIds = events.map((e) => e.id);
-  const [categoryRows, guestRegs] = await Promise.all([
-    prisma.eventCategory.findMany({
-      where: { eventId: { in: eventIds } },
-      select: {
-        id: true,
-        customName: true,
-        category: { select: { name: true } },
+    const rv = await prisma.registrationVehicle.findUnique({
+      where: { publicVehicleId: code },
+      include: {
+        vehicle: true,
+        eventCategory: { include: { category: { select: { name: true } } } },
+        registration: { include: { event: { select: eventSelect } } },
       },
-    }),
-    prisma.registration.findMany({
-      where: {
-        eventId: { in: eventIds },
-        userId: null,
-        NOT: { guestVehicles: { equals: Prisma.DbNull } },
-      },
-      select: {
-        id: true,
-        eventId: true,
-        guestVehicles: true,
-        event: { select: eventSelect },
-      },
-    }),
-  ]);
+    });
+    if (rv?.publicVehicleId) {
+      lookupPath = "registration_vehicle";
+      eventId = rv.registration.eventId;
+      found = true;
+      return buildFromRegistrationVehicle(rv, code);
+    }
 
-  const categoryMap = new Map(
-    categoryRows.map((r) => [
-      r.id,
-      r.customName?.trim() || r.category?.name || "Class",
-    ]),
-  );
+    const prefix = code.split("-")[0];
+    if (!prefix) {
+      lookupPath = "invalid";
+      return null;
+    }
 
-  for (const reg of guestRegs) {
-    const list = Array.isArray(reg.guestVehicles)
-      ? (reg.guestVehicles as GuestVehicleRecord[])
-      : [];
-    for (let i = 0; i < list.length; i++) {
-      const gv = list[i]!;
-      if (gv.publicVehicleId?.trim().toUpperCase() === code) {
-        return buildFromGuest(reg, gv, i, code, categoryMap);
+    const events = await prisma.event.findMany({
+      where: { smsVotePrefix: prefix },
+      select: { id: true },
+    });
+    if (events.length === 0) {
+      lookupPath = "prefix_miss";
+      return null;
+    }
+
+    const eventIds = events.map((e) => e.id);
+    const [categoryRows, guestRegs] = await Promise.all([
+      prisma.eventCategory.findMany({
+        where: { eventId: { in: eventIds } },
+        select: {
+          id: true,
+          customName: true,
+          category: { select: { name: true } },
+        },
+      }),
+      prisma.registration.findMany({
+        where: {
+          eventId: { in: eventIds },
+          userId: null,
+          NOT: { guestVehicles: { equals: Prisma.DbNull } },
+        },
+        select: {
+          id: true,
+          eventId: true,
+          guestVehicles: true,
+          event: { select: eventSelect },
+        },
+      }),
+    ]);
+
+    guestRegCount = guestRegs.length;
+    lookupPath = "guest_scan";
+
+    const categoryMap = new Map(
+      categoryRows.map((r) => [
+        r.id,
+        r.customName?.trim() || r.category?.name || "Class",
+      ]),
+    );
+
+    for (const reg of guestRegs) {
+      const list = Array.isArray(reg.guestVehicles)
+        ? (reg.guestVehicles as GuestVehicleRecord[])
+        : [];
+      for (let i = 0; i < list.length; i++) {
+        const gv = list[i]!;
+        if (gv.publicVehicleId?.trim().toUpperCase() === code) {
+          eventId = reg.eventId;
+          found = true;
+          return buildFromGuest(reg, gv, i, code, categoryMap);
+        }
       }
     }
-  }
 
-  return null;
+    return null;
+  } finally {
+    logPerfTiming({
+      name: "findVehicleEntryByCode",
+      durationMs: perfTimingElapsed(start),
+      success: found,
+      codePrefix,
+      lookupPath,
+      guestRegCount,
+      eventId,
+    });
+  }
 }

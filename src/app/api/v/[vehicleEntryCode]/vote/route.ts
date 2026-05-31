@@ -6,6 +6,10 @@ import {
   getOrCreateVoterKey,
   recordPublicVote,
 } from "@/lib/vehicle-voting";
+import {
+  vehicleEntryCodePrefix,
+  withPerfTimingResponse,
+} from "@/lib/perf-timing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,10 +24,26 @@ type RouteParams = {
 
 export async function POST(request: Request, { params }: RouteParams) {
   const { vehicleEntryCode } = await params;
+  const codePrefix = vehicleEntryCodePrefix(vehicleEntryCode);
+  const timingMeta: { codePrefix?: string; eventId?: string } = { codePrefix };
+  return withPerfTimingResponse(
+    "api.v.vote",
+    () => timingMeta,
+    async () => postVote(request, vehicleEntryCode, timingMeta),
+  );
+}
+
+async function postVote(
+  request: Request,
+  vehicleEntryCode: string,
+  timingMeta: { eventId?: string },
+) {
   const entry = await findVehicleEntryByCode(vehicleEntryCode);
   if (!entry) {
     return NextResponse.json({ error: "Vehicle entry not found." }, { status: 404 });
   }
+
+  timingMeta.eventId = entry.eventId;
 
   let body: unknown;
   try {
