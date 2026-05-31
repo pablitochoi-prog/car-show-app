@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import {
   type PickListOption,
 } from "@/components/forms/event-multi-pick-list";
 import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
+import { TrophyCountStepper } from "@/components/forms/trophy-count-stepper";
 import {
   EVENT_CATEGORIES_CHANGED,
   notifyEventCategoriesChanged,
@@ -70,11 +71,62 @@ export function EventCategoriesSection({
     onCountChange?.(eventCategories.length);
   }, [eventCategories.length, onCountChange]);
 
-  async function applyCategoriesResponse(categories: EventCategoryRow[]) {
+  async function applyCategoriesResponse(
+    categories: EventCategoryRow[],
+    options?: { refreshAvailable?: boolean },
+  ) {
     await setEventCategoriesCache(eventId, categories);
     notifyEventCategoriesChanged(eventId);
-    if (editing) await mutateAvailable();
+    if (options?.refreshAvailable !== false && editing) {
+      await mutateAvailable();
+    }
   }
+
+  const patchTrophyCountLocally = useCallback(
+    (ecId: string, count: number) => {
+      const next = eventCategories.map((ec) =>
+        ec.id === ecId ? { ...ec, trophyCount: count } : ec,
+      );
+      void setEventCategoriesCache(eventId, next);
+    },
+    [eventCategories, eventId],
+  );
+
+  const persistTrophyCount = useCallback(
+    async (ecId: string, count: number) => {
+      const res = await fetch(`/api/events/${eventId}/categories`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ eventCategoryId: ecId, trophyCount: count }),
+      });
+      const data = (await res.json()) as {
+        categories?: EventCategoryRow[];
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Could not save trophy count.");
+      }
+      if (data.categories) {
+        await setEventCategoriesCache(eventId, data.categories);
+      }
+    },
+    [eventId],
+  );
+
+  const handleTrophySave = useCallback(
+    async (ecId: string, count: number) => {
+      try {
+        setError("");
+        await persistTrophyCount(ecId, count);
+      } catch {
+        setError("Could not save trophy count. Restored previous value.");
+        await mutateCategories();
+        throw new Error("save failed");
+      }
+    },
+    [mutateCategories, persistTrophyCount],
+  );
 
   async function handleAddSelected(categoryIds: string[]) {
     setBusy(true);
@@ -151,17 +203,6 @@ export function EventCategoriesSection({
     }
   }
 
-  async function handleUpdateTrophyCount(ecId: string, count: number) {
-    const res = await fetch(`/api/events/${eventId}/categories`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ eventCategoryId: ecId, trophyCount: count }),
-    });
-    const data = (await res.json()) as { categories?: EventCategoryRow[] };
-    if (data.categories) await applyCategoriesResponse(data.categories);
-  }
-
   return (
     <div className="space-y-4">
       <EventSectionEditToolbar
@@ -208,20 +249,13 @@ export function EventCategoriesSection({
                   >
                     Place trophies:
                   </Label>
-                  <Input
+                  <TrophyCountStepper
                     id={`tc-${ec.id}`}
-                    type="number"
-                    min={1}
-                    max={20}
                     value={ec.trophyCount}
-                    onChange={(e) => {
-                      const val = Number.parseInt(e.target.value, 10);
-                      if (Number.isFinite(val) && val >= 1 && val <= 20) {
-                        void handleUpdateTrophyCount(ec.id, val);
-                      }
-                    }}
-                    className="h-8 w-16 text-center tabular-nums"
                     disabled={busy}
+                    aria-label={`Place trophies for ${ec.name}`}
+                    onChange={(count) => patchTrophyCountLocally(ec.id, count)}
+                    onSave={(count) => handleTrophySave(ec.id, count)}
                   />
                 </div>
               ) : (

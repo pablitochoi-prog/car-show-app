@@ -58,6 +58,9 @@ import { formatEventShowNumber } from "@/lib/event-show-number";
 /** 12:00 AM in stored `HH:MM` form (QuarterHourTimePickers show 12-hour labels). */
 const DEFAULT_SCHEDULE_TIME = normalizeTimeToFiveMinutes("00:00");
 
+/** Default listing go-live time when none is chosen (matches time picker placeholder). */
+const DEFAULT_LISTING_SCHEDULE_TIME = normalizeTimeToFiveMinutes("12:00");
+
 export type OrgOption = {
   id: string;
   name: string;
@@ -242,8 +245,16 @@ function buildListingLocal(dateStr: string, timeStr: string): string {
     ? normalizeTimeToFiveMinutes(timeStr)
     : "";
   if (!d) return "";
-  if (!t) return `${d}T`;
+  if (!t) return "";
   return normalizeDatetimeLocalToFiveMinutes(`${d}T${t}`);
+}
+
+/** Tomorrow at noon local — sensible default when switching to Scheduled listing. */
+function defaultListingScheduleLocal(): { date: string; time: string } {
+  return {
+    date: addOneCalendarDay(todayLocalYmd()),
+    time: DEFAULT_LISTING_SCHEDULE_TIME,
+  };
 }
 
 function listingStatusSelectClass(statusValue: string) {
@@ -651,40 +662,27 @@ export function EventForm({
       );
       setListingScheduledDate(sp.date);
       setListingScheduledTime(sp.time);
+    } else if (next === "SCHEDULED") {
+      if (!listingScheduledDate.trim() && !listingScheduledTime.trim()) {
+        const def = defaultListingScheduleLocal();
+        setListingScheduledDate(def.date);
+        setListingScheduledTime(def.time);
+      } else if (listingScheduledDate.trim() && !listingScheduledTime.trim()) {
+        setListingScheduledTime(DEFAULT_LISTING_SCHEDULE_TIME);
+      } else if (!listingScheduledDate.trim() && listingScheduledTime.trim()) {
+        setListingScheduledDate(addOneCalendarDay(todayLocalYmd()));
+      }
     }
   }
 
   function handleListingScheduledChange(nextDate: string, nextTime: string) {
-    const prevCombined = buildListingLocal(
-      listingScheduledDate,
-      listingScheduledTime
-    );
-    const normalized = buildListingLocal(nextDate, nextTime);
-    const prevAt =
-      prevCombined.trim() !== "" ? new Date(prevCombined) : null;
-    const nextAt =
-      normalized.trim() !== "" ? new Date(normalized) : null;
-    const now = Date.now();
-    const wasPastOrEmpty =
-      !prevAt ||
-      Number.isNaN(prevAt.getTime()) ||
-      prevAt.getTime() <= now;
-    const isFuture =
-      nextAt != null &&
-      !Number.isNaN(nextAt.getTime()) &&
-      nextAt.getTime() > now;
+    const resolvedTime =
+      nextDate.trim() && !nextTime.trim()
+        ? DEFAULT_LISTING_SCHEDULE_TIME
+        : nextTime;
 
     setListingScheduledDate(nextDate);
-    setListingScheduledTime(nextTime);
-
-    if (status === "SCHEDULED" && wasPastOrEmpty && isFuture) {
-      setStatus("PUBLISHED");
-      const sp = splitLocalDatetimeString(
-        toDatetimeLocalValue(new Date().toISOString())
-      );
-      setListingScheduledDate(sp.date);
-      setListingScheduledTime(sp.time);
-    }
+    setListingScheduledTime(resolvedTime);
   }
 
   function addScheduleRow() {
@@ -817,8 +815,14 @@ export function EventForm({
       }
 
       if (!statusReadOnly && status === "SCHEDULED") {
+        const listingDate = listingScheduledDate.trim();
+        const listingTime = listingScheduledTime.trim();
+        if (!listingDate || !listingTime) {
+          setScheduledListingDialogOpen(true);
+          return;
+        }
         const iso = datetimeLocalToIso(
-          buildListingLocal(listingScheduledDate, listingScheduledTime)
+          buildListingLocal(listingDate, listingTime)
         );
         if (!iso || new Date(iso).getTime() <= Date.now()) {
           setScheduledListingDialogOpen(true);
@@ -1313,6 +1317,7 @@ export function EventForm({
                 <Input
                   id="listingScheduledDate"
                   type="date"
+                  min={todayLocalYmd()}
                   value={
                     status === "DRAFT" ? "" : listingScheduledDate
                   }
@@ -2105,7 +2110,9 @@ export function EventForm({
               id="scheduled-listing-dialog-title"
               className="text-sm leading-relaxed text-foreground"
             >
-              Scheduled Listing must have a Date and Time in the future
+              Scheduled listing needs a date and time in the future. Choose
+              both fields — the time box shows a placeholder until you pick or
+              confirm a time.
             </p>
             <div className="mt-6 flex justify-end">
               <Button

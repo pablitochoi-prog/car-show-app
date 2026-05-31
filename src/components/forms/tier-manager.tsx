@@ -1,14 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatetimeLocalField } from "@/components/inputs/datetime-local-field";
 import { GripVertical, Loader2, Pencil, Trash2, Check, X, Plus } from "lucide-react";
-import {
-  normalizeDatetimeLocalToFiveMinutes,
-  TIME_FIVE_MINUTE_STEP_SECONDS,
-} from "@/lib/time-quarter-hour";
 
 export type TierRow = {
   id: string;
@@ -54,6 +51,7 @@ function TierFields({
   templateNames: string[];
   fieldsRequired?: boolean;
 }) {
+  const fieldIdPrefix = useId();
   const isCustom = name !== "" && !templateNames.includes(name);
 
   return (
@@ -114,25 +112,21 @@ function TierFields({
       {useTimeWindow && (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label>Start Date</Label>
-            <Input
-              type="datetime-local"
-              step={TIME_FIVE_MINUTE_STEP_SECONDS}
+            <Label htmlFor={`${fieldIdPrefix}-opens`}>Start Date</Label>
+            <DatetimeLocalField
+              id={`${fieldIdPrefix}-opens`}
+              aria-label="Registration tier start date"
               value={opensAt}
-              onChange={(e) =>
-                setOpensAt(normalizeDatetimeLocalToFiveMinutes(e.target.value))
-              }
+              onChange={setOpensAt}
             />
           </div>
           <div className="space-y-2">
-            <Label>End Date</Label>
-            <Input
-              type="datetime-local"
-              step={TIME_FIVE_MINUTE_STEP_SECONDS}
+            <Label htmlFor={`${fieldIdPrefix}-closes`}>End Date</Label>
+            <DatetimeLocalField
+              id={`${fieldIdPrefix}-closes`}
+              aria-label="Registration tier end date"
               value={closesAt}
-              onChange={(e) =>
-                setClosesAt(normalizeDatetimeLocalToFiveMinutes(e.target.value))
-              }
+              onChange={setClosesAt}
             />
           </div>
         </div>

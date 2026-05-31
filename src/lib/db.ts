@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 /** Trim and strip accidental wrapping quotes from .env copy-paste. */
 function normalizePostgresEnv(key: "DATABASE_URL" | "DIRECT_URL"): void {
@@ -76,4 +76,53 @@ export const prisma = existing ?? createPrismaClient();
 
 if (!existing) {
   globalForPrisma.prisma = prisma;
+}
+
+const globalForPrismaDirect = globalThis as unknown as {
+  prismaDirect: PrismaClient | undefined;
+};
+
+/** Session/direct connection for interactive transactions (PgBouncer transaction pooler cannot hold BEGIN…COMMIT). */
+function directPrismaDatasourceUrl(): string {
+  const url = process.env.DIRECT_URL!;
+  if (/[?&]connection_limit=/i.test(url)) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}connection_limit=5`;
+}
+
+function createPrismaDirectClient(): PrismaClient {
+  if (typeof window !== "undefined") {
+    throw new Error(
+      "Database access is server-only. Import Prisma from API routes or Server Components, not client components.",
+    );
+  }
+  assertPostgresUrls();
+  return new PrismaClient({
+    datasources: {
+      db: { url: directPrismaDatasourceUrl() },
+    },
+  });
+}
+
+const existingDirect = globalForPrismaDirect.prismaDirect;
+export const prismaDirect = existingDirect ?? createPrismaDirectClient();
+
+if (!existingDirect) {
+  globalForPrismaDirect.prismaDirect = prismaDirect;
+}
+
+export const INTERACTIVE_TX_DEFAULTS = {
+  maxWait: 10_000,
+  timeout: 30_000,
+} as const;
+
+/** Run an interactive transaction on the direct/session DB connection. */
+export async function runInteractiveTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: { maxWait?: number; timeout?: number },
+): Promise<T> {
+  return prismaDirect.$transaction(fn, {
+    maxWait: options?.maxWait ?? INTERACTIVE_TX_DEFAULTS.maxWait,
+    timeout: options?.timeout ?? INTERACTIVE_TX_DEFAULTS.timeout,
+  });
 }
