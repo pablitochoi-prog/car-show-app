@@ -190,6 +190,74 @@
     content: attr(data-placeholder);
     @apply pointer-events-none text-muted-foreground;
   }
+
+  /*
+   * Global interactive feedback (ButtonFeedbackProvider adds .ui-button-pressed).
+   * Preserves existing component styles; only adds subtle hover / press cues.
+   */
+  :where(
+    button:not(:disabled):not([aria-disabled="true"]):not(.disabled),
+    a[href]:not([aria-disabled="true"]):not(.disabled),
+    [role="button"]:not([aria-disabled="true"]):not(.disabled),
+    input[type="button"]:not(:disabled),
+    input[type="submit"]:not(:disabled),
+    [data-slot="button"]:not(:disabled):not([aria-disabled="true"])
+  ) {
+    cursor: pointer;
+    transition:
+      transform 0.12s ease,
+      filter 0.12s ease,
+      opacity 0.12s ease;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    :where(
+      button:not(:disabled):not([aria-disabled="true"]):not(.disabled),
+      a[href]:not([aria-disabled="true"]):not(.disabled),
+      [role="button"]:not([aria-disabled="true"]):not(.disabled),
+      input[type="button"]:not(:disabled),
+      input[type="submit"]:not(:disabled),
+      [data-slot="button"]:not(:disabled):not([aria-disabled="true"])
+    ):hover {
+      filter: brightness(1.04);
+    }
+  }
+
+  :where(
+    button:not(:disabled):not([aria-disabled="true"]):not(.disabled),
+    a[href]:not([aria-disabled="true"]):not(.disabled),
+    [role="button"]:not([aria-disabled="true"]):not(.disabled),
+    input[type="button"]:not(:disabled),
+    input[type="submit"]:not(:disabled),
+    [data-slot="button"]:not(:disabled):not([aria-disabled="true"])
+  ):focus-visible {
+    outline-offset: 2px;
+  }
+
+  :where(
+    button:not(:disabled):not([aria-disabled="true"]):not(.disabled),
+    a[href]:not([aria-disabled="true"]):not(.disabled),
+    [role="button"]:not([aria-disabled="true"]):not(.disabled),
+    input[type="button"]:not(:disabled),
+    input[type="submit"]:not(:disabled),
+    [data-slot="button"]:not(:disabled):not([aria-disabled="true"])
+  ).ui-button-pressed {
+    filter: brightness(0.94);
+    opacity: 0.92;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    :where(
+      button:not(:disabled):not([aria-disabled="true"]):not(.disabled),
+      a[href]:not([aria-disabled="true"]):not(.disabled),
+      [role="button"]:not([aria-disabled="true"]):not(.disabled),
+      input[type="button"]:not(:disabled),
+      input[type="submit"]:not(:disabled),
+      [data-slot="button"]:not(:disabled):not([aria-disabled="true"])
+    ).ui-button-pressed {
+      transform: scale(0.97);
+    }
+  }
 }
 
 /*

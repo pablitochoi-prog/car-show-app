@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { redirectToStripeCheckout } from "@/lib/session-idle-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -396,7 +397,7 @@ export function GuestRegistrationForm({
       setError(checkoutData.error ?? "Failed to start checkout.");
       return false;
     }
-    window.location.href = checkoutData.checkoutUrl;
+    await redirectToStripeCheckout(checkoutData.checkoutUrl);
     return true;
   }
 

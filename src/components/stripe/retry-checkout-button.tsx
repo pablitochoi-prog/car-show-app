@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { redirectToStripeCheckout } from "@/lib/session-idle-client";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard } from "lucide-react";
 
@@ -24,7 +25,7 @@ export function RetryCheckoutButton({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to start checkout");
       if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
+        await redirectToStripeCheckout(data.checkoutUrl);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");

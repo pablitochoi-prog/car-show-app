@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { redirectToStripeCheckout } from "@/lib/session-idle-client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -136,7 +137,7 @@ export function GuestRegisterCreateAccountClient({
           return;
         }
 
-        window.location.href = checkoutData.checkoutUrl;
+        await redirectToStripeCheckout(checkoutData.checkoutUrl);
         return;
       }
 

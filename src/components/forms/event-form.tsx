@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { redirectToStripeCheckout } from "@/lib/session-idle-client";
 import { TierManager, type TierRow } from "@/components/forms/tier-manager";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { ImageLightbox, ThumbnailWithEye } from "@/components/ui/image-lightbox";
@@ -755,7 +756,7 @@ export function EventForm({
       const data = parsed.data;
       if (!res.ok) throw new Error(data.error ?? "Failed to start checkout");
       if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
+        await redirectToStripeCheckout(data.checkoutUrl);
         return;
       }
       throw new Error("No checkout URL returned");

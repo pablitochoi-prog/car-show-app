@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { redirectToStripeCheckout } from "@/lib/session-idle-client";
 import { Button } from "@/components/ui/button";
 import { DollarSign, Loader2, Lock } from "lucide-react";
 import type { EventPlatformFeeMode } from "@/lib/event-platform-fee";
@@ -83,7 +84,7 @@ export function EventPaymentSettings({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to start checkout");
       if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
+        await redirectToStripeCheckout(data.checkoutUrl);
         return;
       }
       throw new Error("No checkout URL returned");

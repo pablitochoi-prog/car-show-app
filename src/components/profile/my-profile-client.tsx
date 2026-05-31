@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { AccountNav } from "@/components/account/account-nav";
 import {
   AccountSectionForm,
   type AccountSectionFormHandle,
@@ -199,6 +200,8 @@ export function MyProfileClient({
           </Link>
         </div>
       </div>
+
+      <AccountNav />
 
       {saveError ? (
         <p className="text-sm text-destructive" role="alert">

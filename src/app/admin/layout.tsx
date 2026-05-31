@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { getMfaSessionState } from "@/lib/mfa-session";
+import { getAdminMfaGuardState, adminRouteRequiresMfaChallenge } from "@/lib/admin-mfa-guards";
 import { isSiteAdmin } from "@/lib/permissions";
+import { AdminMfaWarningBanner } from "@/components/security/admin-mfa-warning-banner";
 
 export default async function AdminLayout({
   children,
@@ -11,8 +15,17 @@ export default async function AdminLayout({
   const user = await getCurrentUser();
   if (!user || !isSiteAdmin(user)) redirect("/dashboard");
 
+  const supabase = await createClient();
+  const mfa = await getMfaSessionState(supabase);
+  const guard = getAdminMfaGuardState(user, mfa);
+
+  if (adminRouteRequiresMfaChallenge(guard)) {
+    redirect("/login/mfa?redirect=/admin");
+  }
+
   return (
     <div className="page-shell max-w-5xl space-y-6">
+      <AdminMfaWarningBanner />
       <nav className="flex flex-wrap items-center gap-4 text-sm">
         <Link href="/admin" className="font-medium hover:underline">
           Admin Home

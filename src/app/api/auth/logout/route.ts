@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createSupabaseForResponse } from "@/lib/supabase/route-handler";
+import { clearActivityCookies } from "@/lib/session-activity-server";
 
 export async function POST() {
   try {
@@ -12,6 +13,8 @@ export async function POST() {
     } catch {
       // Continue even if signOut fails — we'll clear cookies manually below
     }
+
+    clearActivityCookies(response);
 
     // Explicitly delete all Supabase auth cookies (including chunked tokens)
     const cookieStore = await cookies();

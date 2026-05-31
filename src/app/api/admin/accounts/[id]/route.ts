@@ -28,6 +28,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       city: true,
       state: true,
       zip: true,
+      birthYear: true,
       platformRole: true,
       status: true,
       statusReason: true,

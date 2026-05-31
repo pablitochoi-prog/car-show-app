@@ -116,6 +116,8 @@ model User {
   statusChangedAt DateTime?
   /// Admin-hidden accounts are excluded from public listings.
   archivedAt  DateTime?
+  /// Last authenticated activity for idle session enforcement.
+  lastActivityAt DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 

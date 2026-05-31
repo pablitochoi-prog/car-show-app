@@ -116,8 +116,8 @@ export function AdminAccountsSection({
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        View profiles, monitor messages, suspend (read-only), ban (no login), or
-        permanently delete with reassignment.
+        Search users, edit profiles and login email, change roles, suspend, ban,
+        or permanently delete with reassignment.
       </p>
       <AdminSearchBar
         query={query}
@@ -280,7 +280,7 @@ export function AdminAccountsSection({
                             variant="ghost"
                             size="icon"
                             className="size-7"
-                            title="View profile"
+                            title="View & edit account"
                             onClick={() => setDetailUserId(a.id)}
                           >
                             <Eye className="size-3.5" />

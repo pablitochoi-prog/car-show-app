@@ -64,9 +64,16 @@ export function LoginForm({
         return;
       }
 
-      // Full navigation so the next request always sends fresh auth cookies
-      // (client router transitions can race RSC / middleware on some Next builds).
-      window.location.assign(safeRedirect(redirectTo));
+      const destination = safeRedirect(redirectTo);
+
+      if (data.mfaRequired) {
+        window.location.assign(
+          `/login/mfa?redirect=${encodeURIComponent(destination)}`,
+        );
+        return;
+      }
+
+      window.location.assign(destination);
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {

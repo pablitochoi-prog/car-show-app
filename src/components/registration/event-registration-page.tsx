@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { redirectToStripeCheckout } from "@/lib/session-idle-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -792,7 +793,7 @@ function EventRegistrationPageContent({
           return;
         }
         if (checkoutData.checkoutUrl) {
-          window.location.href = checkoutData.checkoutUrl;
+          await redirectToStripeCheckout(checkoutData.checkoutUrl);
           return;
         }
       }

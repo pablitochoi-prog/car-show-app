@@ -18,6 +18,7 @@ export default async function LoginPage({
     error?: string;
     error_description?: string;
     reset?: string;
+    reason?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -41,15 +42,18 @@ export default async function LoginPage({
   const authError = rawError ? tryDecodeAuthMessage(rawError) : undefined;
 
   const resetSuccess = sp.reset === "success";
+  const idleLogout = sp.reason === "idle";
 
   return (
     <LoginForm
       redirectTo={sp.redirect}
       authError={authError}
       successMessage={
-        resetSuccess
-          ? "Password updated. You can log in with your new password."
-          : undefined
+        idleLogout
+          ? "You were signed out due to inactivity."
+          : resetSuccess
+            ? "Password updated. You can log in with your new password."
+            : undefined
       }
     />
   );

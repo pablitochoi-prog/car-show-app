@@ -442,3 +442,149 @@ One migration: `20260523200000_event_sponsor_charity_fields`.
 
 Migration `20260523200000_event_sponsor_charity_fields` adds sponsor contact/address/email columns and charity fields on `Event`. Edit Event setup cards: **Sponsor Details** (expanded fields + public logo upload) and **Charitable Organization**. Public event sidebar shows sponsor logo/name/website and charity info. Dash cards show sponsor logo or name fallback in “Show sponsored by”.
 
+---
+
+# Session Idle Timeout (60 min) — Plan
+
+## Current auth architecture (inspected)
+
+| Layer | How it works today |
+| --- | --- |
+| **Identity** | Supabase Auth (`@supabase/ssr`) with HTTP-only `sb-*` cookies |
+| **App user** | `getCurrentUser()` maps Supabase user → Prisma `User` row |
+| **Middleware** | `src/middleware.ts` → `updateSession()` refreshes Supabase session on nearly all routes |
+| **Route protection** | Unauthenticated users redirected from `/dashboard`, `/organizer`, `/admin` only |
+| **Other roles** | Judges/attendees often use public routes (`/v/*`, `/events/*`, `/dashboard/*`) with page/API-level auth checks — middleware still runs but does not gate those paths |
+| **Session guards** | Middleware calls `/api/auth/session-guards` for ban status + admin MFA challenge |
+| **Logout** | `POST /api/auth/logout` → `supabase.auth.signOut()` + clear `sb-*` cookies |
+| **MFA** | Admin TOTP enroll/challenge via `/api/me/mfa/*`, `/login/mfa`, middleware MFA redirects |
+| **Idle tracking** | **None today.** `lastActivityAt` exists on `CarClub`, not on `User` |
+
+## Design principles
+
+1. **Server is authoritative** — middleware + API enforce expiry; client timers are UX only (warning modal).
+2. **Sliding expiration** — every authenticated page navigation or API request resets the idle clock.
+3. **Minimal DB load** — HttpOnly activity cookie for per-request checks; throttled `User.lastActivityAt` writes (≈ every 2 min max).
+4. **Multi-tab safe** — `BroadcastChannel` + `localStorage` sync so activity in one tab protects all tabs.
+5. **Do not break long workflows** — client heartbeats on typing/clicks; Stripe checkout gets a temporary idle pause.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Client (SessionIdleProvider)                               │
+│  • Listens: click, keydown, touch, visibility, navigation   │
+│  • Debounced POST /api/auth/session-activity (heartbeat)      │
+│  • BroadcastChannel + localStorage sync across tabs           │
+│  • Warning modal at 55 min idle (server-synced timestamp)     │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ heartbeat / touch
+┌──────────────────────────▼──────────────────────────────────┐
+│  Server                                                      │
+│  • HttpOnly cookie: css_last_activity (Unix ms, sliding)     │
+│  • Optional pause cookie: css_idle_paused_until (Stripe)     │
+│  • Prisma User.lastActivityAt (throttled persistence)        │
+│  • Middleware: if idle > 60m → sign out → /login?reason=idle │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Configuration
+
+New file: `src/lib/session-idle-config.ts`
+
+```ts
+export const SESSION_IDLE_TIMEOUT_MINUTES = 60;
+export const SESSION_WARNING_MINUTES = 55; // warn when this many minutes idle
+export const SESSION_WARNING_LEAD_MINUTES =
+  SESSION_IDLE_TIMEOUT_MINUTES - SESSION_WARNING_MINUTES; // 5
+
+// Dev override (both server + client read this):
+// NEXT_PUBLIC_SESSION_IDLE_TIMEOUT_DEV_MINUTES=2
+```
+
+## Implementation todos
+
+### Phase 1 — Config & helpers
+- [x] Add `session-idle-config.ts` + `session-idle.ts` (pure: `isIdleExpired`, `msUntilExpiry`, dev override)
+- [x] Unit tests in `session-idle.test.ts`
+
+### Phase 2 — Schema
+- [x] Add `User.lastActivityAt DateTime?` to Prisma + migration
+
+### Phase 3 — Server activity layer
+- [x] Add `session-activity-server.ts`:
+  - Read/write `css_last_activity` cookie
+  - `touchSessionActivity(userId)` — update cookie + throttled DB write
+  - `checkSessionIdle(request)` — returns `{ expired, lastActivityAt }`
+  - Clear activity cookies on logout
+- [x] `POST /api/auth/session-activity` — touch (authenticated)
+- [x] `GET /api/auth/session-activity` — return `{ lastActivityAt, expiresAt, idleMs, warningAt }` for client modal
+- [x] `POST /api/auth/session-activity/pause` — set `css_idle_paused_until` (Stripe checkout, max 2h)
+
+### Phase 4 — Middleware enforcement
+- [x] In `updateSession()` after `getUser()`:
+  1. Skip if unauthenticated or excluded path (`/login`, `/auth/*`, `/api/auth/login`, webhook, etc.)
+  2. Skip if pause cookie valid
+  3. If idle expired → sign out + redirect `/login?reason=idle` (pages) or 401 JSON (API)
+  4. Else → touch activity cookie (sliding) on authenticated requests (except GET session-activity status poll)
+- [x] Set activity cookie on successful login
+
+### Phase 5 — Client provider & modal
+- [x] `SessionIdleProvider` mounted in root layout (only when logged in — via shell pattern like `UnreadMessagesShell`)
+- [x] Event listeners + debounced heartbeat (30s debounce on input, 60s periodic while visible)
+- [x] `BroadcastChannel('css-session-activity')` + `localStorage` for cross-tab sync
+- [x] `SessionIdleWarningModal` at 55 min idle:
+  - Message: *"Your session will expire in 5 minutes due to inactivity."*
+  - **Stay Logged In** → POST touch + close modal
+  - **Log Out Now** → POST logout + redirect `/login`
+- [x] At 60 min (client fallback if no server round-trip): auto logout + redirect
+
+### Phase 6 — Login UX
+- [x] `/login?reason=idle` shows: *"You were signed out due to inactivity."*
+- [x] Extend logout route to clear activity cookies (+ optional `?reason=idle` redirect support)
+
+### Phase 7 — Stripe / checkout safety
+- [x] Before Stripe redirect in checkout flow, call pause API so idle timer does not expire while user is on Stripe
+
+### Phase 8 — MFA compatibility
+- [x] Idle logout uses existing `signOut()` — clears AAL2; admin re-authenticates via normal login + `/login/mfa`
+- [x] Exclude `/login/mfa` and `/api/auth/mfa/*`, `/api/me/mfa/*` from idle expiry (user is actively authenticating)
+
+### Phase 9 — Testing & docs
+- [x] `.env.example`: document `NEXT_PUBLIC_SESSION_IDLE_TIMEOUT_DEV_MINUTES=2`
+- [x] `docs/session-idle-test-checklist.md` — admin, organizer, judge, attendee, warning modal, Stay Logged In, multi-tab
+- [ ] Manual verification with 2-minute dev timeout
+
+## Paths excluded from idle enforcement
+
+| Path | Reason |
+| --- | --- |
+| `/login`, `/login/mfa`, `/signup` | Auth flows |
+| `/auth/*` | OAuth/email callbacks |
+| `/api/auth/login`, `/api/auth/signup`, `/api/auth/logout` | Auth endpoints |
+| `/api/auth/mfa/*`, `/api/me/mfa/*` | MFA in progress |
+| `/api/stripe/webhook` | No user session |
+| Unauthenticated requests | No session to expire |
+
+## Risk mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| User on Stripe for 30+ min | Pause cookie set at checkout start |
+| Long form typing without API calls | `keydown`/`input` events trigger debounced heartbeat |
+| Autosave | Autosave `fetch` hits middleware → server touch |
+| Tab open but idle in another tab | BroadcastChannel propagates activity |
+| MFA mid-flow logout | MFA paths excluded from idle check |
+| DB write storm | Throttle `lastActivityAt` updates to ≥2 min apart |
+| Judge on `/v/*` not in protectedPaths | Middleware idle check applies to **all** authenticated requests, not just protected prefixes |
+
+## Files (expected)
+
+**New:** `session-idle-config.ts`, `session-idle.ts`, `session-activity-server.ts`, `session-idle.test.ts`, `session-idle-provider.tsx`, `session-idle-warning-modal.tsx`, `api/auth/session-activity/route.ts`, `api/auth/session-activity/pause/route.ts`, `docs/session-idle-test-checklist.md`
+
+**Modified:** `prisma/schema.prisma`, `middleware.ts`, `login/route.ts`, `logout/route.ts`, `login/page.tsx`, `login-form.tsx`, `layout.tsx` or `unread-messages-shell.tsx`, Stripe checkout caller, `.env.example`
+
+## Review (fill in after implementation)
+
+Implemented 60-minute sliding idle logout for all authenticated users. Server enforcement via HttpOnly `css_last_activity` cookie in middleware; `User.lastActivityAt` persisted with 2-minute throttle. Client `SessionIdleProvider` shows warning at 55 minutes (UX only); multi-tab sync via BroadcastChannel + localStorage. Stripe checkout sets 2-hour pause cookie before redirect. Login page shows idle message at `/login?reason=idle`. Dev testing: `NEXT_PUBLIC_SESSION_IDLE_TIMEOUT_DEV_MINUTES=2`. Run migration `20260530200000_user_last_activity_at`. See `docs/session-idle-test-checklist.md`.
+

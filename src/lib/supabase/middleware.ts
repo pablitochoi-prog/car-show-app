@@ -1,6 +1,27 @@
 import { createServerClient } from "@supabase/ssr";
 import type { User } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  checkSessionIdle,
+  idleExcludedPath,
+  setActivityCookie,
+  shouldTouchSessionActivity,
+} from "@/lib/session-activity-server";
+import { idleLogoutResponse } from "@/lib/session-idle-middleware";
+
+const MFA_ALLOWED_PREFIXES = [
+  "/login",
+  "/login/mfa",
+  "/dashboard/security",
+  "/api/auth/",
+  "/api/me/mfa/",
+];
+
+function pathAllowedDuringMfaChallenge(pathname: string): boolean {
+  return MFA_ALLOWED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix),
+  );
+}
 
 export async function updateSession(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -43,40 +64,79 @@ export async function updateSession(request: NextRequest) {
     throw e;
   }
 
-  // Redirect unauthenticated users away from protected routes
-  const protectedPaths = ["/dashboard", "/organizer", "/admin"];
-  const isProtected = protectedPaths.some((path) =>
-    request.nextUrl.pathname.startsWith(path)
-  );
+  const pathname = request.nextUrl.pathname;
 
-  if (!user && isProtected) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("redirect", request.nextUrl.pathname);
-    return NextResponse.redirect(url);
+  if (user && !idleExcludedPath(pathname)) {
+    const idle = checkSessionIdle(request);
+    if (idle.expired) {
+      return idleLogoutResponse(request, supabase, supabaseResponse);
+    }
+    if (shouldTouchSessionActivity(request)) {
+      setActivityCookie(supabaseResponse, Date.now());
+    }
   }
 
-  const skipBanCheck =
-    request.nextUrl.pathname === "/banned" ||
-    request.nextUrl.pathname.startsWith("/api/auth/");
+  // Redirect unauthenticated users away from protected routes
+  const protectedPaths = ["/dashboard", "/organizer", "/admin"];
+  const isProtected = protectedPaths.some((path) => pathname.startsWith(path));
 
-  if (user && isProtected && !skipBanCheck) {
+  if (!user && isProtected) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.searchParams.set("redirect", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  const skipSessionGuardCheck =
+    pathname === "/banned" ||
+    pathname.startsWith("/api/auth/") ||
+    (!user && !isProtected);
+
+  if (user && !skipSessionGuardCheck) {
     try {
-      const statusUrl = new URL("/api/auth/user-status", request.nextUrl.origin);
-      const statusRes = await fetch(statusUrl, {
+      const guardsUrl = new URL("/api/auth/session-guards", request.nextUrl.origin);
+      const guardsRes = await fetch(guardsUrl, {
         headers: { cookie: request.headers.get("cookie") ?? "" },
       });
-      if (statusRes.ok) {
-        const data = (await statusRes.json()) as { status?: string | null };
-        if (data.status === "BANNED") {
+      if (guardsRes.ok) {
+        const data = (await guardsRes.json()) as {
+          status?: string | null;
+          adminMfaChallengeRequired?: boolean;
+        };
+
+        if (data.status === "BANNED" && pathname !== "/banned") {
           const bannedUrl = request.nextUrl.clone();
           bannedUrl.pathname = "/banned";
           bannedUrl.search = "";
           return NextResponse.redirect(bannedUrl);
         }
+
+        const isAdminRoute =
+          pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
+
+        if (
+          data.adminMfaChallengeRequired &&
+          isAdminRoute &&
+          !pathAllowedDuringMfaChallenge(pathname)
+        ) {
+          if (pathname.startsWith("/api/")) {
+            return NextResponse.json(
+              {
+                error: "Admin MFA verification required.",
+                mfaChallengeRequired: true,
+              },
+              { status: 403 },
+            );
+          }
+
+          const mfaUrl = request.nextUrl.clone();
+          mfaUrl.pathname = "/login/mfa";
+          mfaUrl.searchParams.set("redirect", pathname);
+          return NextResponse.redirect(mfaUrl);
+        }
       }
     } catch (e) {
-      console.error("[middleware] user-status check failed", e);
+      console.error("[middleware] session-guards check failed", e);
     }
   }
 
