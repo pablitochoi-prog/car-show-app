@@ -536,6 +536,7 @@ model Registration {
 
   @@unique([eventId, userId])
   @@index([eventId])
+  @@index([eventId, status])
   @@index([userId])
   @@index([eventId, guestEmail])
   @@map("registrations")
@@ -574,6 +575,7 @@ model RegistrationVehicle {
   vehicleEntryIndex VehicleEntryIndex?
 
   @@unique([registrationId, vehicleId])
+  @@index([registrationId])
   @@map("registration_vehicles")
 }
 
@@ -688,6 +690,7 @@ model VehicleSaleInquiry {
   @@index([listingId, submittedAt])
   @@index([sellerUserId, status])
   @@index([eventId])
+  @@index([eventId, status])
   @@map("vehicle_sale_inquiries")
 }
 
@@ -753,6 +756,7 @@ model EventStaffMember {
 
   @@unique([eventId, userId])
   @@index([eventId])
+  @@index([userId])
   @@map("event_staff_members")
 }
 
@@ -908,6 +912,7 @@ model Message {
   userStates MessageUserState[]
 
   @@index([recipientUserId])
+  @@index([recipientUserId, createdAt(sort: Desc)])
   @@index([senderUserId])
   @@index([eventId])
   @@map("messages")

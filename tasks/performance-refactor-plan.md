@@ -248,6 +248,49 @@ Cheaper joins and filtered `findMany` on hot paths; index creation online on Pos
 ### Separate commit?
 **Yes** — one commit: `perf: add btree indexes for registration and messaging hot paths`
 
+### Phase 2 — implementation status (2026-05-31)
+
+**Status:** Implemented — additive btree indexes only; no application code changes.
+
+**Migration:** `20260531150000_supporting_btree_indexes`
+
+**Indexes added:**
+
+| Model | Index | Type | Justified by |
+|-------|-------|------|--------------|
+| `RegistrationVehicle` | `[registrationId]` | single | `findMany` / `deleteMany` / includes by registration on registration detail, vehicle sync, dash cards, sale listings (`event-sms-vehicle-id.ts`, `sync-vehicle-sale-listings.ts`, `dash-cards-for-registrations.ts`) |
+| `Registration` | `[eventId, status]` | compound | `loadEventRegistrationSummaries()` filters `eventId` + `status: { not: "CANCELLED" }` (`event-registration-summary.ts`); organizer dashboard aggregates |
+| `Message` | `[recipientUserId, createdAt DESC]` | compound | Inbox queries filter recipient + `orderBy: { createdAt: "desc" }` (`dashboard/messages/page.tsx`, `api/messages/route.ts`); complements existing `[recipientUserId]` |
+| `EventStaffMember` | `[userId]` | single | Dashboard managing-events loads staff rows by `userId` (`dashboard-managing-events.ts`, `event-staff.ts`) |
+| `VehicleSaleInquiry` | `[eventId, status]` | compound | Organizer stats count by `eventId` + status filter (`event-sale-inquiry-stats.ts`) |
+
+**Write overhead:** Minor — each index adds index maintenance on INSERT/UPDATE/DELETE for the indexed columns. Low-cardinality filters (`status`) on scoped parents (`eventId`) keep overhead acceptable pre-launch.
+
+**Skipped (not justified by current queries):**
+
+| Recommendation | Reason skipped |
+|----------------|----------------|
+| `OrganizationMember @@index([orgId])` | All member queries filter by `userId` or `userId_orgId` composite; no `findMany({ where: { orgId } })` in codebase |
+| `Registration @@index([status])` alone | Cross-event admin reports not implemented; deferred in audit |
+| `VehicleJudgeScore @@index([eventId, judgeUserId])` | Judge UI traffic unconfirmed; deferred in audit |
+| `RegistrationVehicle @@index([eventCategoryId])` | No queries filter RV rows by category alone |
+| Stripe session/intent indexes | `stripeCheckoutSessionId` / `stripePaymentIntentId` already `@unique` |
+
+**Verification commands:**
+```bash
+node --env-file=.env.local ./node_modules/.bin/prisma validate
+npm run db:generate
+node --env-file=.env.local ./node_modules/.bin/prisma migrate status
+node --env-file=.env.local ./node_modules/.bin/prisma migrate deploy   # production / when ready
+npm run build
+npx tsx --env-file=.env.local scripts/backfill-vehicle-entry-index.ts --dry-run
+```
+
+**Files changed:**
+- `prisma/schema.prisma`
+- `prisma/migrations/20260531150000_supporting_btree_indexes/migration.sql`
+- `tasks/performance-refactor-plan.md`
+
 ---
 
 ## Phase 3 — P0-2: Public endpoint rate limits
