@@ -107,7 +107,7 @@ Every QR/SMS/vote/sale lookup becomes one indexed query + one targeted fetch ins
 ### Separate commit?
 **Two commits recommended:**
 1. `feat: add VehicleEntryIndex schema, backfill script, write-path upserts` — **Phase 1A (implemented)**
-2. `feat: use VehicleEntryIndex in findVehicleEntryByCode with fallback` — **Phase 1B (not started)**
+2. `feat: use VehicleEntryIndex in findVehicleEntryByCode with fallback` — **Phase 1B (implemented)**
 
 ---
 
@@ -155,7 +155,41 @@ npx tsx --env-file=.env.local scripts/backfill-vehicle-entry-index.ts
 - `vitest run src/lib/vehicle-entry-index.test.ts` — 7 tests pass
 - Repo-wide `npx tsc --noEmit` — **pre-existing failures only** in `registration-vehicle-classes.test.ts` and `site-url.test.ts` (unrelated to Phase 1A; not fixed in this pass)
 
-**Phase 1B still required:** switch `findVehicleEntryByCode()` to query `VehicleEntryIndex` first with guest JSON fallback flag.
+**Phase 1B:** implemented — see **Phase 1B — implementation status** below.
+
+### Phase 1B — implementation status (2026-05-31)
+
+**Read path:** **Switched with fallback.** `findVehicleEntryByCode()` queries `VehicleEntryIndex` by `publicVehicleId` first, then falls through to legacy `RegistrationVehicle` lookup + guest JSON prefix scan on miss/stale.
+
+**Feature flag:** `VEHICLE_ENTRY_INDEX_LOOKUP_ENABLED` — enabled by default (`true` when unset). Set to `false`, `0`, `no`, or `off` to disable indexed lookup and use legacy paths only.
+
+**Files changed (Phase 1B):**
+- `src/lib/vehicle-entry-lookup.ts` — indexed resolve, legacy extract, perf lookup paths
+- `src/lib/vehicle-entry-lookup.test.ts` — indexed member/guest, miss, stale, flag disabled
+- `.env.example` — documents `VEHICLE_ENTRY_INDEX_LOOKUP_ENABLED`
+
+**Callers (unchanged):** vote, photo, judge-score routes; sale pages; `public-vehicle-sale-listing.ts`; `sms/voting-service.ts`; `ensure-dash-card-vehicle-qrs.ts`
+
+**Perf lookup paths:**
+- `vehicle_entry_index_member` — index hit, member RV resolved
+- `vehicle_entry_index_guest` — index hit, guest JSON slice resolved
+- `vehicle_entry_index_miss` — no index row; legacy attempted
+- `vehicle_entry_index_stale_fallback` — index row stale; legacy attempted and failed (or legacy succeeded with legacy path logged instead)
+- Legacy paths unchanged: `registration_vehicle`, `guest_scan`, `prefix_miss`, `invalid`, `not_found`
+
+**Rollout notes:**
+1. Deploy after Phase 1A migration + backfill are applied in target environment.
+2. Monitor `lookupPath` in perf logs; `vehicle_entry_index_miss` / `vehicle_entry_index_stale_fallback` should be rare if writes + backfill are healthy.
+3. Emergency rollback: set `VEHICLE_ENTRY_INDEX_LOOKUP_ENABLED=false` (no redeploy of schema needed).
+
+**Verification commands:**
+```bash
+npm run test -- src/lib/vehicle-entry-lookup.test.ts
+npx tsx --env-file=.env.local scripts/backfill-vehicle-entry-index.ts --dry-run
+npm run build
+```
+
+---
 
 ## Phase 2 — P1-6: Supporting database indexes
 

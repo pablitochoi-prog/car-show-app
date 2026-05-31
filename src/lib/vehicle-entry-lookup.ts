@@ -25,6 +25,19 @@ const eventSelect = {
   state: true,
 } as const;
 
+const registrationVehicleInclude = {
+  vehicle: true,
+  eventCategory: { include: { category: { select: { name: true } } } },
+  registration: { include: { event: { select: eventSelect } } },
+} as const;
+
+/** Enabled by default; set VEHICLE_ENTRY_INDEX_LOOKUP_ENABLED=false to disable indexed lookup. */
+export function isVehicleEntryIndexLookupEnabled(): boolean {
+  const raw = process.env.VEHICLE_ENTRY_INDEX_LOOKUP_ENABLED;
+  if (raw === undefined || raw.trim() === "") return true;
+  return !["0", "false", "no", "off"].includes(raw.trim().toLowerCase());
+}
+
 function categoryLabel(
   row: {
     customName: string | null;
@@ -151,6 +164,226 @@ function buildFromGuest(
   };
 }
 
+function buildCategoryMap(
+  categoryRows: Array<{
+    id: string;
+    customName: string | null;
+    category: { name: string } | null;
+  }>,
+): Map<string, string> {
+  return new Map(
+    categoryRows.map((r) => [
+      r.id,
+      r.customName?.trim() || r.category?.name || "Class",
+    ]),
+  );
+}
+
+export type VehicleEntryIndexLookupPath =
+  | "vehicle_entry_index_member"
+  | "vehicle_entry_index_guest"
+  | "vehicle_entry_index_miss"
+  | "vehicle_entry_index_stale_fallback";
+
+export type VehicleEntryIndexLookupResult =
+  | {
+      kind: "hit";
+      entry: VehicleEntryRecord;
+      lookupPath: "vehicle_entry_index_member" | "vehicle_entry_index_guest";
+    }
+  | {
+      kind: "miss";
+      lookupPath: "vehicle_entry_index_miss";
+    }
+  | {
+      kind: "stale";
+      lookupPath: "vehicle_entry_index_stale_fallback";
+    };
+
+export async function resolveVehicleEntryFromIndex(
+  code: string,
+): Promise<VehicleEntryIndexLookupResult> {
+  const indexRow = await prisma.vehicleEntryIndex.findUnique({
+    where: { publicVehicleId: code },
+    select: {
+      entryType: true,
+      eventId: true,
+      registrationId: true,
+      registrationVehicleId: true,
+      guestVehicleIndex: true,
+    },
+  });
+
+  if (!indexRow) {
+    return { kind: "miss", lookupPath: "vehicle_entry_index_miss" };
+  }
+
+  if (indexRow.entryType === "REGISTRATION_VEHICLE") {
+    const rv = await prisma.registrationVehicle.findFirst({
+      where: indexRow.registrationVehicleId
+        ? {
+            id: indexRow.registrationVehicleId,
+            publicVehicleId: code,
+            registrationId: indexRow.registrationId,
+          }
+        : {
+            publicVehicleId: code,
+            registrationId: indexRow.registrationId,
+          },
+      include: registrationVehicleInclude,
+    });
+
+    if (
+      !rv?.publicVehicleId ||
+      rv.registration.eventId !== indexRow.eventId
+    ) {
+      return { kind: "stale", lookupPath: "vehicle_entry_index_stale_fallback" };
+    }
+
+    return {
+      kind: "hit",
+      entry: buildFromRegistrationVehicle(rv, code),
+      lookupPath: "vehicle_entry_index_member",
+    };
+  }
+
+  if (indexRow.guestVehicleIndex == null) {
+    return { kind: "stale", lookupPath: "vehicle_entry_index_stale_fallback" };
+  }
+
+  const reg = await prisma.registration.findUnique({
+    where: { id: indexRow.registrationId },
+    select: {
+      id: true,
+      eventId: true,
+      guestVehicles: true,
+      event: { select: eventSelect },
+    },
+  });
+
+  if (!reg || reg.eventId !== indexRow.eventId) {
+    return { kind: "stale", lookupPath: "vehicle_entry_index_stale_fallback" };
+  }
+
+  const list = Array.isArray(reg.guestVehicles)
+    ? (reg.guestVehicles as GuestVehicleRecord[])
+    : [];
+  const guestIndex = indexRow.guestVehicleIndex;
+  const gv = list[guestIndex];
+
+  if (!gv || gv.publicVehicleId?.trim().toUpperCase() !== code) {
+    return { kind: "stale", lookupPath: "vehicle_entry_index_stale_fallback" };
+  }
+
+  const categoryRows = await prisma.eventCategory.findMany({
+    where: { eventId: reg.eventId },
+    select: {
+      id: true,
+      customName: true,
+      category: { select: { name: true } },
+    },
+  });
+
+  return {
+    kind: "hit",
+    entry: buildFromGuest(
+      reg,
+      gv,
+      guestIndex,
+      code,
+      buildCategoryMap(categoryRows),
+    ),
+    lookupPath: "vehicle_entry_index_guest",
+  };
+}
+
+type LegacyLookupResult = {
+  entry: VehicleEntryRecord | null;
+  lookupPath: string;
+  guestRegCount: number;
+  eventId?: string;
+};
+
+export async function findVehicleEntryByCodeLegacy(
+  code: string,
+): Promise<LegacyLookupResult> {
+  const rv = await prisma.registrationVehicle.findUnique({
+    where: { publicVehicleId: code },
+    include: registrationVehicleInclude,
+  });
+  if (rv?.publicVehicleId) {
+    return {
+      entry: buildFromRegistrationVehicle(rv, code),
+      lookupPath: "registration_vehicle",
+      guestRegCount: 0,
+      eventId: rv.registration.eventId,
+    };
+  }
+
+  const prefix = code.split("-")[0];
+  if (!prefix) {
+    return { entry: null, lookupPath: "invalid", guestRegCount: 0 };
+  }
+
+  const events = await prisma.event.findMany({
+    where: { smsVotePrefix: prefix },
+    select: { id: true },
+  });
+  if (events.length === 0) {
+    return { entry: null, lookupPath: "prefix_miss", guestRegCount: 0 };
+  }
+
+  const eventIds = events.map((e) => e.id);
+  const [categoryRows, guestRegs] = await Promise.all([
+    prisma.eventCategory.findMany({
+      where: { eventId: { in: eventIds } },
+      select: {
+        id: true,
+        customName: true,
+        category: { select: { name: true } },
+      },
+    }),
+    prisma.registration.findMany({
+      where: {
+        eventId: { in: eventIds },
+        userId: null,
+        NOT: { guestVehicles: { equals: Prisma.DbNull } },
+      },
+      select: {
+        id: true,
+        eventId: true,
+        guestVehicles: true,
+        event: { select: eventSelect },
+      },
+    }),
+  ]);
+
+  const categoryMap = buildCategoryMap(categoryRows);
+
+  for (const reg of guestRegs) {
+    const list = Array.isArray(reg.guestVehicles)
+      ? (reg.guestVehicles as GuestVehicleRecord[])
+      : [];
+    for (let i = 0; i < list.length; i++) {
+      const gv = list[i]!;
+      if (gv.publicVehicleId?.trim().toUpperCase() === code) {
+        return {
+          entry: buildFromGuest(reg, gv, i, code, categoryMap),
+          lookupPath: "guest_scan",
+          guestRegCount: guestRegs.length,
+          eventId: reg.eventId,
+        };
+      }
+    }
+  }
+
+  return {
+    entry: null,
+    lookupPath: "guest_scan",
+    guestRegCount: guestRegs.length,
+  };
+}
+
 export async function findVehicleEntryByCode(
   rawCode: string,
 ): Promise<VehicleEntryRecord | null> {
@@ -160,6 +393,7 @@ export async function findVehicleEntryByCode(
   let guestRegCount = 0;
   let eventId: string | undefined;
   let found = false;
+  let indexMissOrStale = false;
 
   try {
     const code = normalizeVehicleEntryCode(rawCode);
@@ -168,83 +402,31 @@ export async function findVehicleEntryByCode(
       return null;
     }
 
-    const rv = await prisma.registrationVehicle.findUnique({
-      where: { publicVehicleId: code },
-      include: {
-        vehicle: true,
-        eventCategory: { include: { category: { select: { name: true } } } },
-        registration: { include: { event: { select: eventSelect } } },
-      },
-    });
-    if (rv?.publicVehicleId) {
-      lookupPath = "registration_vehicle";
-      eventId = rv.registration.eventId;
-      found = true;
-      return buildFromRegistrationVehicle(rv, code);
-    }
-
-    const prefix = code.split("-")[0];
-    if (!prefix) {
-      lookupPath = "invalid";
-      return null;
-    }
-
-    const events = await prisma.event.findMany({
-      where: { smsVotePrefix: prefix },
-      select: { id: true },
-    });
-    if (events.length === 0) {
-      lookupPath = "prefix_miss";
-      return null;
-    }
-
-    const eventIds = events.map((e) => e.id);
-    const [categoryRows, guestRegs] = await Promise.all([
-      prisma.eventCategory.findMany({
-        where: { eventId: { in: eventIds } },
-        select: {
-          id: true,
-          customName: true,
-          category: { select: { name: true } },
-        },
-      }),
-      prisma.registration.findMany({
-        where: {
-          eventId: { in: eventIds },
-          userId: null,
-          NOT: { guestVehicles: { equals: Prisma.DbNull } },
-        },
-        select: {
-          id: true,
-          eventId: true,
-          guestVehicles: true,
-          event: { select: eventSelect },
-        },
-      }),
-    ]);
-
-    guestRegCount = guestRegs.length;
-    lookupPath = "guest_scan";
-
-    const categoryMap = new Map(
-      categoryRows.map((r) => [
-        r.id,
-        r.customName?.trim() || r.category?.name || "Class",
-      ]),
-    );
-
-    for (const reg of guestRegs) {
-      const list = Array.isArray(reg.guestVehicles)
-        ? (reg.guestVehicles as GuestVehicleRecord[])
-        : [];
-      for (let i = 0; i < list.length; i++) {
-        const gv = list[i]!;
-        if (gv.publicVehicleId?.trim().toUpperCase() === code) {
-          eventId = reg.eventId;
-          found = true;
-          return buildFromGuest(reg, gv, i, code, categoryMap);
-        }
+    if (isVehicleEntryIndexLookupEnabled()) {
+      const indexResult = await resolveVehicleEntryFromIndex(code);
+      if (indexResult.kind === "hit") {
+        lookupPath = indexResult.lookupPath;
+        eventId = indexResult.entry.eventId;
+        found = true;
+        return indexResult.entry;
       }
+
+      lookupPath = indexResult.lookupPath;
+      indexMissOrStale = true;
+    }
+
+    const legacy = await findVehicleEntryByCodeLegacy(code);
+    guestRegCount = legacy.guestRegCount;
+
+    if (legacy.entry) {
+      lookupPath = legacy.lookupPath;
+      eventId = legacy.eventId;
+      found = true;
+      return legacy.entry;
+    }
+
+    if (!indexMissOrStale) {
+      lookupPath = legacy.lookupPath;
     }
 
     return null;
