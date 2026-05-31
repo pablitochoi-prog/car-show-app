@@ -84,4 +84,30 @@ describe("sendgrid email service", () => {
       expect(result.skipped).toBe(true);
     }
   });
+
+  it("skips vehicle sale inquiry email when SendGrid is not configured", async () => {
+    delete process.env.SENDGRID_API_KEY;
+    delete process.env.SENDGRID_FROM_EMAIL;
+
+    const { sendVehicleSaleInquiryEmail } = await import("./sendgrid");
+    const result = await sendVehicleSaleInquiryEmail({
+      to: "owner@example.com",
+      sellerName: "Owner",
+      eventName: "Desert Chrome",
+      eventShowNumber: 1001,
+      vehicleEntryCode: "AXY-001",
+      vehicleLabel: "1959 Cadillac Eldorado",
+      buyerName: "Jane Buyer",
+      buyerEmail: "buyer@example.com",
+      buyerPhone: "(818) 555-0100",
+      offerAmountCents: 2_500_000,
+      message: "Still available?",
+      inquiryDetailUrl: "https://events.carshowscout.com/dashboard/sale-inquiries/abc",
+    });
+
+    expect(result.sent).toBe(false);
+    if (!result.sent) {
+      expect(result.skipped).toBe(true);
+    }
+  });
 });

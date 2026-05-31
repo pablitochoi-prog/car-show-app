@@ -47,8 +47,11 @@ import {
   type ProfilePatchExtras,
 } from "./registration-contact-sheet";
 import { ThumbnailWithEye, ImageLightbox } from "@/components/ui/image-lightbox";
+import { VehiclePhotoDisplay, resolveVehiclePhotoSrc } from "@/components/vehicle/vehicle-photo-display";
+import { formatVinMaskLastFour } from "@/lib/vehicle-vin";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { ContactOrganizerButton } from "@/components/messages/contact-organizer-button";
+import { SmsNotificationsOptInField } from "@/components/sms/sms-notifications-opt-in-field";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import {
   emptyRegistrationContact,
@@ -76,6 +79,14 @@ import {
   validateDonationNotDecreasedAfterPayment,
 } from "@/lib/registration-payment-display";
 import { applyClubRefundAdjustments } from "@/lib/registration-refund-adjustments";
+import {
+  emptyVehicleSaleListingFormState,
+  vehicleSaleListingFormStateFromApi,
+  vehicleSaleListingFormStateToPayload,
+  type VehicleSaleListingFormState,
+} from "@/components/sale/vehicle-sale-listing-fields";
+import { VehicleSaleListingDialog } from "@/components/sale/vehicle-sale-listing-dialog";
+import { GarageVehicleActionDialog } from "@/components/registration/garage-vehicle-action-dialog";
 import type { PaymentStatus, RegistrationStatus } from "@prisma/client";
 
 export type TierOption = {
@@ -94,7 +105,9 @@ export type VehicleOption = {
   model: string;
   trim: string | null;
   nickname: string | null;
+  vin: string | null;
   photoUrl: string | null;
+  notes: string | null;
 };
 
 export type PlatformFeeInfo = {
@@ -110,6 +123,7 @@ export type EventCategoryOption = {
 
 export type UserContactInitial = RegistrationContact & {
   profileExtras: ProfilePatchExtras;
+  smsNotificationsOptInDefault: boolean;
 };
 
 type EventRegistrationPageProps = {
@@ -121,6 +135,7 @@ type EventRegistrationPageProps = {
     platformFeeMode?: EventPlatformFeeMode;
     platformSetupFeeCollected?: boolean;
     eventSetupFeeCents?: number;
+    vehicleSaleInquiriesEnabled?: boolean;
   };
   stripeConnectReady: boolean;
   stripeCheckoutAvailable: boolean;
@@ -183,7 +198,12 @@ function EventRegistrationPageContent({
   const [vehicleAddedNotice, setVehicleAddedNotice] = useState(false);
   const [contact, setContact] = useState<RegistrationContact>(() => {
     if (existingRegistration) {
-      return { ...existingRegistration.contact };
+      return {
+        ...existingRegistration.contact,
+        phone:
+          userContact?.phone?.trim() ||
+          existingRegistration.contact.phone,
+      };
     }
     if (userContact) {
       return {
@@ -200,6 +220,9 @@ function EventRegistrationPageContent({
     return emptyRegistrationContact();
   });
   const [contactSheetOpen, setContactSheetOpen] = useState(false);
+  const [smsNotificationsOptIn, setSmsNotificationsOptIn] = useState(
+    () => userContact?.smsNotificationsOptInDefault ?? false,
+  );
 
   const singleTier = tiers.length === 1 ? tiers[0] : null;
   const [tierId, setTierId] = useState(() => {
@@ -213,17 +236,25 @@ function EventRegistrationPageContent({
     [],
   );
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
-  const allGarageVehicles = useMemo(() => {
-    const byId = new Map(vehicles.map((v) => [v.id, v]));
-    for (const v of addedGarageVehicles) byId.set(v.id, v);
-    return [...byId.values()];
-  }, [vehicles, addedGarageVehicles]);
-
-  // Garage vehicles staged for the "Add to Registration" button
-  const [stagedVehicles, setStagedVehicles] = useState<Set<string>>(new Set());
-  const [stagedVehicleCategories, setStagedVehicleCategories] = useState<
-    Record<string, string>
+  const [garageActionVehicleId, setGarageActionVehicleId] = useState<
+    string | null
+  >(null);
+  const [garageVehicleOverrides, setGarageVehicleOverrides] = useState<
+    Record<string, VehicleOption>
   >({});
+  const [saleDialogVehicleId, setSaleDialogVehicleId] = useState<string | null>(
+    null,
+  );
+  const allGarageVehicles = useMemo(() => {
+    const byId = new Map<string, VehicleOption>();
+    for (const v of vehicles) {
+      byId.set(v.id, garageVehicleOverrides[v.id] ?? v);
+    }
+    for (const v of addedGarageVehicles) {
+      byId.set(v.id, garageVehicleOverrides[v.id] ?? v);
+    }
+    return [...byId.values()];
+  }, [vehicles, addedGarageVehicles, garageVehicleOverrides]);
   // Vehicles confirmed into the registration table
   const [registeredVehicles, setRegisteredVehicles] = useState<Set<string>>(
     () => new Set(existingRegistration?.vehicleIds ?? []),
@@ -241,6 +272,19 @@ function EventRegistrationPageContent({
   const [vehiclePhotos, setVehiclePhotos] = useState<Record<string, string | null>>(
     () => Object.fromEntries(allGarageVehicles.map((v) => [v.id, v.photoUrl])),
   );
+  const [vehicleSaleListings, setVehicleSaleListings] = useState<
+    Record<string, VehicleSaleListingFormState>
+  >(() => {
+    const initial: Record<string, VehicleSaleListingFormState> = {};
+    for (const vehicleId of existingRegistration?.vehicleIds ?? []) {
+      const saved = existingRegistration?.vehicleSaleListings?.[vehicleId];
+      initial[vehicleId] = saved
+        ? vehicleSaleListingFormStateFromApi(saved)
+        : emptyVehicleSaleListingFormState();
+    }
+    return initial;
+  });
+  const saleInquiriesEnabled = event.vehicleSaleInquiriesEnabled === true;
   const [photoConfirmOpen, setPhotoConfirmOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [editingRegisteredVehicles, setEditingRegisteredVehicles] =
@@ -322,6 +366,9 @@ function EventRegistrationPageContent({
 
     setRegisteredVehicles((prev) => new Set([...prev, addedId]));
     setVehiclePhotos((prev) => ({ ...prev, [addedId]: vehicle.photoUrl }));
+    setVehicleSaleListings((prev) =>
+      prev[addedId] ? prev : { ...prev, [addedId]: emptyVehicleSaleListingFormState() },
+    );
     setVehicleAddedNotice(true);
     router.replace(registrationReturnPath, { scroll: false });
   }, [searchParams, allGarageVehicles, event.id, router, registrationReturnPath]);
@@ -333,6 +380,7 @@ function EventRegistrationPageContent({
     model: string;
     trim?: string | null;
     nickname?: string | null;
+    vin?: string | null;
     photoUrl?: string | null;
   }) {
     const option: VehicleOption = {
@@ -342,7 +390,9 @@ function EventRegistrationPageContent({
       model: vehicle.model,
       trim: vehicle.trim ?? null,
       nickname: vehicle.nickname ?? null,
+      vin: vehicle.vin ?? null,
       photoUrl: vehicle.photoUrl ?? null,
+      notes: null,
     };
     setAddedGarageVehicles((prev) => [
       ...prev.filter((v) => v.id !== option.id),
@@ -354,57 +404,73 @@ function EventRegistrationPageContent({
       ...prev,
       [option.id]: option.nickname?.trim() ?? "",
     }));
+    setVehicleSaleListings((prev) =>
+      prev[option.id] ? prev : { ...prev, [option.id]: emptyVehicleSaleListingFormState() },
+    );
     setVehicleAddedNotice(true);
     setAddVehicleOpen(false);
     setError("");
   }
 
-  function toggleStaged(id: string) {
-    setStagedVehicles((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-        setStagedVehicleCategories((cats) => {
-          const updated = { ...cats };
-          delete updated[id];
-          return updated;
-        });
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  function addVehicleToRegistration(vehicleId: string) {
+    setError("");
+    setRegisteredVehicles((prev) => new Set([...prev, vehicleId]));
+    setVehicleSaleListings((prev) =>
+      prev[vehicleId]
+        ? prev
+        : { ...prev, [vehicleId]: emptyVehicleSaleListingFormState() },
+    );
   }
 
-  function addToRegistration() {
-    if (registrationCategories.length > 0) {
-      for (const id of stagedVehicles) {
-        if (!stagedVehicleCategories[id]) {
-          setError(REGISTRATION_CLASS_REQUIRED_MSG);
-          return;
-        }
-      }
+  function handleGarageVehicleUpdated(vehicle: VehicleOption) {
+    setGarageVehicleOverrides((prev) => ({ ...prev, [vehicle.id]: vehicle }));
+    setAddedGarageVehicles((prev) =>
+      prev.map((v) => (v.id === vehicle.id ? vehicle : v)),
+    );
+    setVehiclePhotos((prev) => ({ ...prev, [vehicle.id]: vehicle.photoUrl }));
+    setVehicleNicknames((prev) => ({
+      ...prev,
+      [vehicle.id]: vehicle.nickname?.trim() ?? "",
+    }));
+  }
+
+  function saleListingFor(vehicleId: string): VehicleSaleListingFormState {
+    return (
+      vehicleSaleListings[vehicleId] ?? emptyVehicleSaleListingFormState()
+    );
+  }
+
+  function updateSaleListing(
+    vehicleId: string,
+    next: VehicleSaleListingFormState,
+  ) {
+    setVehicleSaleListings((prev) => ({ ...prev, [vehicleId]: next }));
+  }
+
+  function handleBuyerInquiryCheck(vehicleId: string, checked: boolean) {
+    const current = saleListingFor(vehicleId);
+    if (checked) {
+      updateSaleListing(vehicleId, { ...current, enabled: true });
+      setSaleDialogVehicleId(vehicleId);
+    } else {
+      updateSaleListing(vehicleId, {
+        ...emptyVehicleSaleListingFormState(),
+        listingId: current.listingId,
+      });
     }
-    setError("");
-    setRegisteredVehicles((prev) => {
-      const next = new Set(prev);
-      stagedVehicles.forEach((id) => next.add(id));
-      return next;
-    });
-    setVehicleCategories((prev) => {
-      const next = { ...prev };
-      for (const id of stagedVehicles) {
-        const categoryId = stagedVehicleCategories[id];
-        if (categoryId) next[id] = categoryId;
-      }
-      return next;
-    });
-    setStagedVehicleCategories((prev) => {
-      const next = { ...prev };
-      for (const id of stagedVehicles) delete next[id];
-      return next;
-    });
-    setStagedVehicles(new Set());
+  }
+
+  function handleSaleDialogOpenChange(open: boolean) {
+    if (open || !saleDialogVehicleId) return;
+    const id = saleDialogVehicleId;
+    const listing = saleListingFor(id);
+    if (!listing.sellerAcknowledged) {
+      updateSaleListing(id, {
+        ...emptyVehicleSaleListingFormState(),
+        listingId: listing.listingId,
+      });
+    }
+    setSaleDialogVehicleId(null);
   }
 
   function removeVehiclesFromRegistration(vehicleIds: Iterable<string>) {
@@ -443,6 +509,16 @@ function EventRegistrationPageContent({
 
   function setCategoryForVehicle(vehicleId: string, categoryId: string) {
     setVehicleCategories((prev) => ({ ...prev, [vehicleId]: categoryId }));
+  }
+
+  function garageVehiclePhotoSrc(vehicleId: string): string | null {
+    const v = allGarageVehicles.find((g) => g.id === vehicleId);
+    return resolveVehiclePhotoSrc(vehiclePhotos[vehicleId] ?? v?.photoUrl ?? null);
+  }
+
+  function garageVehicleVinMask(vehicleId: string): string | null {
+    const v = allGarageVehicles.find((g) => g.id === vehicleId);
+    return formatVinMaskLastFour(v?.vin ?? null);
   }
 
   function hasMissingVehiclePhotos(): boolean {
@@ -658,6 +734,10 @@ function EventRegistrationPageContent({
       setError("Please complete your contact information.");
       return false;
     }
+    if (smsNotificationsOptIn && !contact.phone.trim()) {
+      setError("Enter a phone number to receive SMS notifications.");
+      return false;
+    }
     if (!tierId) {
       setError("Please select a registration tier.");
       return false;
@@ -693,6 +773,17 @@ function EventRegistrationPageContent({
       if (decreaseError) {
         setError(decreaseError);
         return false;
+      }
+    }
+    if (saleInquiriesEnabled) {
+      for (const vehicleId of registeredVehicles) {
+        const listing = vehicleSaleListings[vehicleId];
+        if (listing?.enabled && !listing.sellerAcknowledged) {
+          setError(
+            "Acknowledge the sale disclaimer for each vehicle accepting inquiries.",
+          );
+          return false;
+        }
       }
     }
     return true;
@@ -739,11 +830,31 @@ function EventRegistrationPageContent({
             state: contact.state.trim().toUpperCase(),
             zip: contact.zip.trim(),
           },
+          smsNotificationsOptIn,
           vehicleIds,
           vehicleCategories: catMap,
           vehicleNicknames: Object.fromEntries(
             vehicleIds.map((id) => [id, vehicleNicknames[id]?.trim() ?? ""]),
           ),
+          vehicleVins: Object.fromEntries(
+            vehicleIds.map((id) => {
+              const v = allGarageVehicles.find((g) => g.id === id);
+              return [id, v?.vin?.trim() ?? ""];
+            }),
+          ),
+          ...(saleInquiriesEnabled
+            ? {
+                vehicleSaleListings: Object.fromEntries(
+                  vehicleIds.map((id) => [
+                    id,
+                    vehicleSaleListingFormStateToPayload(
+                      vehicleSaleListings[id] ??
+                        emptyVehicleSaleListingFormState(),
+                    ),
+                  ]),
+                ),
+              }
+            : {}),
           ...(isDonationEvent
             ? {
                 donationCents: parseDonationDollarsInput(donationDollars) ?? 0,
@@ -817,7 +928,23 @@ function EventRegistrationPageContent({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="grid min-w-0 gap-8 lg:grid-cols-[1fr_300px]">
+      {/* Mobile event details — outside grid so order/placement cannot affect desktop columns */}
+      <details className="mb-6 rounded-xl border bg-card p-4 lg:hidden">
+        <summary className="cursor-pointer text-sm font-semibold">
+          Event Details
+        </summary>
+        <div className="mt-3 space-y-3">
+          <EventInfoSidebar event={event} />
+          {isLoggedIn && (
+            <ContactOrganizerButton
+              eventId={event.id}
+              eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
+            />
+          )}
+        </div>
+      </details>
+
+      <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
         {/* ---- LEFT COLUMN: Registration form ---- */}
         <div className="min-w-0 space-y-6" id="register">
           {isUpdating && (
@@ -892,6 +1019,14 @@ function EventRegistrationPageContent({
                 accountEmail={userContact.email}
                 onApply={setContact}
               />
+              <SmsNotificationsOptInField
+                id="registration-sms-notifications-opt-in"
+                checked={smsNotificationsOptIn}
+                onCheckedChange={setSmsNotificationsOptIn}
+                alreadyOptedInAtProfile={
+                  userContact.smsNotificationsOptInDefault
+                }
+              />
             </>
           )}
 
@@ -919,6 +1054,7 @@ function EventRegistrationPageContent({
                 platformSetupFeeCollected={event.platformSetupFeeCollected}
                 eventSetupFeeCents={event.eventSetupFeeCents}
                 eventCategories={registrationCategories}
+                vehicleSaleInquiriesEnabled={saleInquiriesEnabled}
               />
             </>
           )}
@@ -935,7 +1071,7 @@ function EventRegistrationPageContent({
                   Your new vehicle was saved to My Vehicles and added to this
                   registration.
                   {requiresVehicleClass
-                    ? " Select a class for it in the Registered Vehicles list below, then save."
+                    ? " Assign a class and review buyer inquiry options in Registered Vehicles below, then save."
                     : " Review the list below and submit when ready."}
                 </div>
               )}
@@ -943,7 +1079,7 @@ function EventRegistrationPageContent({
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base">Your Garage</CardTitle>
+                    <CardTitle className="text-base">My Garage</CardTitle>
                     <Button
                       type="button"
                       variant="outline"
@@ -967,77 +1103,46 @@ function EventRegistrationPageContent({
                       <>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {availableGarage.map((v) => {
-                        const staged = stagedVehicles.has(v.id);
+                        const photoSrc = garageVehiclePhotoSrc(v.id);
+                        const vinMask = garageVehicleVinMask(v.id);
                         return (
-                          <div key={v.id} className="flex flex-col">
                           <button
+                            key={v.id}
                             type="button"
-                            onClick={() => toggleStaged(v.id)}
-                            className={cn(
-                              "flex w-full items-center gap-2.5 border-2 px-3 py-2.5 text-left text-sm transition-all",
-                              staged
-                                ? "rounded-t-lg border-b-0 border-primary bg-primary/5"
-                                : "rounded-lg border-border hover:border-primary/40",
-                            )}
+                            onClick={() => setGarageActionVehicleId(v.id)}
+                            className="flex w-full items-center gap-3 rounded-lg border-2 border-border px-3 py-2.5 text-left text-sm transition-all hover:border-primary/40"
                           >
-                            <div
-                              className={cn(
-                                "flex size-5 shrink-0 items-center justify-center rounded border transition-colors",
-                                staged
-                                  ? "border-primary bg-primary text-primary-foreground"
-                                  : "border-muted-foreground/40",
-                              )}
-                            >
-                              {staged && <Check className="size-3" />}
-                            </div>
+                            {photoSrc ? (
+                              <VehiclePhotoDisplay
+                                src={photoSrc}
+                                alt=""
+                                size="thumb"
+                                className="shrink-0"
+                              />
+                            ) : (
+                              <div className="vehicle-photo-frame vehicle-photo-frame--thumb flex shrink-0 items-center justify-center rounded-md border border-dashed bg-muted/40">
+                                <Car className="size-5 text-muted-foreground" />
+                              </div>
+                            )}
                             <div className="min-w-0 flex-1">
                               <p className="font-medium leading-snug">
                                 {v.year} {v.make} {v.model}
                               </p>
-                              {v.trim && (
+                              {v.trim ? (
                                 <p className="text-xs text-muted-foreground">
                                   {v.trim}
                                 </p>
-                              )}
+                              ) : null}
+                              {vinMask ? (
+                                <p className="font-mono text-xs text-muted-foreground">
+                                  {vinMask}
+                                </p>
+                              ) : null}
                             </div>
                           </button>
-                            {staged && requiresVehicleClass ? (
-                              <div
-                                className="space-y-1 rounded-b-lg border-2 border-t-0 border-primary bg-primary/5 px-3 pb-2.5"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <p className="text-xs text-muted-foreground">
-                                  Class
-                                  <RequiredFieldMark />
-                                </p>
-                                <VehicleClassSelect
-                                  value={stagedVehicleCategories[v.id]}
-                                  onChange={(categoryId) =>
-                                    setStagedVehicleCategories((prev) => ({
-                                      ...prev,
-                                      [v.id]: categoryId,
-                                    }))
-                                  }
-                                  categories={registrationCategories}
-                                  invalid={!stagedVehicleCategories[v.id]}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
                         );
                       })}
                     </div>
-
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="gap-1.5"
-                      disabled={stagedVehicles.size === 0}
-                      onClick={addToRegistration}
-                    >
-                      <Plus className="size-4" />
-                      Add to Registration
-                    </Button>
                       </>
                     ) : (
                       <p className="text-sm text-muted-foreground">
@@ -1141,7 +1246,13 @@ function EventRegistrationPageContent({
                           </tr>
                         </thead>
                         <tbody className="divide-y md:divide-y">
-                          {garageVehicles.map((v) => (
+                          {garageVehicles.map((v) => {
+                            const saleListing = saleListingFor(v.id);
+                            const saleActive =
+                              saleListing.enabled &&
+                              saleListing.sellerAcknowledged;
+                            const vinMask = garageVehicleVinMask(v.id);
+                            return (
                             <tr
                               key={v.id}
                               className={cn(
@@ -1193,6 +1304,11 @@ function EventRegistrationPageContent({
                                       </span>
                                     )}
                                   </div>
+                                  {vinMask ? (
+                                    <p className="mt-1 font-mono text-xs text-muted-foreground">
+                                      {vinMask}
+                                    </p>
+                                  ) : null}
                                   {requiresVehicleClass ? (
                                     <p className="mt-1 text-xs">
                                       <span className="text-muted-foreground">
@@ -1228,6 +1344,39 @@ function EventRegistrationPageContent({
                                     <p className="mt-1 text-xs italic text-muted-foreground">
                                       Show ID assigned after you save
                                     </p>
+                                  ) : null}
+                                  {saleInquiriesEnabled ? (
+                                    <div className="mt-3 border-t border-border/60 pt-3">
+                                      <label className="flex items-start gap-2 text-sm">
+                                        <input
+                                          type="checkbox"
+                                          className="mt-0.5 size-4 shrink-0 rounded border-input"
+                                          checked={saleActive}
+                                          onChange={(e) =>
+                                            handleBuyerInquiryCheck(
+                                              v.id,
+                                              e.target.checked,
+                                            )
+                                          }
+                                        />
+                                        <span className="leading-snug">
+                                          Open to Buyer Inquiries about Vehicle
+                                        </span>
+                                      </label>
+                                      {saleActive ? (
+                                        <Button
+                                          type="button"
+                                          variant="link"
+                                          size="sm"
+                                          className="mt-1 h-auto px-0 text-xs"
+                                          onClick={() =>
+                                            setSaleDialogVehicleId(v.id)
+                                          }
+                                        >
+                                          Edit listing details
+                                        </Button>
+                                      ) : null}
+                                    </div>
                                   ) : null}
                                 </div>
                               </td>
@@ -1271,7 +1420,8 @@ function EventRegistrationPageContent({
                                 )}
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1282,7 +1432,7 @@ function EventRegistrationPageContent({
                       <Car className="mx-auto mb-2 size-6 text-muted-foreground/50" />
                       <p className="text-sm text-muted-foreground">
                         {allGarageVehicles.length > 0
-                          ? "Select vehicles from your garage above and click Add to Registration."
+                          ? "Select a vehicle from My Garage above to add it or edit its details."
                           : "Use Add New Vehicle above to add a car to your garage, then add it here."}
                       </p>
                     </div>
@@ -1659,6 +1809,55 @@ function EventRegistrationPageContent({
                   </div>
                 </CardContent>
               </Card>
+
+              {saleDialogVehicleId ? (
+                <VehicleSaleListingDialog
+                  open
+                  onOpenChange={handleSaleDialogOpenChange}
+                  eventId={event.id}
+                  vehicleLabel={(() => {
+                    const v = allGarageVehicles.find(
+                      (g) => g.id === saleDialogVehicleId,
+                    );
+                    return v
+                      ? `${v.year} ${v.make} ${v.model}`
+                      : "Vehicle";
+                  })()}
+                  value={saleListingFor(saleDialogVehicleId)}
+                  onChange={(next) =>
+                    updateSaleListing(saleDialogVehicleId, next)
+                  }
+                  onSave={() => {}}
+                  profileSmsOptInActive={
+                    userContact?.smsNotificationsOptInDefault ?? false
+                  }
+                  showSmsOptIn={isLoggedIn}
+                  smsNotificationsOptIn={smsNotificationsOptIn}
+                  onSmsNotificationsOptInChange={setSmsNotificationsOptIn}
+                  contactPhone={contact.phone}
+                />
+              ) : null}
+
+              {garageActionVehicleId ? (() => {
+                const actionVehicle = allGarageVehicles.find(
+                  (v) => v.id === garageActionVehicleId,
+                );
+                if (!actionVehicle) return null;
+                return (
+                  <GarageVehicleActionDialog
+                    open
+                    onOpenChange={(open) => {
+                      if (!open) setGarageActionVehicleId(null);
+                    }}
+                    vehicle={actionVehicle}
+                    photoSrc={garageVehiclePhotoSrc(actionVehicle.id)}
+                    onAddToRegistration={() =>
+                      addVehicleToRegistration(actionVehicle.id)
+                    }
+                    onVehicleUpdated={handleGarageVehicleUpdated}
+                  />
+                );
+              })() : null}
             </>
           )}
 
@@ -1676,7 +1875,7 @@ function EventRegistrationPageContent({
         </div>
 
         {/* ---- RIGHT COLUMN: Sticky sidebar ---- */}
-        <aside className="hidden lg:block">
+        <aside className="hidden min-w-0 lg:block">
           <div className="sticky top-4 space-y-3">
             <div className="rounded-xl border bg-card p-5">
               <EventInfoSidebar event={event} />
@@ -1689,22 +1888,6 @@ function EventRegistrationPageContent({
             )}
           </div>
         </aside>
-
-        {/* Mobile: event info accordion at top (rendered before form via CSS order) */}
-        <details className="order-first rounded-xl border bg-card p-4 lg:hidden">
-          <summary className="cursor-pointer text-sm font-semibold">
-            Event Details
-          </summary>
-          <div className="mt-3 space-y-3">
-            <EventInfoSidebar event={event} />
-            {isLoggedIn && (
-              <ContactOrganizerButton
-                eventId={event.id}
-                eventLabel={`${formatEventShowNumber(event.showNumber)} ${event.name}`}
-              />
-            )}
-          </div>
-        </details>
       </div>
 
       {photoConfirmOpen ? (

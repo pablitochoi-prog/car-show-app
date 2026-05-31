@@ -10,3 +10,13 @@ export function formatUSPhoneDigits(digits: string): string {
 export function digitsFromPhoneInput(value: string): string {
   return value.replace(/\D/g, "").slice(0, 10);
 }
+
+/** US masked or raw phone → Stripe E.164 (+1XXXXXXXXXX). */
+export function toStripeE164Phone(
+  phone: string | null | undefined,
+): string | undefined {
+  if (!phone?.trim()) return undefined;
+  const digits = digitsFromPhoneInput(phone);
+  if (digits.length !== 10) return undefined;
+  return `+1${digits}`;
+}

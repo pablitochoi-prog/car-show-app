@@ -11,6 +11,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FontSizeExtension } from "@/components/admin/tiptap-font-size-extension";
 import {
+  FontFamilyExtension,
+  RICH_TEXT_FONT_FAMILIES,
+} from "@/components/admin/tiptap-font-family-extension";
+import {
   Bold,
   Italic,
   Link2,
@@ -41,6 +45,9 @@ type RichTextEditorProps = {
   disabled?: boolean;
   placeholder?: string;
   "aria-label"?: string;
+  /** Shorter editor surface for dialogs and compact forms. */
+  compact?: boolean;
+  idPrefix?: string;
 };
 
 function ToolbarButton({
@@ -62,6 +69,10 @@ function ToolbarButton({
       variant={active ? "secondary" : "ghost"}
       size="icon-sm"
       disabled={disabled}
+      onMouseDown={(e) => {
+        // Keep editor selection when clicking toolbar controls.
+        e.preventDefault();
+      }}
       onClick={onClick}
       title={title}
       aria-label={title}
@@ -78,11 +89,15 @@ export function RichTextEditor({
   disabled = false,
   placeholder = "Enter policy content…",
   "aria-label": ariaLabel = "Policy editor",
+  compact = false,
+  idPrefix = "rich-text",
 }: RichTextEditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3] },
+        link: false,
+        underline: false,
       }),
       Underline,
       Link.configure({
@@ -95,6 +110,7 @@ export function RichTextEditor({
       TextStyle,
       Color,
       FontSizeExtension,
+      FontFamilyExtension,
     ],
     content: value || "<p></p>",
     editable: !disabled,
@@ -104,8 +120,10 @@ export function RichTextEditor({
     },
     editorProps: {
       attributes: {
-        class:
-          "policy-editor-surface min-h-[220px] px-3 py-2 text-sm leading-relaxed focus:outline-none",
+        class: cn(
+          "policy-editor-surface px-3 py-2 text-sm leading-relaxed focus:outline-none",
+          compact ? "min-h-[7rem]" : "min-h-[220px]",
+        ),
         "aria-label": ariaLabel,
         "data-placeholder": placeholder,
       },
@@ -181,11 +199,39 @@ export function RichTextEditor({
 
         <span className="mx-1 hidden h-6 w-px bg-border sm:inline" aria-hidden />
 
-        <label className="sr-only" htmlFor="policy-font-size">
+        <label className="sr-only" htmlFor={`${idPrefix}-font-family`}>
+          Font
+        </label>
+        <select
+          id={`${idPrefix}-font-family`}
+          disabled={disabled}
+          className="h-8 max-w-[7.5rem] rounded-md border border-input bg-background px-2 text-xs"
+          value={
+            RICH_TEXT_FONT_FAMILIES.find((font) =>
+              editor.isActive("textStyle", { fontFamily: font.value }),
+            )?.value ?? ""
+          }
+          onChange={(e) => {
+            const family = e.target.value;
+            if (!family) {
+              editor.chain().focus().unsetFontFamily().run();
+            } else {
+              editor.chain().focus().setFontFamily(family).run();
+            }
+          }}
+        >
+          {RICH_TEXT_FONT_FAMILIES.map((font) => (
+            <option key={font.label} value={font.value}>
+              {font.label}
+            </option>
+          ))}
+        </select>
+
+        <label className="sr-only" htmlFor={`${idPrefix}-font-size`}>
           Font size
         </label>
         <select
-          id="policy-font-size"
+          id={`${idPrefix}-font-size`}
           disabled={disabled}
           className="h-8 rounded-md border border-input bg-background px-2 text-xs"
           value={
@@ -208,11 +254,11 @@ export function RichTextEditor({
           ))}
         </select>
 
-        <label className="sr-only" htmlFor="policy-text-color">
+        <label className="sr-only" htmlFor={`${idPrefix}-text-color`}>
           Text color
         </label>
         <select
-          id="policy-text-color"
+          id={`${idPrefix}-text-color`}
           disabled={disabled}
           className="h-8 rounded-md border border-input bg-background px-2 text-xs"
           defaultValue=""

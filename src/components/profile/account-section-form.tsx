@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { UsPhoneInput } from "@/components/inputs/us-phone-input";
+import { SmsNotificationsOptInProfileField } from "@/components/sms/sms-notifications-opt-in-profile-field";
 import {
   AddressConfirmSheet,
   type AddressConfirmModal,
@@ -27,6 +28,7 @@ export type ProfileInitial = {
   city: string;
   state: string;
   zip: string;
+  smsNotificationsOptIn: boolean;
 };
 
 export type AccountSectionFormHandle = {
@@ -54,6 +56,7 @@ function valuesMatchInitial(
     city: string;
     state: string;
     zip: string;
+    smsNotificationsOptIn: boolean;
   },
 ) {
   const birthYearInitial =
@@ -66,7 +69,8 @@ function valuesMatchInitial(
     values.street === initial.street &&
     values.city === initial.city &&
     values.state === initial.state &&
-    values.zip === initial.zip
+    values.zip === initial.zip &&
+    values.smsNotificationsOptIn === initial.smsNotificationsOptIn
   );
 }
 
@@ -86,6 +90,9 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
     const [city, setCity] = useState(initial.city);
     const [state, setState] = useState(initial.state);
     const [zip, setZip] = useState(initial.zip);
+    const [smsNotificationsOptIn, setSmsNotificationsOptIn] = useState(
+      initial.smsNotificationsOptIn,
+    );
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [addressModal, setAddressModal] = useState<AddressConfirmModal>(null);
@@ -106,6 +113,7 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
       setCity(initial.city);
       setState(initial.state);
       setZip(initial.zip);
+      setSmsNotificationsOptIn(initial.smsNotificationsOptIn);
       setError(null);
     }, [initial]);
 
@@ -124,6 +132,7 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
           city,
           state,
           zip,
+          smsNotificationsOptIn,
         }),
       );
     }, [
@@ -134,6 +143,7 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
       lastName,
       onDirtyChange,
       phone,
+      smsNotificationsOptIn,
       state,
       street,
       zip,
@@ -204,6 +214,7 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
         city: addr.city,
         state: addr.state,
         zip: addr.zip,
+        smsNotificationsOptIn,
       };
     }
 
@@ -252,12 +263,18 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
           city,
           state,
           zip,
+          smsNotificationsOptIn,
         })
       ) {
         return true;
       }
 
       setError(null);
+
+      if (smsNotificationsOptIn && !phone.trim()) {
+        setError("Enter a phone number to receive SMS notifications.");
+        return false;
+      }
 
       const addr: MailingFields = {
         street: street.trim(),
@@ -545,6 +562,11 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
             <p className="text-xs text-muted-foreground">
               Format (###) ###-#### — optional.
             </p>
+            <SmsNotificationsOptInProfileField
+              id="profile-sms-notifications-opt-in"
+              checked={smsNotificationsOptIn}
+              onCheckedChange={setSmsNotificationsOptIn}
+            />
           </div>
         </div>
 

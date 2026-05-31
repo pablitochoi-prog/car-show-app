@@ -22,12 +22,51 @@ export type EditVehicleInitial = {
   photoUrl: string | null;
 };
 
+export type EditVehicleSaved = {
+  id: string;
+  year: number;
+  make: string;
+  model: string;
+  trim: string | null;
+  nickname: string | null;
+  vin: string | null;
+  photoUrl: string | null;
+  notes: string | null;
+};
+
+async function loadPrimaryGaragePhotoUrl(
+  vehicleId: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/vehicles/${vehicleId}/photos`, {
+      credentials: "same-origin",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      photos?: Array<{ isPrimary: boolean; viewUrl: string }>;
+    };
+    const photos = data.photos ?? [];
+    const primary =
+      photos.find((photo) => photo.isPrimary) ?? photos[0] ?? null;
+    return primary?.viewUrl ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function EditVehicleForm({
   vehicleId,
   initial,
+  embedded = false,
+  onSaved,
+  onCancel,
 }: {
   vehicleId: string;
   initial: EditVehicleInitial;
+  /** Inline/dialog use — no redirect after save. */
+  embedded?: boolean;
+  onSaved?: (vehicle: EditVehicleSaved) => void;
+  onCancel?: () => void;
 }) {
   const router = useRouter();
   const [year, setYear] = useState(String(initial.year));
@@ -85,6 +124,24 @@ export function EditVehicleForm({
         return;
       }
 
+      const updated = JSON.parse(raw) as EditVehicleSaved;
+      const primaryPhotoUrl = await loadPrimaryGaragePhotoUrl(vehicleId);
+
+      if (onSaved) {
+        onSaved({
+          id: updated.id,
+          year: updated.year,
+          make: updated.make,
+          model: updated.model,
+          trim: updated.trim,
+          nickname: updated.nickname,
+          vin: updated.vin,
+          photoUrl: primaryPhotoUrl ?? updated.photoUrl,
+          notes: updated.notes ?? (notes.trim() || null),
+        });
+        return;
+      }
+
       router.push("/dashboard/vehicles");
       router.refresh();
     } catch (err) {
@@ -98,14 +155,17 @@ export function EditVehicleForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4 rounded-lg border p-4">
+    <form
+      onSubmit={onSubmit}
+      className={cn("space-y-4", !embedded && "rounded-lg border p-4")}
+    >
       {error ? (
         <div className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
           {error}
         </div>
       ) : null}
 
-      <p className="text-sm font-medium">Edit vehicle</p>
+      {!embedded ? <p className="text-sm font-medium">Edit vehicle</p> : null}
 
       <div className="max-sm:-mx-2 max-sm:overflow-x-auto max-sm:px-2 max-sm:pb-1">
         <div className="grid min-w-0 grid-cols-[minmax(0,4.5rem)_minmax(0,12ch)_minmax(0,20ch)_minmax(0,1fr)] items-end gap-3 max-sm:min-w-[28rem]">
@@ -219,12 +279,24 @@ export function EditVehicleForm({
           {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Save changes
         </Button>
-        <Link
-          href="/dashboard/vehicles"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-        >
-          Cancel
-        </Link>
+        {onCancel ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading}
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+        ) : (
+          <Link
+            href="/dashboard/vehicles"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            Cancel
+          </Link>
+        )}
       </div>
     </form>
   );

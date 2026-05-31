@@ -95,6 +95,7 @@ export function RegistrationWizard({
       make: row.make.trim(),
       model: row.model.trim(),
       trim: row.trim.trim() || undefined,
+      vin: row.vin.trim() || undefined,
       notes: row.notes.trim() || undefined,
     }));
 

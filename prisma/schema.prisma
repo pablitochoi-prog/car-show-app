@@ -105,6 +105,15 @@ enum StepUpAuditAction {
   ACCESS_DENIED
 }
 
+enum VehicleSaleInquiryStatus {
+  NEW
+  SENT_TO_OWNER
+  FAILED_TO_SEND
+  SPAM
+  ARCHIVED
+  CONTACTED
+}
+
 model User {
   id          String       @id @default(uuid())
   email       String       @unique
@@ -113,6 +122,15 @@ model User {
   firstName   String?
   lastName    String?
   phone       String?
+  /// SMS notification marketing/transactional opt-in (TCPA consent).
+  smsNotificationsOptIn                 Boolean   @default(false)
+  smsNotificationsOptInAt               DateTime?
+  smsNotificationsOptInSource           String?
+  smsNotificationsOptInPhone            String?
+  smsNotificationsOptInIpAddress        String?
+  smsNotificationsOptInUserAgent        String?
+  smsNotificationsOptOutAt              DateTime?
+  smsNotificationsConsentTextVersion    String?
   /// Street address line for profile / contact.
   street      String?
   city        String?
@@ -149,6 +167,8 @@ model User {
   messageStates    MessageUserState[]
   stepUpOtpChallenges StepUpOtpChallenge[]
   stepUpAuditLogs     StepUpAuditLog[]
+  vehicleSaleListings VehicleSaleListing[]
+  vehicleSaleInquiries VehicleSaleInquiry[] @relation("VehicleSaleInquirySeller")
 
   @@map("users")
 }
@@ -360,6 +380,11 @@ model Event {
   smsVotingEnabled    Boolean   @default(false)
   smsVotingStartsAt   DateTime?
   smsVotingEndsAt     DateTime?
+  /// When true, registrants may mark vehicles as accepting purchase inquiries.
+  vehicleSaleInquiriesEnabled Boolean @default(false)
+
+  vehicleSaleListings  VehicleSaleListing[]
+  vehicleSaleInquiries VehicleSaleInquiry[]
   @@index([status, startDate])
   @@index([city, state])
   @@index([orgId])
@@ -493,9 +518,19 @@ model Registration {
   /// Snapshot of registrant profile photo for event staff (private R2 key).
   registrantPhotoObjectKey String?
 
+  smsNotificationsOptIn                 Boolean   @default(false)
+  smsNotificationsOptInAt               DateTime?
+  smsNotificationsOptInSource           String?
+  smsNotificationsOptInPhone            String?
+  smsNotificationsOptInIpAddress        String?
+  smsNotificationsOptInUserAgent        String?
+  smsNotificationsOptOutAt              DateTime?
+  smsNotificationsConsentTextVersion    String?
+
   vehicles RegistrationVehicle[]
   publicVotes  VehiclePublicVote[]
   judgeScores  VehicleJudgeScore[]
+  vehicleSaleListings VehicleSaleListing[]
 
   @@unique([eventId, userId])
   @@index([eventId])
@@ -533,9 +568,96 @@ model RegistrationVehicle {
 
   publicVotes   VehiclePublicVote[]
   judgeScores   VehicleJudgeScore[]
+  saleListing   VehicleSaleListing?
 
   @@unique([registrationId, vehicleId])
   @@map("registration_vehicles")
+}
+
+/// Owner opt-in to receive buyer inquiries for a vehicle at a specific event.
+model VehicleSaleListing {
+  id                      String   @id @default(uuid())
+  eventId                 String
+  registrationId          String
+  registrationVehicleId   String?  @unique
+  guestVehicleIndex       Int?
+  sellerUserId            String?
+  enabled                 Boolean  @default(false)
+  askingPriceCents        Int?
+  showAskingPricePublicly Boolean  @default(false)
+  allowOffers             Boolean  @default(false)
+  minimumOfferCents       Int?
+  description             String?  @db.Text
+  sellerAcknowledgedAt    DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  event               Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration        Registration         @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registrationVehicle RegistrationVehicle? @relation(fields: [registrationVehicleId], references: [id], onDelete: Cascade)
+  seller              User?                @relation(fields: [sellerUserId], references: [id], onDelete: SetNull)
+  photos              VehicleSalePhoto[]
+  inquiries           VehicleSaleInquiry[]
+
+  @@unique([registrationId, guestVehicleIndex])
+  @@index([eventId, enabled])
+  @@index([sellerUserId])
+  @@map("vehicle_sale_listings")
+}
+
+model VehicleSalePhoto {
+  id               String   @id @default(uuid())
+  listingId        String
+  publicUrl        String
+  objectKey        String   @unique
+  sortOrder        Int      @default(0)
+  originalFilename String?
+  contentType      String?
+  createdAt        DateTime @default(now())
+
+  listing VehicleSaleListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, sortOrder])
+  @@map("vehicle_sale_photos")
+}
+
+model VehicleSaleInquiry {
+  id                      String                   @id @default(uuid())
+  listingId               String
+  eventId                 String
+  sellerUserId            String?
+  registrationVehicleId   String?
+  guestVehicleIndex       Int?
+  buyerName               String
+  buyerEmail              String
+  buyerPhone              String?
+  offerAmountCents        Int?
+  message                 String?                  @db.Text
+  consentAt               DateTime
+  smsNotificationsOptIn           Boolean                  @default(false)
+  smsNotificationsOptInAt         DateTime?
+  smsNotificationsOptInSource   String?
+  smsNotificationsOptInPhone    String?
+  smsNotificationsOptInIpAddress  String?
+  smsNotificationsOptInUserAgent  String?
+  smsNotificationsOptOutAt        DateTime?
+  smsNotificationsConsentTextVersion String?
+  status                  VehicleSaleInquiryStatus @default(NEW)
+  ipHash                  String?
+  userAgentHash           String?
+  submittedAt             DateTime                 @default(now())
+  notificationEmailSentAt DateTime?
+  notificationSmsSentAt   DateTime?
+  contactedAt             DateTime?
+
+  listing VehicleSaleListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  event   Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  seller  User?                @relation("VehicleSaleInquirySeller", fields: [sellerUserId], references: [id], onDelete: SetNull)
+
+  @@index([listingId, submittedAt])
+  @@index([sellerUserId, status])
+  @@index([eventId])
+  @@map("vehicle_sale_inquiries")
 }
 
 /// Web/QR public vote — one vote per visitor per category per event; at most one category per vehicle.

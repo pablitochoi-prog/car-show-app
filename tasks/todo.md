@@ -955,3 +955,341 @@ Edit page now loads zero setup-section API calls until the user opens a card. Pe
 - Use Supabase **session mode** pooler (port 5432) for dev, or carefully raise `connection_limit` if pool allows
 - Pass auth user from middleware to routes (Next.js 16 header/cookie pattern) to skip second `getUser()`
 - Batch event setup into one `/api/events/[id]/setup` endpoint for initial load
+
+---
+
+## Vehicle Available for Sale — implementation plan (2026-05-23)
+
+**Status:** Phase 2 complete — Phase 3 next (dash card sale badge + QR).
+
+### Current codebase (inspection summary)
+
+| Area | What exists today |
+|------|-------------------|
+| **Vehicle entry identity** | `RegistrationVehicle.publicVehicleId` (e.g. `AXY-004`) = `vehicleEntryCode` for voting/judging QR, SMS, `/v/[vehicleEntryCode]` smart route |
+| **Guest vehicles** | Stored in `Registration.guestVehicles` JSON with `publicVehicleId`; unified via `findVehicleEntryByCode()` in `vehicle-entry-lookup.ts` |
+| **Dash cards** | `DashCardPreview` + `loadDashCardModelsForRegistrations()`; sidebar shows Owner + **Location** (city/state only — no email/phone); vote QR points to smart route |
+| **Registration UI** | Logged-in: `event-registration-page.tsx` + `AddVehicleForm`; guest: `guest-registration-form.tsx` |
+| **Event settings** | `EventForm` on organizer edit page; SMS voting toggle in `EventSmsVotingSettings` collapsible |
+| **Email** | SendGrid in `src/lib/email/sendgrid.ts`; pattern for transactional emails |
+| **Uploads** | R2 via `upload-destinations.ts`; public photos under `events/{eventId}/...` |
+| **Rate limiting** | No generic API rate limiter yet; OTP has rate limits; will add sale-inquiry-specific limits |
+
+**Privacy already OK on dash cards:** Owner line is display name + city/state only — no email/phone on card.
+
+**QR token choice:** Reuse **`vehicleEntryCode`** (`publicVehicleId`) for sale URL — already on dash card, not a raw DB UUID, unique per event. Route: **`/v/[vehicleEntryCode]/sale`**.
+
+---
+
+### Proposed Prisma schema
+
+```prisma
+enum VehicleSaleInquiryStatus {
+  NEW
+  SENT_TO_OWNER
+  FAILED_TO_SEND
+  SPAM
+  ARCHIVED
+  CONTACTED
+}
+
+// Event — add field:
+// vehicleSaleInquiriesEnabled Boolean @default(false)
+
+model VehicleSaleListing {
+  id                    String   @id @default(uuid())
+  eventId               String
+  registrationId        String
+  registrationVehicleId String?  @unique  // logged-in entries
+  guestVehicleIndex     Int?              // guest JSON index (0-based)
+  sellerUserId          String?           // null for guest registrants
+  enabled               Boolean  @default(false)
+  askingPriceCents      Int?
+  showAskingPricePublicly Boolean @default(false)
+  allowOffers           Boolean  @default(false)
+  minimumOfferCents     Int?
+  description           String?  @db.Text
+  sellerAcknowledgedAt  DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  event          Event          @relation(...)
+  registration   Registration   @relation(...)
+  registrationVehicle RegistrationVehicle? @relation(...)
+  seller         User?          @relation(...)
+  photos         VehicleSalePhoto[]
+  inquiries      VehicleSaleInquiry[]
+
+  @@unique([registrationId, guestVehicleIndex])
+  @@index([eventId, enabled])
+  @@index([sellerUserId])
+}
+
+model VehicleSalePhoto {
+  id               String @id @default(uuid())
+  listingId        String
+  publicUrl        String
+  objectKey        String @unique
+  sortOrder        Int    @default(0)
+  originalFilename String?
+  contentType      String?
+  createdAt        DateTime @default(now())
+  listing VehicleSaleListing @relation(...)
+  @@index([listingId, sortOrder])
+}
+
+model VehicleSaleInquiry {
+  id                    String @id @default(uuid())
+  listingId             String
+  eventId               String
+  sellerUserId          String?
+  registrationVehicleId String?
+  guestVehicleIndex     Int?
+  buyerName             String
+  buyerEmail            String
+  buyerPhone            String?
+  offerAmountCents      Int?
+  message               String? @db.Text
+  consentAt             DateTime
+  status                VehicleSaleInquiryStatus @default(NEW)
+  ipHash                String?
+  userAgentHash         String?
+  submittedAt           DateTime @default(now())
+  notificationEmailSentAt DateTime?
+  notificationSmsSentAt   DateTime?
+  contactedAt           DateTime?
+
+  listing VehicleSaleListing @relation(...)
+  @@index([listingId, submittedAt])
+  @@index([sellerUserId, status])
+  @@index([eventId])
+}
+```
+
+**Listing key:** One listing row per vehicle entry (either `registrationVehicleId` OR `registrationId` + `guestVehicleIndex`).
+
+**Guest sellers:** `sellerUserId` null; notify `registration.guestEmail`. Logged-in sellers: notify `user.email`.
+
+---
+
+### Phased todos
+
+#### Phase 1 — Schema + event setting
+- [x] Migration: models above + `Event.vehicleSaleInquiriesEnabled` default `false`
+- [x] Add upload purpose `vehicleSalePhoto` → `events/{eventId}/sale-listings/{listingId}/`
+- [x] Event PATCH/API + organizer toggle: “Allow vehicle owners to mark vehicles as available for sale” (`EventVehicleSaleSettings` on edit page)
+- [x] Clone event: copy setting; default off for existing events (migration default handles this)
+- [x] `npm run build` passes after Phase 1
+
+#### Phase 2 — Registration sale opt-in
+- [x] Zod schema: `vehicleSaleListingSchema` (optional per vehicle)
+- [x] Logged-in registration UI (`event-registration-page.tsx`): collapsible “Owner Accepting Inquiries” per registered vehicle when event enabled
+- [x] Guest registration UI (`guest-registration-form.tsx`): same fields per vehicle row
+- [x] Organizer edit registration: same fields (member + guest)
+- [x] POST/PATCH register routes: upsert `VehicleSaleListing` + photos; require `sellerAcknowledgedAt` when enabled
+- [x] Do not block registration if sale section empty
+- [x] `npm run build` passes after Phase 2
+
+#### Phase 3 — Dash card sale badge + QR
+- [x] Extend `DashCardModel` with optional `sale?: { badgeLabel; salePageUrl; qrImageUrl }`
+- [x] When listing enabled + event setting on: replace Location row with **“Owner Accepting Inquiries on this Vehicle”**
+- [x] Add sale QR panel (separate from vote QR): “Scan for vehicle listing details” → `/v/{code}/sale`
+- [x] Generate sale QR via existing `ensureVehicleQrsForEntryCodes` pattern (new purpose or second QR file)
+- [x] Print layout: keep vote QR unchanged; add sale block only when applicable
+
+#### Phase 4 — Public sale inquiry page
+- [x] `src/app/v/[vehicleEntryCode]/sale/page.tsx` — public, no auth
+- [x] Load listing by entry code via `findVehicleEntryByCode` + listing join
+- [x] Show: vehicle YMM, event name + show number, description, photos, asking price if public
+- [x] **Never show:** owner email, phone, address, account id
+- [x] Disclaimers (broker/not inspector/escrow)
+- [x] Buyer form: name*, email*, phone (optional), offer (conditional), message, consent*
+- [x] Honeypot field (hidden)
+- [x] Confirmation page after submit (`/sale/sent`)
+
+#### Phase 5 — Inquiry save + SendGrid email
+- [x] `POST /api/v/[vehicleEntryCode]/sale/inquiry` — validate, save inquiry
+- [x] `sendVehicleSaleInquiryEmail()` in sendgrid.ts
+- [x] SMS placeholder: `notifyVehicleSaleInquirySms()` no-op unless `TWILIO_SMS_OUTBOUND_ENABLED=1` (future)
+- [x] Update inquiry status `SENT_TO_OWNER` / `FAILED_TO_SEND`
+- [x] Email link → `/dashboard/sale-inquiries/[id]` (seller) or guest email only
+
+#### Phase 6 — Owner dashboard
+- [x] `/dashboard/sale-inquiries` — list inquiries for `sellerUserId = me`
+- [x] Detail view: buyer contact, offer, message, event/vehicle context
+- [x] Actions: Mark contacted, Archive
+- [x] Nav link from dashboard sidebar
+
+#### Phase 7 — Admin / organizer reporting
+- [x] Admin: `/admin/sale-inquiries` — all inquiries, full buyer details
+- [x] Organizer: event registrations summary — count for-sale vehicles + inquiry count (no buyer PII)
+- [x] Optional: widget on organizer registrations page
+
+#### Phase 8 — Abuse prevention + tests
+- [x] Rate limit: max N inquiries per listing/IP/email per hour (in-memory or DB window)
+- [x] `ipHash` / `userAgentHash` (sha256 truncated, no raw IP storage)
+- [x] Tests: validation, rate limit, email skip when SendGrid off, listing upsert
+- [x] Manual checklist: `docs/vehicle-sale-inquiry-test-checklist.md`
+- [x] `npm run build`
+
+---
+
+### Compatibility guardrails
+
+- Sale fields hidden when `vehicleSaleInquiriesEnabled === false`
+- No sale QR when disabled or listing not enabled
+- Voting/judging smart route `/v/[code]` unchanged
+- Stripe checkout, OTP, MFA, idle logout untouched
+- Guest + logged-in + existing entries supported via dual listing key
+
+---
+
+### Open decisions (approved 2026-05-23)
+
+1. **Sale URL:** `/v/[vehicleEntryCode]/sale`
+2. **Buyer phone:** optional in v1
+3. **Organizer visibility:** counts only — no buyer PII
+4. **Notifications:** SendGrid email now; SMS placeholder fields only (Twilio outbound not approved)
+5. **Dash card wording:** “Owner Accepting Inquiries” (not “Vehicle Available for Sale”)
+6. **Public disclaimer:** CarShowScout is not broker/dealer/escrow/inspector/appraiser
+7. **Existing events:** `vehicleSaleInquiriesEnabled` defaults `false`
+8. **Guest sellers:** email notifications only; dashboard later if account claimed
+
+---
+
+### Phase 1 review (2026-05-23)
+
+**Schema & migration**
+- Added `VehicleSaleInquiryStatus` enum, `VehicleSaleListing`, `VehicleSalePhoto`, `VehicleSaleInquiry` models
+- Added `Event.vehicleSaleInquiriesEnabled Boolean @default(false)` — existing events stay off
+- Migration `20260530220000_vehicle_sale_listings` applied via `npm run db:migrate:deploy`
+
+**API & validation**
+- `GET/PATCH /api/events/[id]/vehicle-sale-settings` with organizer step-up guard
+- `vehicleSaleSettingsSchema` + unit tests
+
+**Organizer UI**
+- `EventVehicleSaleSettings` collapsible card on event edit page (setup list cards)
+- Toggle copy explains owners opt in per vehicle; includes broker disclaimer
+
+**Uploads**
+- `vehicleSalePhoto` purpose → `events/{eventId}/sale-listings/{listingId}/`
+
+**Build:** `npm run build` passes.
+
+---
+
+### Phase 2 review (2026-05-23)
+
+**Validation & sync**
+- `vehicleSaleListingInputSchema` + tests; optional on register/guest/organizer schemas
+- `sync-vehicle-sale-listings.ts` upserts listings for logged-in and guest vehicles
+- Photo upload: `POST /api/events/[id]/vehicle-sale-listing-photo/upload`
+
+**UI**
+- `VehicleSaleListingFields` — “Owner accepting inquiries” per vehicle with broker disclaimer
+- Logged-in, guest, and organizer guest edit flows; hidden when event setting is off
+- Registration not blocked when sale section is empty/disabled
+
+**Routes:** register, register-guest, organizer PATCH registration
+
+**Build:** `npm run build` passes.
+
+---
+
+### Phase 3 review (2026-05-23)
+
+**Types & URLs**
+- `DashCardSaleModel` on `DashCardModel.sale` (`badgeLabel`, `salePageUrl`, `qrImageUrl`)
+- `vehicleSalePageUrl()` → `/v/{code}/sale`
+
+**Data loading**
+- `loadDashCardModelsForRegistrations` batch-loads enabled + acknowledged sale listings when `event.vehicleSaleInquiriesEnabled`
+- Maps by `registrationVehicleId` or `guestVehicleIndex`; no sale block when event off or listing disabled
+
+**Sale QR**
+- `ensureVehicleSaleQrForStorage` uploads `sale-qr.svg` (R2) with inline SVG fallback — separate from vote QR
+- `attachSaleQrsToDashCards` mirrors vote QR batch pattern
+
+**UI & print**
+- Sidebar: Location row replaced with listing badge when `sale` present
+- Vote column: vote panel unchanged; sale QR moved to **left sidebar** below listing badge with “Scan for vehicle listing details”
+- Print CSS stacks panels; smaller sale QR when both present
+- Sample preview data includes sale block for `/dash-card-preview`
+
+**Tests:** `dash-card-qr-url.test.ts` covers sale URL path.
+
+**Build:** `npm run build` passes.
+
+---
+
+### Phase 5 review (2026-05-31)
+
+**Inquiry pipeline**
+- `POST /api/v/[vehicleEntryCode]/sale/inquiry` saves inquiry with ipHash / userAgentHash
+- Email via `sendVehicleSaleInquiryEmail`; status `SENT_TO_OWNER` or `FAILED_TO_SEND`
+
+**SMS placeholder**
+- `notifyVehicleSaleInquirySms()` in `lib/sms/vehicle-sale-inquiry-sms.ts` — no-op unless `TWILIO_SMS_OUTBOUND_ENABLED=1`
+
+**Owner email**
+- Logged-in sellers (`sellerUserId` set): email includes dashboard link `/dashboard/sale-inquiries/[id]`
+- Guest sellers: email with buyer contact only (no dashboard link)
+
+---
+
+### Phase 6 review (2026-05-31)
+
+**Dashboard**
+- `/dashboard/sale-inquiries` — list for `sellerUserId = current user` (archived hidden)
+- `/dashboard/sale-inquiries/[id]` — buyer contact, offer, message, event/vehicle context
+- `PATCH /api/dashboard/sale-inquiries/[id]` — mark contacted, archive
+
+**Nav**
+- **Sale Inquiries** tile on main dashboard grid
+
+**Build:** `npm run build` passes.
+
+---
+
+### Phase 7 review (2026-05-31)
+
+**Admin**
+- `/admin/sale-inquiries` — all inquiries with buyer email, event/vehicle context
+- `/admin/sale-inquiries/[id]` — full buyer contact, offer, message, delivery/audit fields (IP hash, user-agent hash)
+- Nav link in admin layout
+
+**Organizer**
+- `loadEventSaleInquiryStats()` — for-sale vehicle count + inquiry count (excludes spam/archived)
+- `EventSaleInquirySummary` widget on organizer registrations page when sale inquiries are enabled
+- No buyer PII shown to organizers
+
+**Build:** `npm run build` passes.
+
+---
+
+### Phase 8 review (2026-05-23)
+
+**Abuse prevention**
+- `hashSaleInquiryClientValue()` — shared SHA-256 truncated hash for IP and user-agent (no raw IP stored)
+- `checkVehicleSaleInquiryRateLimits()` — DB window: 5/listing/hr, 5/email/hr, 10/ipHash/hr; excludes `SPAM` status
+- Inquiry API returns 429 when limits exceeded; honeypot unchanged from Phase 4
+- Validation rejects negative offer strings (e.g. `-100`) before currency parsing
+
+**Tests**
+- `vehicle-sale-inquiry.test.ts` — schema + buyer name formatter
+- `vehicle-sale-inquiry-rate-limit.test.ts` — mocked Prisma rate-limit windows
+- `vehicle-sale-inquiry-client-hash.test.ts` — hash stability and truncation
+- `vehicle-sale-listing.test.ts` — extended with `normalizeVehicleSaleListingInput`
+- `sendgrid.test.ts` — `sendVehicleSaleInquiryEmail` skip when SendGrid off
+
+**Docs**
+- `docs/vehicle-sale-inquiry-test-checklist.md` — manual QA checklist for full feature
+
+**Build:** `npm run build` passes. Phase 8 unit tests pass (27 tests in scope).
+
+---
+
+### Review (vehicle sale inquiry feature — complete)
+
+Phases 1–8 complete. Owners can opt in per vehicle when the event enables sale inquiries; dash cards show a sale QR and badge; buyers submit inquiries on the public sale page; owners receive email (and optional future SMS); logged-in sellers manage inquiries in the dashboard; admins see full PII; organizers see counts only. Abuse controls: honeypot, rate limits, hashed client metadata, negative-offer validation.

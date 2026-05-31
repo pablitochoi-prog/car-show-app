@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { vehicleSaleListingInputSchema } from "@/lib/validation/vehicle-sale-listing";
+import {
+  addSmsOptInRequiresPhoneRefinement,
+  smsNotificationsOptInFieldSchema,
+} from "@/lib/validation/sms-notifications-consent";
 
 export const registrationTierWriteSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -95,6 +100,7 @@ export const registerForEventSchema = z
   .object({
     tierId: z.string().uuid(),
     contact: registrationContactSchema,
+    smsNotificationsOptIn: smsNotificationsOptInFieldSchema,
     vehicleIds: z.array(z.string().uuid()).default([]),
     newVehicles: z.array(vehicleWriteSchema).optional(),
     vehicleCategories: z.record(z.string().uuid(), z.string().uuid()).optional(),
@@ -102,8 +108,24 @@ export const registerForEventSchema = z
     vehicleNicknames: z
       .record(z.string().uuid(), optionalVehicleNickname)
       .optional(),
+    /** Per-vehicle VIN saved to the garage vehicle at registration time (optional). */
+    vehicleVins: z
+      .record(z.string().uuid(), optionalVehicleVin)
+      .optional(),
+    /** Optional per-vehicle sale inquiry opt-in when event setting is enabled. */
+    vehicleSaleListings: z
+      .record(z.string().uuid(), vehicleSaleListingInputSchema)
+      .optional(),
     /** Donation amount in cents when event fee type is DONATION. */
     donationCents: z.coerce.number().int().min(0).optional(),
+  })
+  .superRefine((data, ctx) => {
+    addSmsOptInRequiresPhoneRefinement(
+      data,
+      (d) => d.contact.phone,
+      "contact.phone",
+      ctx,
+    );
   })
   .refine(
     (d) =>
@@ -120,6 +142,7 @@ const guestVehicleSchema = z.object({
   notes: z.string().optional(),
   photoUrl: optionalVehiclePhotoUrl,
   eventCategoryId: z.string().uuid().optional(),
+  saleListing: vehicleSaleListingInputSchema.optional(),
 });
 
 export const guestRegisterSchema = z
@@ -129,18 +152,23 @@ export const guestRegisterSchema = z
     lastName: z.string().min(1, "Last name is required").max(100),
     email: z.string().email("Valid email is required"),
     phone: optionalMaskedUsPhone,
+    smsNotificationsOptIn: smsNotificationsOptInFieldSchema,
     vehicles: z
       .array(guestVehicleSchema)
       .min(1, "Add at least one vehicle"),
     donationCents: z.coerce.number().int().min(0).optional(),
   })
-  .merge(registrationAddressSchema);
+  .merge(registrationAddressSchema)
+  .superRefine((data, ctx) => {
+    addSmsOptInRequiresPhoneRefinement(data, (d) => d.phone, "phone", ctx);
+  });
 
 const guestVehicleOrganizerUpdateSchema = z.object({
   publicVehicleId: z.string().min(1, "Vehicle id is required"),
   nickname: optionalVehicleNickname,
   eventCategoryId: z.union([z.string().uuid(), z.null()]).optional(),
   notes: z.string().max(5000).optional(),
+  saleListing: vehicleSaleListingInputSchema.optional(),
 });
 
 /** Organizer updates guest contact (and optional vehicle fields) before payment completes. */

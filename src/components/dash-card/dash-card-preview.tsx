@@ -5,10 +5,15 @@ import {
   Calendar,
   Car,
   MapPin,
+  Tag,
   Trophy,
   User,
 } from "lucide-react";
-import type { DashCardModel, DashCardSponsorModel } from "@/lib/dash-card-types";
+import type {
+  DashCardModel,
+  DashCardSaleModel,
+  DashCardSponsorModel,
+} from "@/lib/dash-card-types";
 import { cn } from "@/lib/utils";
 import { DashCardQrPlaceholder } from "@/components/dash-card/dash-card-qr-placeholder";
 import { VehiclePhotoDisplay } from "@/components/vehicle/vehicle-photo-display";
@@ -364,8 +369,33 @@ function VotePanel({
   );
 }
 
+function SaleListingQrBlock({ sale }: { sale: DashCardSaleModel }) {
+  return (
+    <div className="dash-card-sale-sidebar shrink-0">
+      <p className="dash-card-sale-text text-center text-[0.6875rem] font-semibold leading-snug text-[#334155] sm:text-xs">
+        Scan for vehicle listing details
+      </p>
+      <div className="dash-card-qr-row-center py-0.5">
+        <div className="dash-card-qr-stage dash-card-qr-stage--sale">
+          <div className="dash-card-qr-wrap dash-card-qr-wrap--sale">
+            {sale.qrImageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={sale.qrImageUrl}
+                alt="Scan for vehicle listing details"
+              />
+            ) : (
+              <DashCardQrPlaceholder />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DashCardPreview({ data }: { data: DashCardModel }) {
-  const { event, vehicle, owner, voting, siteSponsor } = data;
+  const { event, vehicle, owner, voting, siteSponsor, sale } = data;
   const vehicleNickname = vehicle.nickname?.trim() ?? "";
   const eventDateLine = [
     event.dateRangeLabel,
@@ -448,12 +478,24 @@ export function DashCardPreview({ data }: { data: DashCardModel }) {
             name={owner.name}
             photoUrl={owner.ownerPhotoUrl}
           />
-          <SidebarInfoRow
-            icon={MapPin}
-            label="Location"
-            value={owner.cityState || "—"}
-            valueClassName="dash-card-owner-city"
-          />
+          {sale ? (
+            <>
+              <SidebarInfoRow
+                icon={Tag}
+                label="Listing"
+                value={sale.badgeLabel}
+                valueClassName="dash-card-sale-badge text-sm leading-snug sm:text-base"
+              />
+              <SaleListingQrBlock sale={sale} />
+            </>
+          ) : (
+            <SidebarInfoRow
+              icon={MapPin}
+              label="Location"
+              value={owner.cityState || "—"}
+              valueClassName="dash-card-owner-city"
+            />
+          )}
           <SponsorshipBlock
             eventSponsor={{
               logoUrl: event.sponsorLogoUrl,

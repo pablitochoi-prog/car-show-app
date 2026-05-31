@@ -63,10 +63,17 @@ import {
 } from "@/lib/registration-vehicle-classes";
 import { hasCompleteMailingAddress } from "@/lib/registration-address";
 import { RegistrationAddressFields } from "./registration-address-fields";
+import { SmsNotificationsOptInField } from "@/components/sms/sms-notifications-opt-in-field";
 import {
   VehiclePhotoDraftField,
   VehicleRegistrationPhotoThumb,
 } from "./vehicle-photo-draft-field";
+import {
+  emptyVehicleSaleListingFormState,
+  vehicleSaleListingFormStateToPayload,
+  type VehicleSaleListingFormState,
+} from "@/components/sale/vehicle-sale-listing-fields";
+import { VehicleSaleListingDialog } from "@/components/sale/vehicle-sale-listing-dialog";
 
 type EventCategoryOption = { id: string; name: string };
 
@@ -80,6 +87,7 @@ type RegisteredGuestVehicle = {
   notes: string;
   photoUrl: string | null;
   eventCategoryId: string | null;
+  saleListing: VehicleSaleListingFormState;
 };
 
 const emptyDraft = (): VehicleLookupValues & { notes: string; nickname: string } => ({
@@ -104,6 +112,7 @@ export function GuestRegistrationForm({
   platformSetupFeeCollected = false,
   eventSetupFeeCents = 0,
   eventCategories = [],
+  vehicleSaleInquiriesEnabled = false,
 }: {
   eventId: string;
   tiers: TierOption[];
@@ -116,6 +125,7 @@ export function GuestRegistrationForm({
   platformSetupFeeCollected?: boolean;
   eventSetupFeeCents?: number;
   eventCategories?: EventCategoryOption[];
+  vehicleSaleInquiriesEnabled?: boolean;
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState<CheckoutMode | null>(null);
@@ -125,6 +135,7 @@ export function GuestRegistrationForm({
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [smsNotificationsOptIn, setSmsNotificationsOptIn] = useState(false);
   const [street, setStreet] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
@@ -144,6 +155,9 @@ export function GuestRegistrationForm({
   const [registeredVehicles, setRegisteredVehicles] = useState<
     RegisteredGuestVehicle[]
   >([]);
+  const [saleDialogClientId, setSaleDialogClientId] = useState<string | null>(
+    null,
+  );
 
   const isDonationEvent = feeType === "DONATION";
   const requiresVehicleClass = eventCategories.length > 0;
@@ -299,6 +313,7 @@ export function GuestRegistrationForm({
         notes: draft.notes.trim(),
         photoUrl,
         eventCategoryId: null,
+        saleListing: emptyVehicleSaleListingFormState(),
       },
     ]);
     resetDraft();
@@ -316,6 +331,40 @@ export function GuestRegistrationForm({
     setRegisteredVehicles((prev) =>
       prev.map((v) => (v.clientId === clientId ? { ...v, ...patch } : v)),
     );
+  }
+
+  function handleBuyerInquiryCheck(clientId: string, checked: boolean) {
+    const vehicle = registeredVehicles.find((v) => v.clientId === clientId);
+    if (!vehicle) return;
+    if (checked) {
+      updateVehicle(clientId, {
+        saleListing: { ...vehicle.saleListing, enabled: true },
+      });
+      setSaleDialogClientId(clientId);
+    } else {
+      updateVehicle(clientId, {
+        saleListing: {
+          ...emptyVehicleSaleListingFormState(),
+          listingId: vehicle.saleListing.listingId,
+        },
+      });
+    }
+  }
+
+  function handleSaleDialogOpenChange(open: boolean) {
+    if (open || !saleDialogClientId) return;
+    const vehicle = registeredVehicles.find(
+      (v) => v.clientId === saleDialogClientId,
+    );
+    if (vehicle && !vehicle.saleListing.sellerAcknowledged) {
+      updateVehicle(saleDialogClientId, {
+        saleListing: {
+          ...emptyVehicleSaleListingFormState(),
+          listingId: vehicle.saleListing.listingId,
+        },
+      });
+    }
+    setSaleDialogClientId(null);
   }
 
   /** Event charges a registration fee (independent of Stripe setup). */
@@ -344,6 +393,10 @@ export function GuestRegistrationForm({
     }
     if (!email.trim()) {
       setError("Email is required.");
+      return false;
+    }
+    if (smsNotificationsOptIn && !phone.trim()) {
+      setError("Enter a phone number to receive SMS notifications.");
       return false;
     }
     if (
@@ -379,6 +432,16 @@ export function GuestRegistrationForm({
     ) {
       setError("Enter a donation amount greater than $0 to continue to payment.");
       return false;
+    }
+    if (vehicleSaleInquiriesEnabled) {
+      for (const vehicle of registeredVehicles) {
+        if (vehicle.saleListing.enabled && !vehicle.saleListing.sellerAcknowledged) {
+          setError(
+            "Acknowledge the sale disclaimer for each vehicle accepting inquiries.",
+          );
+          return false;
+        }
+      }
     }
     return true;
   }
@@ -428,6 +491,7 @@ export function GuestRegistrationForm({
           lastName: lastName.trim(),
           email: email.trim(),
           phone: phone.trim() || undefined,
+          smsNotificationsOptIn,
           street: street.trim(),
           city: city.trim(),
           state: state.trim().toUpperCase(),
@@ -441,6 +505,11 @@ export function GuestRegistrationForm({
             notes: v.notes || undefined,
             photoUrl: v.photoUrl ?? undefined,
             eventCategoryId: v.eventCategoryId ?? undefined,
+            ...(vehicleSaleInquiriesEnabled
+              ? {
+                  saleListing: vehicleSaleListingFormStateToPayload(v.saleListing),
+                }
+              : {}),
           })),
           ...(isDonationEvent
             ? {
@@ -702,6 +771,11 @@ export function GuestRegistrationForm({
               />
             </div>
           </div>
+          <SmsNotificationsOptInField
+            id="guest-sms-notifications-opt-in"
+            checked={smsNotificationsOptIn}
+            onCheckedChange={setSmsNotificationsOptIn}
+          />
           <RegistrationAddressFields
             idPrefix="guest"
             values={{ street, city, state, zip }}
@@ -803,7 +877,11 @@ export function GuestRegistrationForm({
                   </tr>
                 </thead>
                 <tbody className="divide-y md:divide-y">
-                  {registeredVehicles.map((v) => (
+                  {registeredVehicles.map((v) => {
+                    const saleActive =
+                      v.saleListing.enabled &&
+                      v.saleListing.sellerAcknowledged;
+                    return (
                     <tr key={v.clientId} className="max-md:relative hover:bg-muted/30">
                       <td className="px-3 py-2.5 max-md:pr-10">
                         <GuestVehiclePhoto
@@ -839,6 +917,39 @@ export function GuestRegistrationForm({
                               {guestVehicleClassLabel(v.eventCategoryId)}
                             </span>
                           </p>
+                        ) : null}
+                        {vehicleSaleInquiriesEnabled ? (
+                          <div className="mt-3 border-t border-border/60 pt-3">
+                            <label className="flex items-start gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 size-4 shrink-0 rounded border-input"
+                                checked={saleActive}
+                                onChange={(e) =>
+                                  handleBuyerInquiryCheck(
+                                    v.clientId,
+                                    e.target.checked,
+                                  )
+                                }
+                              />
+                              <span className="leading-snug">
+                                Open to Buyer Inquiries about Vehicle
+                              </span>
+                            </label>
+                            {saleActive ? (
+                              <Button
+                                type="button"
+                                variant="link"
+                                size="sm"
+                                className="mt-1 h-auto px-0 text-xs"
+                                onClick={() =>
+                                  setSaleDialogClientId(v.clientId)
+                                }
+                              >
+                                Edit listing details
+                              </Button>
+                            ) : null}
+                          </div>
                         ) : null}
                         </div>
                       </td>
@@ -889,7 +1000,8 @@ export function GuestRegistrationForm({
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -903,6 +1015,26 @@ export function GuestRegistrationForm({
           )}
         </CardContent>
       </Card>
+
+      {saleDialogClientId ? (() => {
+        const dialogVehicle = registeredVehicles.find(
+          (v) => v.clientId === saleDialogClientId,
+        );
+        if (!dialogVehicle) return null;
+        return (
+          <VehicleSaleListingDialog
+            open
+            onOpenChange={handleSaleDialogOpenChange}
+            eventId={eventId}
+            vehicleLabel={`${dialogVehicle.year} ${dialogVehicle.make} ${dialogVehicle.model}`}
+            value={dialogVehicle.saleListing}
+            onChange={(next) =>
+              updateVehicle(saleDialogClientId, { saleListing: next })
+            }
+            onSave={() => {}}
+          />
+        );
+      })() : null}
 
       {feeType === "PAID_TIERED" && (
         <Card>

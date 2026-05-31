@@ -12,7 +12,16 @@ import {
   syncRegistrationVehiclesWithPublicIds,
 } from "@/lib/event-sms-vehicle-id";
 import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
+import { applyVehicleVinsFromRegistration } from "@/lib/registration-vehicle-vins";
 import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
+import { syncVehicleSaleListingsForLoggedInVehicles } from "@/lib/sync-vehicle-sale-listings";
+import {
+  buildSmsNotificationsConsentFields,
+  buildUserSmsNotificationsConsentUpdate,
+  resolveRequestClientMetadata,
+  SMS_NOTIFICATIONS_OPT_IN_SOURCES,
+  userHasActiveSmsNotificationsOptIn,
+} from "@/lib/sms-notifications-consent";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -41,7 +50,12 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, status: true, registrationFeeType: true },
+    select: {
+      id: true,
+      status: true,
+      registrationFeeType: true,
+      vehicleSaleInquiriesEnabled: true,
+    },
   });
 
   const openStatuses = ["PUBLISHED", "ACTIVE"];
@@ -187,10 +201,20 @@ export async function POST(request: Request, { params }: RouteParams) {
     registrantCity: parsed.data.contact.city.trim(),
     registrantState: parsed.data.contact.state.trim(),
     registrantZip: parsed.data.contact.zip.trim(),
+    ...buildSmsNotificationsConsentFields({
+      optIn: parsed.data.smsNotificationsOptIn ?? false,
+      phone: parsed.data.contact.phone,
+      source: SMS_NOTIFICATIONS_OPT_IN_SOURCES.eventRegistration,
+      ...resolveRequestClientMetadata(request),
+    }),
   };
   const vehicleNicknames = parsed.data.vehicleNicknames;
+  const vehicleVins = parsed.data.vehicleVins;
+  const vehicleSaleListings = parsed.data.vehicleSaleListings;
 
-  const registration = await prisma.$transaction(async (tx) => {
+  let registration;
+  try {
+    registration = await prisma.$transaction(async (tx) => {
     const createdVehicleIds: string[] = [];
 
     for (const nv of newVehicles) {
@@ -242,6 +266,12 @@ export async function POST(request: Request, { params }: RouteParams) {
         allVehicleIds,
         vehicleNicknames,
       );
+      await applyVehicleVinsFromRegistration(
+        tx,
+        user.id,
+        allVehicleIds,
+        vehicleVins,
+      );
     } else if (existingReg) {
       const keepPaid = existingReg.paymentStatus === "PAID";
       reg = await tx.registration.update({
@@ -272,6 +302,12 @@ export async function POST(request: Request, { params }: RouteParams) {
         allVehicleIds,
         vehicleNicknames,
       );
+      await applyVehicleVinsFromRegistration(
+        tx,
+        user.id,
+        allVehicleIds,
+        vehicleVins,
+      );
     } else {
       reg = await tx.registration.create({
         data: {
@@ -296,10 +332,46 @@ export async function POST(request: Request, { params }: RouteParams) {
         allVehicleIds,
         vehicleNicknames,
       );
+      await applyVehicleVinsFromRegistration(
+        tx,
+        user.id,
+        allVehicleIds,
+        vehicleVins,
+      );
+    }
+
+    const saleError = await syncVehicleSaleListingsForLoggedInVehicles(tx, {
+      eventId,
+      registrationId: reg.id,
+      sellerUserId: user.id,
+      vehicleIdsInOrder: allVehicleIds,
+      listingsByVehicleId: vehicleSaleListings,
+      saleFeatureEnabled: event.vehicleSaleInquiriesEnabled,
+    });
+    if (saleError) {
+      throw new Error(saleError);
     }
 
     return reg;
   });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Registration could not be saved.";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  if (parsed.data.smsNotificationsOptIn) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: buildUserSmsNotificationsConsentUpdate({
+        optIn: true,
+        phone: parsed.data.contact.phone ?? user.phone,
+        source: SMS_NOTIFICATIONS_OPT_IN_SOURCES.eventRegistration,
+        previouslyOptedIn: userHasActiveSmsNotificationsOptIn(user),
+        ...resolveRequestClientMetadata(request),
+      }),
+    });
+  }
 
   try {
     await syncAllRegistrationStaffPhotos(registration.id);

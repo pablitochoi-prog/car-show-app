@@ -33,4 +33,13 @@ describe("updateProfileSchema", () => {
     if (!parsed.success) return;
     expect(normalizeProfilePayload(parsed.data).phone).toBeNull();
   });
+
+  it("requires phone when SMS opt-in is checked", () => {
+    const parsed = updateProfileSchema.safeParse({
+      firstName: "A",
+      lastName: "B",
+      smsNotificationsOptIn: true,
+    });
+    expect(parsed.success).toBe(false);
+  });
 });

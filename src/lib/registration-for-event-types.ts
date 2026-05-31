@@ -1,4 +1,5 @@
 import type { RegistrationContact } from "@/lib/registration-contact";
+import type { VehicleSaleListingSnapshot } from "@/lib/vehicle-sale-listings-for-registration";
 
 /** Serialized registration state for the public event registration UI. */
 export type ExistingRegistrationForEvent = {
@@ -15,4 +16,6 @@ export type ExistingRegistrationForEvent = {
   amountCents: number | null;
   platformFeeCents: number | null;
   refundedCents: number;
+  /** Per garage vehicle id when sale inquiries are enabled on the event. */
+  vehicleSaleListings?: Record<string, VehicleSaleListingSnapshot>;
 };

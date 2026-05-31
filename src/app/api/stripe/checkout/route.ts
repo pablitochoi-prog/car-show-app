@@ -14,6 +14,10 @@ import {
   computeAdditionalDonationBalanceCheckout,
   validateDonationNotDecreasedAfterPayment,
 } from "@/lib/registration-payment-display";
+import {
+  upsertStripeCheckoutCustomer,
+  STRIPE_CHECKOUT_WALLET_OPTIONS,
+} from "@/lib/stripe-checkout-customer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -418,9 +422,40 @@ export async function POST(request: Request) {
   }
 
   try {
+    const checkoutEmail = isGuestRegistration
+      ? registration.guestEmail!
+      : user!.email;
+    const checkoutName = isGuestRegistration
+      ? [registration.guestFirstName, registration.guestLastName]
+          .filter(Boolean)
+          .join(" ")
+          .trim() || undefined
+      : [
+          registration.registrantFirstName?.trim() || user!.firstName,
+          registration.registrantLastName?.trim() || user!.lastName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim() || undefined;
+    const checkoutPhone = isGuestRegistration
+      ? registration.guestPhone
+      : user!.phone?.trim() || registration.registrantPhone;
+
+    const customerId = await upsertStripeCheckoutCustomer({
+      email: checkoutEmail,
+      name: checkoutName,
+      phone: checkoutPhone,
+    });
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: lineItems,
+      customer: customerId,
+      customer_update: {
+        name: "auto",
+        address: "auto",
+      },
+      wallet_options: STRIPE_CHECKOUT_WALLET_OPTIONS,
       payment_intent_data: {
         application_fee_amount:
           totalApplicationFee > 0 ? totalApplicationFee : undefined,
@@ -449,7 +484,6 @@ export async function POST(request: Request) {
       },
       success_url: `${appUrl()}/events/${event.id}/register/checkout-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl()}/events/${event.id}/register/checkout-canceled?registration_id=${registration.id}`,
-      customer_email: isGuestRegistration ? registration.guestEmail! : user!.email,
     });
 
     if (checkoutType === "additional_balance") {

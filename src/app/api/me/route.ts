@@ -6,6 +6,12 @@ import {
   normalizeProfilePayload,
   updateProfileSchema,
 } from "@/lib/validation/profile";
+import {
+  buildUserSmsNotificationsConsentUpdate,
+  resolveRequestClientMetadata,
+  SMS_NOTIFICATIONS_OPT_IN_SOURCES,
+  userHasActiveSmsNotificationsOptIn,
+} from "@/lib/sms-notifications-consent";
 
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
@@ -29,21 +35,36 @@ export async function PATCH(request: Request) {
   }
 
   const n = normalizeProfilePayload(parsed.data);
+  const clientMeta = resolveRequestClientMetadata(request);
+  const profileData: Prisma.UserUpdateInput = {
+    firstName: n.firstName,
+    lastName: n.lastName,
+    name: n.displayName,
+    birthYear: n.birthYear,
+    phone: n.phone,
+    street: n.street,
+    city: n.city,
+    state: n.state,
+    zip: n.zip,
+  };
+
+  if (parsed.data.smsNotificationsOptIn !== undefined) {
+    Object.assign(
+      profileData,
+      buildUserSmsNotificationsConsentUpdate({
+        optIn: parsed.data.smsNotificationsOptIn,
+        phone: n.phone,
+        source: SMS_NOTIFICATIONS_OPT_IN_SOURCES.profile,
+        previouslyOptedIn: userHasActiveSmsNotificationsOptIn(user),
+        ...clientMeta,
+      }),
+    );
+  }
 
   try {
     await prisma.user.update({
       where: { id: user.id },
-      data: {
-        firstName: n.firstName,
-        lastName: n.lastName,
-        name: n.displayName,
-        birthYear: n.birthYear,
-        phone: n.phone,
-        street: n.street,
-        city: n.city,
-        state: n.state,
-        zip: n.zip,
-      },
+      data: profileData,
     });
   } catch (e) {
     console.error("PATCH /api/me update failed", e);

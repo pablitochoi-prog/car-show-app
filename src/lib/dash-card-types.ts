@@ -72,6 +72,13 @@ export type DashCardVotingModel = {
   qrImageUrl?: string | null;
 };
 
+/** Shown when owner opted in to buyer inquiries for this vehicle at the event. */
+export type DashCardSaleModel = {
+  badgeLabel: string;
+  salePageUrl: string;
+  qrImageUrl: string | null;
+};
+
 export type DashCardModel = {
   event: DashCardEventModel;
   /** Platform site sponsor (right in “Show sponsored by”) */
@@ -80,4 +87,6 @@ export type DashCardModel = {
   owner: DashCardOwnerModel;
   vehicleStory: string;
   voting: DashCardVotingModel;
+  /** Present when event sale inquiries are on and this vehicle listing is enabled. */
+  sale?: DashCardSaleModel;
 };

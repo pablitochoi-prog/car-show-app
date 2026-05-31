@@ -15,6 +15,8 @@ import type { OrganizerRegistrationInput } from "@/lib/organizer-registration-ro
 import { OrganizerRegistrationsClient } from "@/components/organizer/organizer-registrations-client";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
 import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventSaleInquirySummary } from "@/components/organizer/event-sale-inquiry-summary";
+import { loadEventSaleInquiryStats } from "@/lib/event-sale-inquiry-stats";
 
 export default async function EventRegistrationsPage({
   params,
@@ -40,11 +42,20 @@ export default async function EventRegistrationsPage({
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { name: true, showNumber: true },
+    select: {
+      name: true,
+      showNumber: true,
+      vehicleSaleInquiriesEnabled: true,
+    },
   });
   if (!event) notFound();
 
-  const [rawRows, platformFee, eventMeta, platformFeeStatus] = await Promise.all([
+  const saleInquiryStatsPromise = event.vehicleSaleInquiriesEnabled
+    ? loadEventSaleInquiryStats(eventId)
+    : Promise.resolve(null);
+
+  const [rawRows, platformFee, eventMeta, platformFeeStatus, saleInquiryStats] =
+    await Promise.all([
     prisma.registration.findMany({
       where: { eventId },
       select: {
@@ -89,6 +100,7 @@ export default async function EventRegistrationsPage({
       },
     }),
     getEventPlatformFeeStatus(eventId),
+    saleInquiryStatsPromise,
   ]);
 
   if (!eventMeta) notFound();
@@ -170,6 +182,13 @@ export default async function EventRegistrationsPage({
           </a>
         </div>
       </div>
+
+      {saleInquiryStats ? (
+        <EventSaleInquirySummary
+          forSaleVehicleCount={saleInquiryStats.forSaleVehicleCount}
+          inquiryCount={saleInquiryStats.inquiryCount}
+        />
+      ) : null}
 
       <OrganizerRegistrationsClient
         eventId={eventId}

@@ -23,6 +23,7 @@ type ProfileInitial = {
   city: string;
   state: string;
   zip: string;
+  smsNotificationsOptIn: boolean;
 };
 
 type Membership = {

@@ -32,6 +32,16 @@ describe("sanitizePolicyHtml", () => {
     expect(out).toContain("font-size:");
   });
 
+  it("preserves bullet and numbered lists", () => {
+    const out = sanitizePolicyHtml(
+      "<ul><li><p>First</p></li></ul><ol><li><p>Second</p></li></ol>",
+    );
+    expect(out).toContain("<ul>");
+    expect(out).toContain("<ol>");
+    expect(out).toContain("First");
+    expect(out).toContain("Second");
+  });
+
   it("removes disallowed style properties", () => {
     const out = sanitizePolicyHtml(
       '<p style="background-image: url(javascript:alert(1))">x</p>',

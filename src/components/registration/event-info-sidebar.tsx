@@ -16,7 +16,7 @@ import {
 import { ImageLightbox, ThumbnailWithEye } from "@/components/ui/image-lightbox";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { resolveEventCardLogoUrl } from "@/lib/event-card-branding";
-import { formatUsdDollars } from "@/lib/money";
+import { formatUsdDollarsAmount } from "@/lib/money";
 
 export type SidebarEvent = {
   name: string;
@@ -60,10 +60,10 @@ function feeLabel(type: string | null, dollars: number | null): string {
   if (!type || type === "FREE") return "Free";
   if (type === "DONATION")
     return dollars != null
-      ? `${formatUsdDollars(dollars)} suggested donation`
+      ? `${formatUsdDollarsAmount(dollars)} suggested donation`
       : "Donation";
   if (type === "PAID_TIERED") return "Tiered pricing";
-  return dollars != null ? formatUsdDollars(dollars) : "Paid";
+  return dollars != null ? formatUsdDollarsAmount(dollars) : "Paid";
 }
 
 function SidebarPartnerBlock({

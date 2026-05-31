@@ -5,6 +5,7 @@ import {
   Car,
   MessageSquare,
   ShieldCheck,
+  Tag,
   Trophy,
   UserCircle,
   Users,
@@ -25,6 +26,7 @@ const NAV_TILE_ICONS = {
   "user-circle": UserCircle,
   "shield-check": ShieldCheck,
   "message-square": MessageSquare,
+  tag: Tag,
 } as const satisfies Record<string, LucideIcon>;
 
 export type NavTileIconName = keyof typeof NAV_TILE_ICONS;

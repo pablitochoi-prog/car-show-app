@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   dollarsToCents,
   formatUsdDollars,
+  formatUsdWholeDollars,
+  formatWholeDollarInput,
   parseCurrencyDollarsInput,
   roundDollars,
 } from "@/lib/money";
@@ -24,5 +26,16 @@ describe("money", () => {
 
   it("formats USD with two decimals", () => {
     expect(formatUsdDollars(26.5)).toBe("$26.50");
+  });
+
+  it("formats whole USD with thousands separators", () => {
+    expect(formatUsdWholeDollars(25000)).toBe("$25,000");
+    expect(formatUsdWholeDollars(25000.6)).toBe("$25,001");
+  });
+
+  it("formats whole-dollar input while typing", () => {
+    expect(formatWholeDollarInput("25000")).toBe("$25,000");
+    expect(formatWholeDollarInput("$25,000")).toBe("$25,000");
+    expect(formatWholeDollarInput("")).toBe("");
   });
 });

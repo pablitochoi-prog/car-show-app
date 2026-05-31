@@ -6,6 +6,12 @@ import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { assignPublicIdsToGuestVehiclePayloads } from "@/lib/event-sms-vehicle-id";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
+import { syncVehicleSaleListingsForGuestVehicles } from "@/lib/sync-vehicle-sale-listings";
+import {
+  buildSmsNotificationsConsentFields,
+  resolveRequestClientMetadata,
+  SMS_NOTIFICATIONS_OPT_IN_SOURCES,
+} from "@/lib/sms-notifications-consent";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -27,7 +33,12 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, status: true, registrationFeeType: true },
+    select: {
+      id: true,
+      status: true,
+      registrationFeeType: true,
+      vehicleSaleInquiriesEnabled: true,
+    },
   });
 
   if (!event || !["PUBLISHED", "ACTIVE"].includes(event.status)) {
@@ -104,14 +115,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     eventCategoryId: v.eventCategoryId ?? null,
   }));
 
-  const registration = await prisma.$transaction(async (tx) => {
+  let registration;
+  try {
+    registration = await prisma.$transaction(async (tx) => {
     const guestVehicles = await assignPublicIdsToGuestVehiclePayloads(
       tx,
       eventId,
       vehiclePayloads,
     );
 
-    return tx.registration.create({
+    const reg = await tx.registration.create({
       data: {
         eventId,
         tierId: tier.id,
@@ -126,9 +139,33 @@ export async function POST(request: Request, { params }: RouteParams) {
         guestState: parsed.data.state.trim(),
         guestZip: parsed.data.zip.trim(),
         guestVehicles,
+        ...buildSmsNotificationsConsentFields({
+          optIn: parsed.data.smsNotificationsOptIn ?? false,
+          phone: parsed.data.phone,
+          source: SMS_NOTIFICATIONS_OPT_IN_SOURCES.eventRegistration,
+          ...resolveRequestClientMetadata(request),
+        }),
       },
     });
+
+    const saleError = await syncVehicleSaleListingsForGuestVehicles(tx, {
+      eventId,
+      registrationId: reg.id,
+      vehicleCount: parsed.data.vehicles.length,
+      listingsByIndex: parsed.data.vehicles.map((v) => v.saleListing),
+      saleFeatureEnabled: event.vehicleSaleInquiriesEnabled,
+    });
+    if (saleError) {
+      throw new Error(saleError);
+    }
+
+    return reg;
   });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Registration could not be saved.";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 
   try {
     await syncAllRegistrationStaffPhotos(registration.id);

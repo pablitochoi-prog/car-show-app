@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db";
 import { buildDashCardEventModel } from "@/lib/dash-card-event";
+import {
+  attachSaleQrsToDashCards,
+  buildDashCardSaleModel,
+} from "@/lib/dash-card-sale";
 import { ensureVehicleQrsForEntryCodes } from "@/lib/ensure-dash-card-vehicle-qrs";
 import {
   formatOwnerCityState,
@@ -15,6 +19,7 @@ import {
   syncAllRegistrationStaffPhotos,
 } from "@/lib/event-registration-staff-photos";
 import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
+import { vehicleQrStorageId } from "@/lib/vehicle-qr";
 import { getSharedSmsNumberDisplay, buildDashCardSmsLine } from "@/lib/sms/shared-sms-number";
 import { getSiteOrigin } from "@/lib/site-url";
 
@@ -249,6 +254,7 @@ export async function loadDashCardModelsForRegistrations(
         sponsorLogoUrl: true,
         sponsorWebsite: true,
         sponsorName: true,
+        vehicleSaleInquiriesEnabled: true,
         organization: { select: { name: true, logo: true } },
       },
     }),
@@ -325,6 +331,61 @@ export async function loadDashCardModelsForRegistrations(
   const regById = new Map(registrations.map((r) => [r.id, r]));
   const displaySmsNumber = smsNumber || defaultSmsShortCode();
   const origin = appOrigin();
+  const eventSaleEnabled = event.vehicleSaleInquiriesEnabled === true;
+
+  const saleListingRows = eventSaleEnabled
+    ? await prisma.vehicleSaleListing.findMany({
+        where: {
+          registrationId: { in: uniqueRegIds },
+          enabled: true,
+          sellerAcknowledgedAt: { not: null },
+        },
+        select: {
+          registrationId: true,
+          registrationVehicleId: true,
+          guestVehicleIndex: true,
+        },
+      })
+    : [];
+
+  const saleRegVehicleIds = new Set(
+    saleListingRows
+      .map((row) => row.registrationVehicleId)
+      .filter((id): id is string => !!id),
+  );
+
+  const saleGuestKeys = new Set(
+    saleListingRows
+      .filter((row) => row.guestVehicleIndex != null)
+      .map((row) => `${row.registrationId}:${row.guestVehicleIndex}`),
+  );
+
+  function hasActiveSaleListing(
+    registrationId: string,
+    registrationVehicleId?: string,
+    guestVehicleIndex?: number,
+  ): boolean {
+    if (!eventSaleEnabled) return false;
+    if (registrationVehicleId && saleRegVehicleIds.has(registrationVehicleId)) {
+      return true;
+    }
+    if (
+      guestVehicleIndex != null &&
+      saleGuestKeys.has(`${registrationId}:${guestVehicleIndex}`)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  type SaleQrTarget = {
+    vehicleEntryCode: string;
+    eventId: string;
+    storageId: string;
+  };
+
+  const saleQrTargets: SaleQrTarget[] = [];
+
   /** Stable ordering follows the checkbox / URL order. */
   const ordered = uniqueRegIds
     .map((id) => regById.get(id))
@@ -362,6 +423,8 @@ export async function loadDashCardModelsForRegistrations(
         v.photoUrl,
       );
 
+      const saleActive = hasActiveSaleListing(reg.id, rv.id);
+
       cards.push({
         event: eventBlock,
         siteSponsor,
@@ -389,13 +452,29 @@ export async function loadDashCardModelsForRegistrations(
           smsNumber: displaySmsNumber,
           votingHint,
         }),
+        ...(saleActive && pid
+          ? { sale: buildDashCardSaleModel(pid) }
+          : {}),
       });
+
+      if (saleActive && pid) {
+        saleQrTargets.push({
+          vehicleEntryCode: pid,
+          eventId,
+          storageId: vehicleQrStorageId({
+            registrationVehicleId: rv.id,
+            registrationId: reg.id,
+            vehicleEntryCode: pid,
+          }),
+        });
+      }
     }
 
     if (reg.vehicles.length === 0) {
       const guestList = parseGuestVehicles(reg.guestVehicles);
 
-      for (const gv of guestList) {
+      for (let guestIndex = 0; guestIndex < guestList.length; guestIndex++) {
+        const gv = guestList[guestIndex];
         const classLabel = categoryLabelFromMap(
           categoryLabelById,
           gv.eventCategoryId,
@@ -411,6 +490,8 @@ export async function loadDashCardModelsForRegistrations(
             : gv.photoUrl?.trim().startsWith("http")
               ? gv.photoUrl.trim()
               : null;
+
+        const saleActive = hasActiveSaleListing(reg.id, undefined, guestIndex);
 
         cards.push({
           event: eventBlock,
@@ -439,7 +520,22 @@ export async function loadDashCardModelsForRegistrations(
             smsNumber: displaySmsNumber,
             votingHint,
           }),
+          ...(saleActive && pid
+            ? { sale: buildDashCardSaleModel(pid) }
+            : {}),
         });
+
+        if (saleActive && pid) {
+          saleQrTargets.push({
+            vehicleEntryCode: pid,
+            eventId,
+            storageId: vehicleQrStorageId({
+              registrationVehicleId: null,
+              registrationId: reg.id,
+              vehicleEntryCode: pid,
+            }),
+          });
+        }
       }
 
       if (guestList.length === 0) {
@@ -468,6 +564,16 @@ export async function loadDashCardModelsForRegistrations(
     if (pid && qrByCode.has(pid)) {
       card.voting.qrImageUrl = qrByCode.get(pid)!;
     }
+  }
+
+  if (saleQrTargets.length > 0) {
+    await attachSaleQrsToDashCards(saleQrTargets, (code, qrImageUrl) => {
+      for (const card of cards) {
+        if (card.sale && card.vehicle.publicVehicleId === code) {
+          card.sale.qrImageUrl = qrImageUrl;
+        }
+      }
+    });
   }
 
   return cards;

@@ -12,6 +12,7 @@ import {
   isStripeConnectReady,
 } from "@/lib/stripe-checkout";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
+import { userHasActiveSmsNotificationsOptIn } from "@/lib/sms-notifications-consent";
 import { formatMoney } from "@/components/registration/reg-utils";
 import { buildOrganizerRegistrationRow } from "@/lib/organizer-registration-rows";
 import {
@@ -20,6 +21,7 @@ import {
 } from "@/components/organizer/organizer-guest-registration-detail";
 import type { GuestVehicleRecord } from "@/lib/event-sms-vehicle-id";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
+import { loadVehicleSaleListingsByGuestIndex } from "@/lib/vehicle-sale-listings-for-registration";
 
 function parseGuestVehicles(raw: unknown): GuestVehicleRecord[] {
   if (Array.isArray(raw)) {
@@ -98,7 +100,8 @@ export default async function OrganizerRegistrationEditPage({
       console.error("guest registration staff photo sync:", e);
     }
 
-    const [guestRow, categoryRows, platformFee] = await Promise.all([
+    const [guestRow, categoryRows, platformFee, guestSaleListings] =
+      await Promise.all([
       prisma.registration.findFirst({
         where: { id: registrationId, eventId },
         select: {
@@ -132,6 +135,7 @@ export default async function OrganizerRegistrationEditPage({
         orderBy: { createdAt: "asc" },
       }),
       getPlatformFee(),
+      loadVehicleSaleListingsByGuestIndex(registrationId),
     ]);
 
     if (!guestRow) notFound();
@@ -246,6 +250,8 @@ export default async function OrganizerRegistrationEditPage({
             canEdit: guestRow.status !== "CANCELLED",
             eventCategories,
             vehicles,
+            vehicleSaleInquiriesEnabled: event.vehicleSaleInquiriesEnabled,
+            guestSaleListings,
           }}
         />
       </div>
@@ -275,6 +281,8 @@ export default async function OrganizerRegistrationEditPage({
         city: true,
         state: true,
         zip: true,
+        smsNotificationsOptIn: true,
+        smsNotificationsOptOutAt: true,
       },
     }),
   ]);
@@ -309,7 +317,9 @@ export default async function OrganizerRegistrationEditPage({
     model: v.model,
     trim: v.trim,
     nickname: v.nickname,
+    vin: v.vin,
     photoUrl: v.photoUrl,
+    notes: v.notes,
   }));
 
   const eventCategories = categoryRows.map((ec) => ({
@@ -374,6 +384,7 @@ export default async function OrganizerRegistrationEditPage({
           paymentEnabled: event.paymentEnabled,
           orgName: event.organization?.name ?? null,
           flyerUrl: event.flyerUrl,
+          vehicleSaleInquiriesEnabled: event.vehicleSaleInquiriesEnabled,
           logoUrl: event.logoUrl,
           startDate: event.startDate.toISOString(),
           startTime: event.startTime,
@@ -410,6 +421,8 @@ export default async function OrganizerRegistrationEditPage({
             state: registrant.state ?? "",
             zip: registrant.zip ?? "",
           },
+          smsNotificationsOptInDefault:
+            userHasActiveSmsNotificationsOptIn(registrant),
         }}
         platformFee={platformFee}
         eventCategories={eventCategories}

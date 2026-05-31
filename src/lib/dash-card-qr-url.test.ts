@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
+import {
+  vehicleSalePageUrl,
+  vehicleSmartRouteUrl,
+} from "@/lib/vehicle-entry-code";
 
 /**
  * Dash-card QR codes encode this smart-route URL. Anonymous visitors land on
@@ -18,5 +21,14 @@ describe("dash-card QR smart route", () => {
     const url = new URL(vehicleSmartRouteUrl("AXY-004"));
     expect(url.pathname).toBe("/v/AXY-004");
     expect(url.hostname).toBe("events.carshowscout.com");
+  });
+});
+
+describe("dash-card sale QR route", () => {
+  it("targets the /v/{vehicleEntryCode}/sale listing page", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
+    expect(vehicleSalePageUrl("AXY-005")).toBe(
+      "https://events.carshowscout.com/v/AXY-005/sale",
+    );
   });
 });

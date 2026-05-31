@@ -20,6 +20,12 @@ const destinations = [
     icon: "car" as const,
   },
   {
+    href: "/dashboard/sale-inquiries",
+    title: "Sale Inquiries",
+    description: "Buyer messages for vehicles you listed for sale at shows.",
+    icon: "tag" as const,
+  },
+  {
     href: "/dashboard/awards",
     title: "My Awards",
     description: "Awards and placings from events you entered.",
@@ -67,6 +73,19 @@ export default async function DashboardPage() {
         ))}
 
         <DashboardMessagesTile />
+
+        {isSiteAdmin(user) && (
+          <NavTileLink
+            href="/admin/sale-inquiries"
+            title="All Sale Inquiries"
+            description="Review buyer inquiries from vehicle sale listings across all events."
+            icon="tag"
+            className={cn(
+              "border-2 border-primary/30 bg-primary/5",
+              "hover:bg-primary/10 hover:border-primary/50",
+            )}
+          />
+        )}
 
         {isSiteAdmin(user) && (
           <NavTileLink

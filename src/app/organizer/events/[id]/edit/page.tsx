@@ -353,6 +353,7 @@ export default async function EditEventPage({
               initialCategoryCount={initialCategoryCount}
               initialTrophyCount={initialTrophyCount}
               initialSmsVotingStatus={initialSmsVotingStatus}
+              initialVehicleSaleEnabled={event.vehicleSaleInquiriesEnabled}
               eventSchedule={{
                 startDate: event.startDate.toISOString(),
                 endDate: event.endDate?.toISOString() ?? null,

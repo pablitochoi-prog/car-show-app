@@ -16,6 +16,7 @@ import {
   VehicleLookupFields,
   type VehicleLookupValues,
 } from "@/components/forms/vehicle-lookup-fields";
+import { normalizeVinInput } from "@/lib/vehicle-vin";
 
 type SavedVehicle = {
   id: string;
@@ -24,6 +25,7 @@ type SavedVehicle = {
   model: string;
   trim?: string | null;
   nickname?: string | null;
+  vin?: string | null;
   photoUrl?: string | null;
 };
 
@@ -129,6 +131,7 @@ export function AddVehicleForm({
           model: saved.model ?? lookup.model.trim(),
           trim: saved.trim ?? (lookup.trim.trim() || null),
           nickname: saved.nickname ?? (nickname.trim() || null),
+          vin: saved.vin ?? (vin.trim() || null),
           photoUrl: saved.photoUrl ?? null,
         });
         setLookup({ year: "", make: "", model: "", trim: "" });
@@ -215,25 +218,21 @@ export function AddVehicleForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="vehicle-vin">VIN</Label>
+          <Label htmlFor="vehicle-vin">VIN (optional)</Label>
           <Input
             id="vehicle-vin"
             name="vin"
             value={vin}
-            onChange={(e) =>
-              setVin(
-                e.target.value
-                  .toUpperCase()
-                  .replace(/[^A-HJ-NPR-Z0-9]/g, "")
-                  .slice(0, 17),
-              )
-            }
+            onChange={(e) => setVin(normalizeVinInput(e.target.value))}
             maxLength={17}
             placeholder="e.g. 1HGBH41JXMN109186"
             autoComplete="off"
             className="font-mono uppercase tabular-nums tracking-wide"
             spellCheck={false}
           />
+          <p className="text-xs text-muted-foreground">
+            Saved to My Vehicles. Not required to register for this event.
+          </p>
         </div>
       </div>
 

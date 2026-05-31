@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { RegistrationContact } from "@/lib/registration-contact";
 import type { ExistingRegistrationForEvent } from "@/lib/registration-for-event-types";
+import { loadVehicleSaleListingsByVehicleId } from "@/lib/vehicle-sale-listings-for-registration";
 
 export type { ExistingRegistrationForEvent } from "@/lib/registration-for-event-types";
 
@@ -75,8 +76,8 @@ export async function getExistingRegistrationForEvent(
       row.user?.email?.trim() ||
       "",
     phone:
-      row.registrantPhone?.trim() ||
       row.user?.phone?.trim() ||
+      row.registrantPhone?.trim() ||
       "",
     street:
       row.registrantStreet?.trim() || row.user?.street?.trim() || "",
@@ -97,6 +98,7 @@ export async function getExistingRegistrationForEvent(
     amountCents: row.amountCents,
     platformFeeCents: row.platformFeeCents,
     refundedCents: row.refundedCents,
+    vehicleSaleListings: await loadVehicleSaleListingsByVehicleId(row.id),
   };
 }
 
@@ -191,9 +193,9 @@ export async function getRegistrationByIdForOrganizer(
       row.user?.email?.trim() ||
       "",
     phone:
+      row.user?.phone?.trim() ||
       row.registrantPhone?.trim() ||
       row.guestPhone?.trim() ||
-      row.user?.phone?.trim() ||
       "",
     street:
       row.registrantStreet?.trim() ||
@@ -231,5 +233,8 @@ export async function getRegistrationByIdForOrganizer(
     amountCents: row.amountCents,
     platformFeeCents: row.platformFeeCents,
     refundedCents: row.refundedCents,
+    vehicleSaleListings: row.userId
+      ? await loadVehicleSaleListingsByVehicleId(row.id)
+      : undefined,
   };
 }

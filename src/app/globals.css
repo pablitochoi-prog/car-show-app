@@ -157,32 +157,45 @@
     @apply mx-auto flex w-full max-w-7xl shrink-0 px-4 sm:px-6 lg:px-8;
   }
 
-  .policy-content p {
+  .policy-content p,
+  .policy-editor-surface p {
     @apply mb-4 last:mb-0;
   }
 
-  .policy-content h2 {
+  .policy-content h2,
+  .policy-editor-surface h2 {
     @apply mb-3 mt-6 text-xl font-semibold first:mt-0;
   }
 
-  .policy-content h3 {
+  .policy-content h3,
+  .policy-editor-surface h3 {
     @apply mb-2 mt-4 text-lg font-semibold first:mt-0;
   }
 
   .policy-content ul,
-  .policy-content ol {
+  .policy-content ol,
+  .policy-editor-surface ul,
+  .policy-editor-surface ol {
     @apply mb-4 ml-6 list-outside space-y-1;
   }
 
-  .policy-content ul {
+  .policy-content ul,
+  .policy-editor-surface ul {
     @apply list-disc;
   }
 
-  .policy-content ol {
+  .policy-content ol,
+  .policy-editor-surface ol {
     @apply list-decimal;
   }
 
-  .policy-content a {
+  .policy-content li > p,
+  .policy-editor-surface li > p {
+    @apply mb-0;
+  }
+
+  .policy-content a,
+  .policy-editor-surface a {
     @apply font-medium text-primary underline-offset-4 hover:underline;
   }
 
@@ -414,6 +427,8 @@
 
 .dash-card-col-vote {
   grid-area: vote;
+  display: flex;
+  flex-direction: column;
 }
 
 .dash-card-print-page .dash-card-body-grid {
@@ -575,6 +590,37 @@
 
 .dash-card-vote-instruction {
   white-space: nowrap;
+}
+
+.dash-card-sale-sidebar {
+  width: 100%;
+}
+
+.dash-card-col-sidebar .dash-card-qr-stage--sale {
+  height: 4.5rem;
+}
+
+.dash-card-col-sidebar .dash-card-qr-wrap--sale {
+  width: 4rem;
+  height: 4rem;
+  min-width: 4rem;
+  min-height: 4rem;
+  max-width: 4rem;
+  max-height: 4rem;
+}
+
+.dash-card-col-sidebar .dash-card-qr-wrap--sale img {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.dash-card-sale-text {
+  font-size: 0.6875rem;
+  line-height: 1.25;
 }
 
 @media (min-width: 640px) {
@@ -807,6 +853,41 @@
     overflow: hidden !important;
     padding: 0.07in !important;
     padding-top: 0 !important;
+  }
+
+  .dash-card-sale-text {
+    font-size: 7pt !important;
+    line-height: 1.2 !important;
+    font-weight: 600 !important;
+  }
+
+  .dash-card-col-sidebar .dash-card-sale-badge {
+    font-size: 11pt !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+  }
+
+  .dash-card-col-sidebar .dash-card-qr-stage--sale {
+    height: 1.35cm !important;
+    flex-shrink: 0 !important;
+  }
+
+  .dash-card-col-sidebar .dash-card-qr-wrap--sale {
+    width: 1.35cm !important;
+    height: 1.35cm !important;
+    min-width: 1.35cm !important;
+    min-height: 1.35cm !important;
+    max-width: 1.35cm !important;
+    max-height: 1.35cm !important;
+  }
+
+  .dash-card-col-sidebar .dash-card-qr-wrap--sale img {
+    width: 1.35cm !important;
+    height: 1.35cm !important;
+    min-width: 1.35cm !important;
+    min-height: 1.35cm !important;
+    max-width: 1.35cm !important;
+    max-height: 1.35cm !important;
   }
 
   .dash-card-vote {

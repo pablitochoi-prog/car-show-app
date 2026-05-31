@@ -16,6 +16,7 @@ import {
 import { Loader2 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { normalizeVinInput } from "@/lib/vehicle-vin";
 
 export type TierOption = {
   id: string;
@@ -39,6 +40,7 @@ type NewVehicleRow = {
   make: string;
   model: string;
   trim: string;
+  vin: string;
   notes: string;
 };
 
@@ -74,7 +76,7 @@ export function RegisterEventForm({
   function addBlankRow() {
     setNewRows((r) => [
       ...r,
-      { year: "", make: "", model: "", trim: "", notes: "" },
+      { year: "", make: "", model: "", trim: "", vin: "", notes: "" },
     ]);
   }
 
@@ -100,6 +102,7 @@ export function RegisterEventForm({
         make: row.make.trim(),
         model: row.model.trim(),
         trim: row.trim.trim() || undefined,
+        vin: row.vin.trim() || undefined,
         notes: row.notes.trim() || undefined,
       }))
       .filter((v) => !Number.isNaN(v.year) && v.make && v.model);
@@ -314,6 +317,19 @@ export function RegisterEventForm({
                 <Input
                   value={row.trim}
                   onChange={(e) => updateRow(i, { trim: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>VIN (optional)</Label>
+                <Input
+                  value={row.vin}
+                  onChange={(e) =>
+                    updateRow(i, { vin: normalizeVinInput(e.target.value) })
+                  }
+                  maxLength={17}
+                  placeholder="Saved to My Vehicles"
+                  className="font-mono uppercase tabular-nums tracking-wide"
+                  spellCheck={false}
                 />
               </div>
               <div className="space-y-2 sm:col-span-2">

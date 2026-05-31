@@ -30,6 +30,7 @@ type ActivityMessage = {
 const POLL_MS = 60_000;
 const HEARTBEAT_DEBOUNCE_MS = 30_000;
 const MIN_HEARTBEAT_INTERVAL_MS = 60_000;
+const MIN_SYNC_INTERVAL_MS = 30_000;
 
 const SessionIdleContext = createContext<{ touchActivity: () => void } | null>(
   null,
@@ -57,6 +58,8 @@ export function SessionIdleProvider({
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const lastSyncAtRef = useRef(0);
+  const syncInFlightRef = useRef(false);
 
   const clearExpiryTimer = useCallback(() => {
     if (expiryTimerRef.current) {
@@ -137,31 +140,59 @@ export function SessionIdleProvider({
     } satisfies ActivityMessage);
   }, []);
 
-  const syncFromServer = useCallback(async () => {
-    if (!enabled) return;
-    try {
-      const res = await fetch("/api/auth/session-activity", {
-        credentials: "same-origin",
-      });
-      if (res.status === 401) {
-        const data = (await res.json()) as { sessionExpired?: boolean };
-        if (data.sessionExpired) {
-          await performIdleLogout();
-        }
+  const syncFromServer = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!enabled) return;
+
+      const now = Date.now();
+      if (
+        !options?.force &&
+        now - lastSyncAtRef.current < MIN_SYNC_INTERVAL_MS
+      ) {
         return;
       }
-      if (!res.ok) return;
-      const data = (await res.json()) as SessionActivityState & { ok?: boolean };
-      if (data.lastActivityAt) {
-        applyActivity(data.lastActivityAt, data.msUntilExpiry);
+      if (syncInFlightRef.current) return;
+
+      syncInFlightRef.current = true;
+      try {
+        const res = await fetch("/api/auth/session-activity", {
+          credentials: "same-origin",
+        });
+        if (res.status === 401) {
+          const data = (await res.json()) as { sessionExpired?: boolean };
+          if (data.sessionExpired) {
+            await performIdleLogout();
+          }
+          return;
+        }
+        if (!res.ok) return;
+        const data = (await res.json()) as SessionActivityState & {
+          ok?: boolean;
+        };
+        if (data.lastActivityAt) {
+          applyActivity(data.lastActivityAt, data.msUntilExpiry);
+        }
+        if (data.msUntilExpiry <= 0) {
+          await performIdleLogout();
+        }
+        lastSyncAtRef.current = Date.now();
+      } catch {
+        // network blip — rely on next poll
+      } finally {
+        syncInFlightRef.current = false;
       }
-      if (data.msUntilExpiry <= 0) {
-        await performIdleLogout();
-      }
-    } catch {
-      // network blip — rely on next poll
-    }
-  }, [applyActivity, enabled, performIdleLogout]);
+    },
+    [applyActivity, enabled, performIdleLogout],
+  );
+
+  const syncFromServerRef = useRef(syncFromServer);
+  syncFromServerRef.current = syncFromServer;
+
+  const applyActivityRef = useRef(applyActivity);
+  applyActivityRef.current = applyActivity;
+
+  const sessionInitializedRef = useRef(false);
+  const touchActivityRef = useRef<() => void>(() => {});
 
   const sendHeartbeat = useCallback(async () => {
     if (!enabled) return;
@@ -206,6 +237,8 @@ export function SessionIdleProvider({
     scheduleHeartbeat();
   }, [applyActivity, enabled, scheduleHeartbeat]);
 
+  touchActivityRef.current = touchActivity;
+
   const handleStayLoggedIn = async () => {
     setBusy(true);
     try {
@@ -233,7 +266,10 @@ export function SessionIdleProvider({
   };
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      sessionInitializedRef.current = false;
+      return;
+    }
 
     try {
       const stored = localStorage.getItem(SESSION_ACTIVITY_STORAGE_KEY);
@@ -247,19 +283,22 @@ export function SessionIdleProvider({
       // ignore
     }
 
-    void syncFromServer();
+    if (!sessionInitializedRef.current) {
+      sessionInitializedRef.current = true;
+      void syncFromServerRef.current({ force: true });
+    }
 
     if (typeof BroadcastChannel !== "undefined") {
       const channel = new BroadcastChannel(SESSION_ACTIVITY_CHANNEL);
       channelRef.current = channel;
       channel.onmessage = (event: MessageEvent<ActivityMessage>) => {
         if (event.data?.type === "activity" && event.data.lastActivityAt) {
-          applyActivity(event.data.lastActivityAt);
+          applyActivityRef.current(event.data.lastActivityAt);
         }
       };
     }
 
-    const onActivity = () => touchActivity();
+    const onActivity = () => touchActivityRef.current();
     const events: (keyof WindowEventMap)[] = [
       "click",
       "keydown",
@@ -272,14 +311,14 @@ export function SessionIdleProvider({
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void syncFromServer();
+        void syncFromServerRef.current();
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     pollTimerRef.current = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      void syncFromServer();
+      void syncFromServerRef.current();
     }, POLL_MS);
 
     return () => {
@@ -292,7 +331,7 @@ export function SessionIdleProvider({
         window.removeEventListener(name, onActivity);
       }
     };
-  }, [applyActivity, clearExpiryTimer, enabled, syncFromServer, touchActivity]);
+  }, [clearExpiryTimer, enabled]);
 
   return (
     <SessionIdleContext.Provider value={{ touchActivity }}>

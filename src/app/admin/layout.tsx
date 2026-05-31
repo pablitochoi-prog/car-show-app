@@ -39,6 +39,9 @@ export default async function AdminLayout({
         <Link href="/admin/messages" className="font-medium hover:underline">
           Messages
         </Link>
+        <Link href="/admin/sale-inquiries" className="font-medium hover:underline">
+          Sale inquiries
+        </Link>
         <span className="ml-auto">
           <Link
             href="/dashboard"

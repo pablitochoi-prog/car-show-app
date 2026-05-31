@@ -5,6 +5,10 @@ import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { getEventSetupFee, formatEventSetupFeeLabel } from "@/lib/platform-fee";
 import { isPlatformStripeReady, getPlatformStripeStatus } from "@/lib/stripe-platform";
 import { formatEventShowNumber } from "@/lib/event-show-number";
+import {
+  upsertStripeCheckoutCustomer,
+  STRIPE_CHECKOUT_WALLET_OPTIONS,
+} from "@/lib/stripe-checkout-customer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +104,12 @@ export async function POST(_request: Request, { params }: RouteParams) {
   const eventLabel = `${formatEventShowNumber(event.showNumber)} ${event.name}`;
 
   try {
+    const customerId = await upsertStripeCheckoutCustomer({
+      email: user.email,
+      name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.name,
+      phone: user.phone,
+    });
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [
@@ -115,13 +125,18 @@ export async function POST(_request: Request, { params }: RouteParams) {
           quantity: 1,
         },
       ],
+      customer: customerId,
+      customer_update: {
+        name: "auto",
+        address: "auto",
+      },
+      wallet_options: STRIPE_CHECKOUT_WALLET_OPTIONS,
       metadata: {
         checkoutType: "platform_setup_fee",
         eventId: event.id,
       },
       success_url: `${appUrl()}/organizer/events/${event.id}/edit?platform_fee_paid=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl()}/organizer/events/${event.id}/edit?platform_fee_canceled=1`,
-      customer_email: user.email,
     });
 
     return NextResponse.json({

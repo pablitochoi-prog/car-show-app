@@ -75,20 +75,6 @@ export function EventsSearchForm({
 
         <div className="mt-4 grid gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1.5">
-            <Label htmlFor="city" className="text-xs">
-              City
-            </Label>
-            <Input
-              id="city"
-              name="city"
-              placeholder="Any city"
-              defaultValue={city}
-              className="h-9"
-              disabled={searching}
-            />
-          </div>
-
-          <div className="space-y-1.5">
             <Label htmlFor="state" className="text-xs">
               State
             </Label>
@@ -106,6 +92,20 @@ export function EventsSearchForm({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="city" className="text-xs">
+              City
+            </Label>
+            <Input
+              id="city"
+              name="city"
+              placeholder="Any city"
+              defaultValue={city}
+              className="h-9"
+              disabled={searching}
+            />
           </div>
 
           <div className="space-y-1.5">

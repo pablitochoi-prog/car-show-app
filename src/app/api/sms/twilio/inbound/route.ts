@@ -58,6 +58,9 @@ export async function POST(request: Request) {
 
   try {
     const result = await processInboundSmsVote(inbound);
+    // TODO: When inbound STOP/HELP is handled outside voting flows, synchronize
+    // User.smsNotificationsOptIn / smsNotificationsOptOutAt here without
+    // overriding Twilio carrier-level STOP handling.
     return new NextResponse(buildTwilioTwimlResponse(result.responseText), {
       status: 200,
       headers: { "Content-Type": "text/xml" },

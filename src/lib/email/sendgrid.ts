@@ -1,5 +1,8 @@
 import sgMail from "@sendgrid/mail";
 import { formatEventShowNumber } from "@/lib/event-show-number";
+import { richTextToPlainText } from "@/lib/listing-description-html";
+import { formatUsdWholeDollars } from "@/lib/money";
+import { sanitizePolicyHtml } from "@/lib/sanitize-policy-html";
 
 export type EmailSendResult =
   | { sent: true; messageId?: string }
@@ -302,5 +305,100 @@ export async function sendOrganizerStepUpOtpEmail(
     subject: "Your CarShowScout organizer verification code",
     text,
     html,
+  });
+}
+
+export type VehicleSaleInquiryEmailInput = {
+  to: string;
+  sellerName: string;
+  eventName: string;
+  eventShowNumber: number;
+  vehicleEntryCode: string;
+  vehicleLabel: string;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string | null;
+  smsNotificationsOptIn?: boolean;
+  offerAmountCents: number | null;
+  message: string | null;
+  /** Logged-in sellers get a dashboard link; guest sellers receive email details only. */
+  inquiryDetailUrl?: string | null;
+};
+
+/** Notify a vehicle owner that a buyer submitted an inquiry from a dash-card QR. */
+export async function sendVehicleSaleInquiryEmail(
+  input: VehicleSaleInquiryEmailInput,
+): Promise<EmailSendResult> {
+  const showLabel = eventLabel(input.eventName, input.eventShowNumber);
+  const offerLine =
+    input.offerAmountCents != null
+      ? `Offer: ${formatUsdWholeDollars(input.offerAmountCents / 100)}`
+      : null;
+
+  const dashboardLine = input.inquiryDetailUrl
+    ? `View in your dashboard: ${input.inquiryDetailUrl}`
+    : null;
+
+  const messagePlain = input.message?.trim()
+    ? richTextToPlainText(input.message.trim())
+    : null;
+  const messageHtml = input.message?.trim()
+    ? sanitizePolicyHtml(input.message.trim())
+    : null;
+
+  const textParts = [
+    greeting(input.sellerName),
+    "",
+    `A buyer submitted an inquiry about your vehicle at ${showLabel}.`,
+    "",
+    `Vehicle: ${input.vehicleLabel} (${input.vehicleEntryCode})`,
+    "",
+    `From: ${input.buyerName}`,
+    `Email: ${input.buyerEmail}`,
+    input.buyerPhone ? `Phone: ${input.buyerPhone}` : null,
+    input.smsNotificationsOptIn ? "SMS opt-in: Yes" : null,
+    offerLine,
+    messagePlain ? "" : null,
+    messagePlain ? `Message:\n${messagePlain}` : null,
+    dashboardLine,
+    "",
+    "Reply directly to the buyer using the contact details above.",
+    "CarShowScout is not a broker, dealer, escrow provider, inspector, or appraiser.",
+    "",
+    "CarShowScout",
+  ].filter((line): line is string => line != null);
+
+  const htmlParts = [
+    `<p>${escapeHtml(greeting(input.sellerName))}</p>`,
+    `<p>A buyer submitted an inquiry about your vehicle at <strong>${escapeHtml(showLabel)}</strong>.</p>`,
+    `<p><strong>Vehicle:</strong> ${escapeHtml(input.vehicleLabel)} (${escapeHtml(input.vehicleEntryCode)})</p>`,
+    `<p><strong>From:</strong> ${escapeHtml(input.buyerName)}<br>`,
+    `<strong>Email:</strong> ${escapeHtml(input.buyerEmail)}`,
+    input.buyerPhone
+      ? `<br><strong>Phone:</strong> ${escapeHtml(input.buyerPhone)}`
+      : "",
+    input.smsNotificationsOptIn
+      ? `<br><strong>SMS opt-in:</strong> Yes`
+      : "",
+    "</p>",
+    offerLine
+      ? `<p><strong>${escapeHtml(offerLine)}</strong></p>`
+      : "",
+    messageHtml
+      ? `<p><strong>Message:</strong></p><div class="policy-content">${messageHtml}</div>`
+      : "",
+    input.inquiryDetailUrl
+      ? `<p><a href="${escapeHtml(input.inquiryDetailUrl)}">View inquiry in your CarShowScout dashboard</a></p>`
+      : "",
+    `<p>Reply directly to the buyer using the contact details above.</p>`,
+    `<p>CarShowScout is not a broker, dealer, escrow provider, inspector, or appraiser.</p>`,
+    `<p>CarShowScout</p>`,
+  ];
+
+  return sendTransactionalEmail({
+    to: input.to,
+    subject: `Buyer inquiry: ${input.vehicleEntryCode} at ${showLabel}`,
+    text: textParts.join("\n"),
+    html: htmlParts.join("\n"),
   });
 }

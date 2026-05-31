@@ -5,6 +5,7 @@ import { MyProfileClient } from "@/components/profile/my-profile-client";
 import { splitUserDisplayName } from "@/lib/profile-display-name";
 import { userHasProfilePhoto } from "@/lib/profile-photo-access";
 import { canCreateOrganization } from "@/lib/permissions";
+import { userHasActiveSmsNotificationsOptIn } from "@/lib/sms-notifications-consent";
 
 export default async function MyProfilePage() {
   const user = await getCurrentUser();
@@ -85,6 +86,7 @@ export default async function MyProfilePage() {
         city: user.city ?? "",
         state: user.state ?? "",
         zip: user.zip ?? "",
+        smsNotificationsOptIn: userHasActiveSmsNotificationsOptIn(user),
       }}
       memberships={memberships}
       canCreateClub={canCreateOrganization(user)}

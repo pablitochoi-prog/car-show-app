@@ -16,7 +16,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { ImageLightbox, ThumbnailWithEye } from "@/components/ui/image-lightbox";
 import { cn } from "@/lib/utils";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { formatUsdDollars } from "@/lib/money";
+import { formatUsdDollarsAmount } from "@/lib/money";
 
 export type ClubEvent = {
   id: string;
@@ -42,9 +42,11 @@ export type ClubEvent = {
 function feeLabel(type: string | null, dollars: number | null): string {
   if (!type || type === "FREE") return "Free";
   if (type === "DONATION")
-    return dollars != null ? `${formatUsdDollars(dollars)} suggested` : "Donation";
+    return dollars != null
+      ? `${formatUsdDollarsAmount(dollars)} suggested`
+      : "Donation";
   if (type === "PAID_TIERED") return "Tiered pricing";
-  if (dollars != null) return formatUsdDollars(dollars);
+  if (dollars != null) return formatUsdDollarsAmount(dollars);
   return "Paid";
 }
 

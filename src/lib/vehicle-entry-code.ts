@@ -16,3 +16,8 @@ export function normalizeVehicleEntryCode(raw: string): string | null {
 export function vehicleSmartRouteUrl(vehicleEntryCode: string): string {
   return `${getSiteOrigin()}/v/${encodeURIComponent(vehicleEntryCode)}`;
 }
+
+/** Public vehicle sale listing page (`/v/{vehicleEntryCode}/sale`). */
+export function vehicleSalePageUrl(vehicleEntryCode: string): string {
+  return `${getSiteOrigin()}/v/${encodeURIComponent(vehicleEntryCode)}/sale`;
+}

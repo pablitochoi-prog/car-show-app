@@ -9,11 +9,20 @@ import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 import { validateDonationNotDecreasedAfterPayment } from "@/lib/registration-payment-display";
 import { syncRegistrationVehiclesWithPublicIds } from "@/lib/event-sms-vehicle-id";
 import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
+import { applyVehicleVinsFromRegistration } from "@/lib/registration-vehicle-vins";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 import {
   mergeGuestVehicleOrganizerUpdates,
   parseGuestVehicleRecords,
 } from "@/lib/organizer-guest-registration-update";
+import { syncVehicleSaleListingsForGuestVehicles, syncVehicleSaleListingsForLoggedInVehicles } from "@/lib/sync-vehicle-sale-listings";
+import {
+  buildSmsNotificationsConsentFields,
+  buildUserSmsNotificationsConsentUpdate,
+  resolveRequestClientMetadata,
+  SMS_NOTIFICATIONS_OPT_IN_SOURCES,
+  userHasActiveSmsNotificationsOptIn,
+} from "@/lib/sms-notifications-consent";
 
 type RouteParams = {
   params: Promise<{ id: string; registrationId: string }>;
@@ -131,21 +140,48 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       }
     }
 
-    const registration = await prisma.registration.update({
-      where: { id: registrationId },
-      data: {
-        guestFirstName: parsed.data.firstName.trim(),
-        guestLastName: parsed.data.lastName.trim(),
-        guestEmail: nextEmail,
-        guestPhone: parsed.data.phone ?? null,
-        guestStreet: parsed.data.street.trim() || null,
-        guestCity: parsed.data.city.trim(),
-        guestState: parsed.data.state.trim(),
-        guestZip: parsed.data.zip.trim(),
-        ...(parsed.data.vehicles?.length
-          ? { guestVehicles: nextGuestVehicles }
-          : {}),
-      },
+    const registration = await prisma.$transaction(async (tx) => {
+      const updated = await tx.registration.update({
+        where: { id: registrationId },
+        data: {
+          guestFirstName: parsed.data.firstName.trim(),
+          guestLastName: parsed.data.lastName.trim(),
+          guestEmail: nextEmail,
+          guestPhone: parsed.data.phone ?? null,
+          guestStreet: parsed.data.street.trim() || null,
+          guestCity: parsed.data.city.trim(),
+          guestState: parsed.data.state.trim(),
+          guestZip: parsed.data.zip.trim(),
+          ...(parsed.data.vehicles?.length
+            ? { guestVehicles: nextGuestVehicles }
+            : {}),
+        },
+      });
+
+      const eventSale = await tx.event.findUnique({
+        where: { id: eventId },
+        select: { vehicleSaleInquiriesEnabled: true },
+      });
+
+      const listingsByIndex = nextGuestVehicles.map((vehicle) => {
+        const patch = parsed.data.vehicles?.find(
+          (v) => v.publicVehicleId.trim() === vehicle.publicVehicleId?.trim(),
+        );
+        return patch?.saleListing;
+      });
+
+      const saleError = await syncVehicleSaleListingsForGuestVehicles(tx, {
+        eventId,
+        registrationId,
+        vehicleCount: nextGuestVehicles.length,
+        listingsByIndex,
+        saleFeatureEnabled: eventSale?.vehicleSaleInquiriesEnabled ?? false,
+      });
+      if (saleError) {
+        throw new Error(saleError);
+      }
+
+      return updated;
     });
 
     try {
@@ -169,7 +205,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, registrationFeeType: true },
+    select: {
+      id: true,
+      registrationFeeType: true,
+      vehicleSaleInquiriesEnabled: true,
+    },
   });
 
   if (!event) {
@@ -295,8 +335,16 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     registrantCity: parsed.data.contact.city.trim(),
     registrantState: parsed.data.contact.state.trim(),
     registrantZip: parsed.data.contact.zip.trim(),
+    ...buildSmsNotificationsConsentFields({
+      optIn: parsed.data.smsNotificationsOptIn ?? false,
+      phone: parsed.data.contact.phone,
+      source: SMS_NOTIFICATIONS_OPT_IN_SOURCES.eventRegistration,
+      ...resolveRequestClientMetadata(request),
+    }),
   };
   const vehicleNicknames = parsed.data.vehicleNicknames;
+  const vehicleVins = parsed.data.vehicleVins;
+  const vehicleSaleListings = parsed.data.vehicleSaleListings;
 
   const registration = await prisma.$transaction(async (tx) => {
     const createdVehicleIds: string[] = [];
@@ -350,9 +398,45 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       allVehicleIds,
       vehicleNicknames,
     );
+    await applyVehicleVinsFromRegistration(
+      tx,
+      registrantUserId,
+      allVehicleIds,
+      vehicleVins,
+    );
+
+    const saleError = await syncVehicleSaleListingsForLoggedInVehicles(tx, {
+      eventId,
+      registrationId: reg.id,
+      sellerUserId: registrantUserId,
+      vehicleIdsInOrder: allVehicleIds,
+      listingsByVehicleId: vehicleSaleListings,
+      saleFeatureEnabled: event.vehicleSaleInquiriesEnabled,
+    });
+    if (saleError) {
+      throw new Error(saleError);
+    }
 
     return reg;
   });
+
+  if (parsed.data.smsNotificationsOptIn && registrantUserId) {
+    const registrant = await prisma.user.findUnique({
+      where: { id: registrantUserId },
+    });
+    if (registrant) {
+      await prisma.user.update({
+        where: { id: registrantUserId },
+        data: buildUserSmsNotificationsConsentUpdate({
+          optIn: true,
+          phone: parsed.data.contact.phone ?? registrant.phone,
+          source: SMS_NOTIFICATIONS_OPT_IN_SOURCES.eventRegistration,
+          previouslyOptedIn: userHasActiveSmsNotificationsOptIn(registrant),
+          ...resolveRequestClientMetadata(request),
+        }),
+      });
+    }
+  }
 
   try {
     await syncAllRegistrationStaffPhotos(registration.id);

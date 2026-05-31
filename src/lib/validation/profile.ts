@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { smsNotificationsOptInFieldSchema } from "@/lib/validation/sms-notifications-consent";
 
 /** Same optional phone pipeline as signup: digits → masked (###) ###-####. */
 const optionalMaskedUsPhone = z
@@ -45,24 +46,35 @@ const optionalTrimmed = (max: number) =>
     return String(val).trim().slice(0, max);
   }, z.string().max(max).optional());
 
-export const updateProfileSchema = z.object({
-  firstName: z
-    .string()
-    .min(1, "First name is required")
-    .max(80)
-    .transform((s) => s.trim()),
-  lastName: z
-    .string()
-    .min(1, "Last name is required")
-    .max(80)
-    .transform((s) => s.trim()),
-  birthYear: optionalBirthYear,
-  phone: optionalMaskedUsPhone,
-  street: optionalTrimmed(500),
-  city: optionalTrimmed(120),
-  state: optionalTrimmed(50),
-  zip: optionalTrimmed(20),
-});
+export const updateProfileSchema = z
+  .object({
+    firstName: z
+      .string()
+      .min(1, "First name is required")
+      .max(80)
+      .transform((s) => s.trim()),
+    lastName: z
+      .string()
+      .min(1, "Last name is required")
+      .max(80)
+      .transform((s) => s.trim()),
+    birthYear: optionalBirthYear,
+    phone: optionalMaskedUsPhone,
+    street: optionalTrimmed(500),
+    city: optionalTrimmed(120),
+    state: optionalTrimmed(50),
+    zip: optionalTrimmed(20),
+    smsNotificationsOptIn: smsNotificationsOptInFieldSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.smsNotificationsOptIn && !data.phone?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enter a phone number to receive SMS notifications.",
+        path: ["phone"],
+      });
+    }
+  });
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 

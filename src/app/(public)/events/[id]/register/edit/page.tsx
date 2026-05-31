@@ -17,6 +17,7 @@ import {
   formatOrganizerMessageRecipientNote,
   getEventOrganizerDisplayNames,
 } from "@/lib/event-staff";
+import { userHasActiveSmsNotificationsOptIn } from "@/lib/sms-notifications-consent";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 type Props = { params: Promise<{ id: string }> };
@@ -92,7 +93,9 @@ export default async function EditRegistrationPage({ params }: Props) {
     model: v.model,
     trim: v.trim,
     nickname: v.nickname,
+    vin: v.vin,
     photoUrl: v.photoUrl,
+    notes: v.notes,
   }));
 
   const eventCategories = categoryRows.map((ec) => ({
@@ -167,6 +170,7 @@ export default async function EditRegistrationPage({ params }: Props) {
           eventWebsite: event.eventWebsite,
           socialHashtag: event.socialHashtag,
           organizerMessageNote,
+          vehicleSaleInquiriesEnabled: event.vehicleSaleInquiriesEnabled,
         }}
         tiers={tiers}
         vehicles={vehicles}
@@ -187,6 +191,8 @@ export default async function EditRegistrationPage({ params }: Props) {
             state: viewer.state ?? "",
             zip: viewer.zip ?? "",
           },
+          smsNotificationsOptInDefault:
+            userHasActiveSmsNotificationsOptIn(viewer),
         }}
         platformFee={platformFee}
         eventCategories={eventCategories}

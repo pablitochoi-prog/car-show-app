@@ -10,6 +10,7 @@ export type UploadPurpose =
   | "sponsorLogo"
   | "platformSponsorLogo"
   | "dashCardImage"
+  | "vehicleSalePhoto"
   | "privateDocument"
   | "importRawFile";
 
@@ -20,6 +21,7 @@ type KeyPrefixArgs = {
   clubId?: string;
   organizerId?: string;
   sponsorId?: string;
+  listingId?: string;
   importJobId?: string;
 };
 
@@ -109,6 +111,14 @@ export const uploadDestinations: Record<UploadPurpose, UploadDestination> = {
     requiredFields: ["eventId", "vehicleId"],
     keyPrefix: ({ eventId, vehicleId }) =>
       `dash-cards/${eventId}/${vehicleId}`,
+  },
+
+  vehicleSalePhoto: {
+    visibility: "public",
+    bucketType: "publicPhotos",
+    requiredFields: ["eventId", "listingId"],
+    keyPrefix: ({ eventId, listingId }) =>
+      `events/${eventId}/sale-listings/${listingId}`,
   },
 
   privateDocument: {

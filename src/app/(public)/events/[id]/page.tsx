@@ -17,6 +17,7 @@ import {
   formatOrganizerMessageRecipientNote,
   getEventOrganizerDisplayNames,
 } from "@/lib/event-staff";
+import { userHasActiveSmsNotificationsOptIn } from "@/lib/sms-notifications-consent";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -91,7 +92,9 @@ export default async function EventDetailPage({ params }: Props) {
     model: v.model,
     trim: v.trim,
     nickname: v.nickname,
+    vin: v.vin,
     photoUrl: v.photoUrl,
+    notes: v.notes,
   }));
 
   const eventCategories = categoryRows.map((ec) => ({
@@ -167,6 +170,7 @@ export default async function EventDetailPage({ params }: Props) {
           charityEmail: event.charityEmail,
           charityPhone: event.charityPhone,
           charityLogoUrl: event.charityLogoUrl,
+          vehicleSaleInquiriesEnabled: event.vehicleSaleInquiriesEnabled,
         }}
         tiers={tiers}
         vehicles={vehicles}
@@ -189,6 +193,8 @@ export default async function EventDetailPage({ params }: Props) {
                   state: viewer.state ?? "",
                   zip: viewer.zip ?? "",
                 },
+                smsNotificationsOptInDefault:
+                  userHasActiveSmsNotificationsOptIn(viewer),
               }
             : null
         }

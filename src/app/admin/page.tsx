@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
@@ -102,6 +103,19 @@ export default async function AdminDashboardPage() {
 
         <CollapsibleCard title="Vehicles" defaultOpen={false}>
           <AdminVehiclesSection />
+        </CollapsibleCard>
+
+        <CollapsibleCard title="Sale Inquiries" defaultOpen={false}>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Buyer inquiries submitted from dash-card sale QRs across all events.
+            Full buyer contact details are visible to site administrators only.
+          </p>
+          <Link
+            href="/admin/sale-inquiries"
+            className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Open sale inquiries →
+          </Link>
         </CollapsibleCard>
 
         <CollapsibleCard title="Email Test" defaultOpen={false}>

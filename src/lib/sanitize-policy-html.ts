@@ -47,6 +47,13 @@ export function sanitizePolicyHtml(html: string): string {
           /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/i,
         ],
         "font-size": [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+        "font-family": [
+          /^Arial, Helvetica, sans-serif$/,
+          /^Georgia, serif$/,
+          /^'Times New Roman', Times, serif$/,
+          /^'Courier New', Courier, monospace$/,
+          /^Verdana, Geneva, sans-serif$/,
+        ],
         "font-weight": [/^\d{3}$/, /^bold$/, /^normal$/],
         "font-style": [/^(?:italic|normal)$/],
         "text-decoration": [/^(?:underline|none)$/],

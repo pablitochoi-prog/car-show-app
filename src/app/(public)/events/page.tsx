@@ -2,8 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { buildPublishedWhere } from "@/lib/events-queries";
-import { getRegisteredEventMapForUser } from "@/lib/user-registered-events";
-import { RegisteredEventBadge } from "@/components/events/registered-event-badge";
+import { getRegisteredEventStatusMapForUser } from "@/lib/user-registered-events";
+import { RegistrationStatusBadge } from "@/components/events/registered-event-badge";
 import { CancelRegistrationButton } from "@/components/dashboard/events/cancel-registration-button";
 import { EventsSearchForm } from "@/components/events/events-search-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,12 +21,26 @@ import {
   EVENT_CARD_META_INDENT_CLASS,
 } from "@/components/events/event-card-identity";
 import { eventBrandingFromEvent } from "@/lib/event-card-branding";
-import { formatUsdDollars } from "@/lib/money";
+import { formatUsdDollarsAmount } from "@/lib/money";
 
 function parseDate(v: string | undefined): Date | undefined {
   if (!v?.trim()) return undefined;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+function formatDateInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function oneMonthFromToday(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setMonth(d.getMonth() + 1);
+  return d;
 }
 
 const EVENT_TYPES: Record<string, string> = {
@@ -41,11 +55,11 @@ function feeLabel(type: string | null, dollars: number | null): string {
   if (!type || type === "FREE") return "Free";
   if (type === "DONATION") {
     return dollars != null
-      ? `Donation · ${formatUsdDollars(dollars)} suggested`
+      ? `Donation · ${formatUsdDollarsAmount(dollars)} suggested`
       : "Donation";
   }
   if (type === "PAID_TIERED") return "Tiered pricing";
-  return dollars != null ? formatUsdDollars(dollars) : "Paid";
+  return dollars != null ? formatUsdDollarsAmount(dollars) : "Paid";
 }
 
 function eventTypeBadge(type: string) {
@@ -65,13 +79,15 @@ export default async function EventsPage({
     typeof sp.type === "string" && sp.type !== "all" ? sp.type : undefined;
   const from = parseDate(typeof sp.from === "string" ? sp.from : undefined);
   const to = parseDate(typeof sp.to === "string" ? sp.to : undefined);
+  const defaultToDate = oneMonthFromToday();
+  const toDateValue = to ?? defaultToDate;
 
   const hasFilters = !!(city || state || eventType || from || to);
 
   const viewer = await getCurrentUser();
   const registeredEventMap = viewer
-    ? await getRegisteredEventMapForUser(viewer.id)
-    : new Map<string, string>();
+    ? await getRegisteredEventStatusMapForUser(viewer.id)
+    : new Map();
 
   const events = await prisma.event.findMany({
     where: buildPublishedWhere({ q, city, state, eventType, from, to }),
@@ -117,8 +133,8 @@ export default async function EventsPage({
         city={city}
         state={state}
         eventType={eventType}
-        from={from ? from.toISOString().slice(0, 10) : undefined}
-        to={to ? to.toISOString().slice(0, 10) : undefined}
+        from={from ? formatDateInput(from) : undefined}
+        to={formatDateInput(toDateValue)}
         hasFilters={hasFilters}
         qsStr={qsStr}
       />
@@ -159,7 +175,7 @@ export default async function EventsPage({
               day: "numeric",
               year: "numeric",
             });
-            const regId = registeredEventMap.get(ev.id);
+            const registrationStatus = registeredEventMap.get(ev.id);
             const branding = eventBrandingFromEvent(ev);
 
             return (
@@ -180,7 +196,12 @@ export default async function EventsPage({
                             <Badge variant="secondary">
                               {eventTypeBadge(ev.eventType)}
                             </Badge>
-                            {regId && <RegisteredEventBadge />}
+                            {registrationStatus && (
+                              <RegistrationStatusBadge
+                                label={registrationStatus.label}
+                                complete={registrationStatus.complete}
+                              />
+                            )}
                             {ev.status === "ACTIVE" && (
                               <Badge variant="success">Live</Badge>
                             )}
@@ -214,7 +235,7 @@ export default async function EventsPage({
 
                     {/* Right: CTAs or arrow */}
                     <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-                      {regId ? (
+                      {registrationStatus ? (
                         <>
                           <Link
                             href={`/events/${ev.id}`}
@@ -222,7 +243,9 @@ export default async function EventsPage({
                           >
                             Add Vehicles
                           </Link>
-                          <CancelRegistrationButton registrationId={regId} />
+                          <CancelRegistrationButton
+                            registrationId={registrationStatus.registrationId}
+                          />
                         </>
                       ) : (
                         <ChevronRight className="size-5 text-muted-foreground" />

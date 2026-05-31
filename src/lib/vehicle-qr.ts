@@ -2,7 +2,10 @@ import QRCode from "qrcode";
 import { prisma } from "@/lib/db";
 import { buildPublicPhotoUrl } from "@/lib/r2";
 import { uploadPublicPhoto } from "@/lib/storage/public-photos";
-import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
+import {
+  vehicleSalePageUrl,
+  vehicleSmartRouteUrl,
+} from "@/lib/vehicle-entry-code";
 import type { VehicleEntryRecord } from "@/lib/vehicle-entry-types";
 
 export function vehicleQrObjectKey(
@@ -10,6 +13,13 @@ export function vehicleQrObjectKey(
   vehicleEntryId: string,
 ): string {
   return `events/${eventId}/vehicles/${vehicleEntryId}/qr/vehicle-qr.svg`;
+}
+
+export function vehicleSaleQrObjectKey(
+  eventId: string,
+  vehicleEntryId: string,
+): string {
+  return `events/${eventId}/vehicles/${vehicleEntryId}/qr/sale-qr.svg`;
 }
 
 /** Stable R2 folder id: registration vehicle row id, or guest composite id. */
@@ -87,6 +97,38 @@ export async function ensureVehicleQrForEntry(
   }
 
   return { qrUrl: publicUrl ?? inlineDataUrl, objectKey };
+}
+
+/** Sale listing QR for dash cards — separate SVG from the vote/judge smart-route QR. */
+export async function ensureVehicleSaleQrForStorage(
+  vehicleEntryCode: string,
+  eventId: string,
+  storageId: string,
+): Promise<string | null> {
+  if (!vehicleEntryCode.trim()) return null;
+
+  const destinationUrl = vehicleSalePageUrl(vehicleEntryCode);
+  const objectKey = vehicleSaleQrObjectKey(eventId, storageId);
+
+  try {
+    const svg = await generateQrSvg(destinationUrl);
+    const inlineDataUrl = vehicleQrSvgDataUrlFromBuffer(svg);
+
+    try {
+      const uploaded = await uploadPublicPhoto(objectKey, svg, "image/svg+xml");
+      if ("error" in uploaded) {
+        console.error("vehicle sale QR upload failed:", uploaded.error);
+        return inlineDataUrl;
+      }
+      return uploaded.publicUrl;
+    } catch (e) {
+      console.error("vehicle sale QR upload error:", e);
+      return inlineDataUrl;
+    }
+  } catch (e) {
+    console.error("vehicle sale QR generation failed:", vehicleEntryCode, e);
+    return null;
+  }
 }
 
 /** Regenerate QR when smart-route URL or key path changes. */

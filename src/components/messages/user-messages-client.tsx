@@ -48,7 +48,7 @@ export function UserMessagesClient({
     setMessages((prev) =>
       prev.map((m) => (m.id === id ? { ...m, readAt } : m)),
     );
-    await refreshUnreadCount();
+    await refreshUnreadCount({ force: true });
   }
 
   async function handleBulkAction(
@@ -68,7 +68,7 @@ export function UserMessagesClient({
       if (typeof payload.unreadCount === "number") {
         setUnreadCount(payload.unreadCount);
       } else if (action === "read" || action === "unread") {
-        await refreshUnreadCount();
+        await refreshUnreadCount({ force: true });
       }
 
       const now = new Date().toISOString();
@@ -97,7 +97,7 @@ export function UserMessagesClient({
         typeof payload.unreadCount !== "number" &&
         (action === "delete" || action === "archive" || action === "unarchive")
       ) {
-        await refreshUnreadCount();
+        await refreshUnreadCount({ force: true });
       }
       if (action === "delete" || action === "archive" || action === "unarchive") {
         router.refresh();

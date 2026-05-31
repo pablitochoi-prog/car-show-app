@@ -33,6 +33,14 @@ import { RegistrationAddressFields } from "@/components/registration/registratio
 import { UsPhoneInput } from "@/components/inputs/us-phone-input";
 import { VehicleClassSelect } from "@/components/registration/vehicle-class-select";
 import { digitsFromPhoneInput, formatUSPhoneDigits } from "@/lib/phone-us";
+import {
+  emptyVehicleSaleListingFormState,
+  vehicleSaleListingFormStateFromApi,
+  vehicleSaleListingFormStateToPayload,
+  VehicleSaleListingFields,
+  type VehicleSaleListingFormState,
+} from "@/components/sale/vehicle-sale-listing-fields";
+import type { VehicleSaleListingSnapshot } from "@/lib/vehicle-sale-listings-for-registration";
 
 export type OrganizerGuestVehicleRow = {
   publicVehicleId: string | null;
@@ -80,6 +88,8 @@ export type OrganizerGuestRegistrationDetailModel = {
   canEdit: boolean;
   eventCategories: EventCategoryOption[];
   vehicles: OrganizerGuestVehicleRow[];
+  vehicleSaleInquiriesEnabled?: boolean;
+  guestSaleListings?: Record<number, VehicleSaleListingSnapshot>;
 };
 
 function statusBadgeClass(variant: RegistrationDisplayStatus["variant"]) {
@@ -146,11 +156,14 @@ export function OrganizerGuestRegistrationDetail({
   const [state, setState] = useState(data.contact.state);
   const [zip, setZip] = useState(data.contact.zip);
   const [vehicleDrafts, setVehicleDrafts] = useState(() =>
-    data.vehicles.map((v) => ({
+    data.vehicles.map((v, index) => ({
       publicVehicleId: v.publicVehicleId ?? "",
       nickname: v.nickname ?? "",
       eventCategoryId: v.eventCategoryId,
       notes: v.notes ?? "",
+      saleListing: data.guestSaleListings?.[index]
+        ? vehicleSaleListingFormStateFromApi(data.guestSaleListings[index]!)
+        : emptyVehicleSaleListingFormState(),
     })),
   );
 
@@ -164,11 +177,14 @@ export function OrganizerGuestRegistrationDetail({
     setState(data.contact.state);
     setZip(data.contact.zip);
     setVehicleDrafts(
-      data.vehicles.map((v) => ({
+      data.vehicles.map((v, index) => ({
         publicVehicleId: v.publicVehicleId ?? "",
         nickname: v.nickname ?? "",
         eventCategoryId: v.eventCategoryId,
         notes: v.notes ?? "",
+        saleListing: data.guestSaleListings?.[index]
+          ? vehicleSaleListingFormStateFromApi(data.guestSaleListings[index]!)
+          : emptyVehicleSaleListingFormState(),
       })),
     );
     setSaveError("");
@@ -188,6 +204,20 @@ export function OrganizerGuestRegistrationDetail({
     setBusy("save");
     setSaveError("");
     setActionError("");
+    if (data.vehicleSaleInquiriesEnabled) {
+      for (const draft of vehicleDrafts) {
+        if (
+          draft.saleListing.enabled &&
+          !draft.saleListing.sellerAcknowledged
+        ) {
+          setSaveError(
+            "Acknowledge the sale disclaimer for each vehicle accepting inquiries.",
+          );
+          setBusy(null);
+          return;
+        }
+      }
+    }
     try {
       const res = await fetch(
         `/api/events/${data.eventId}/registrations/${data.registrationId}`,
@@ -210,6 +240,13 @@ export function OrganizerGuestRegistrationDetail({
                 nickname: v.nickname.trim() || undefined,
                 eventCategoryId: v.eventCategoryId,
                 notes: v.notes.trim() || undefined,
+                ...(data.vehicleSaleInquiriesEnabled
+                  ? {
+                      saleListing: vehicleSaleListingFormStateToPayload(
+                        v.saleListing,
+                      ),
+                    }
+                  : {}),
               })),
           }),
         },
@@ -746,6 +783,33 @@ export function OrganizerGuestRegistrationDetail({
               No vehicles were saved on this guest registration.
             </p>
           )}
+
+          {editing &&
+          data.vehicleSaleInquiriesEnabled &&
+          data.vehicles.length > 0 ? (
+            <div className="mt-4 space-y-3 border-t pt-4">
+              <p className="text-sm font-medium">Owner accepting inquiries</p>
+              {data.vehicles.map((v, i) => {
+                const draft = vehicleDrafts[i];
+                if (!draft) return null;
+                return (
+                  <VehicleSaleListingFields
+                    key={v.publicVehicleId ?? `${v.make}-${i}`}
+                    eventId={data.eventId}
+                    vehicleLabel={`${v.year} ${v.make} ${v.model}`}
+                    value={draft.saleListing}
+                    onChange={(next) =>
+                      setVehicleDrafts((prev) =>
+                        prev.map((row, idx) =>
+                          idx === i ? { ...row, saleListing: next } : row,
+                        ),
+                      )
+                    }
+                  />
+                );
+              })}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

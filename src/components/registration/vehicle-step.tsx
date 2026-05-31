@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { normalizeVinInput } from "@/lib/vehicle-vin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +20,7 @@ export type NewVehicleRow = {
   make: string;
   model: string;
   trim: string;
+  vin: string;
   notes: string;
 };
 
@@ -36,7 +38,7 @@ export function VehicleStep({
   onNewRowsChange: (rows: NewVehicleRow[]) => void;
 }) {
   function addBlankRow() {
-    onNewRowsChange([...newRows, { year: "", make: "", model: "", trim: "", notes: "" }]);
+    onNewRowsChange([...newRows, { year: "", make: "", model: "", trim: "", vin: "", notes: "" }]);
   }
 
   function updateRow(i: number, patch: Partial<NewVehicleRow>) {
@@ -182,6 +184,19 @@ export function VehicleStep({
                   value={row.trim}
                   onChange={(e) => updateRow(i, { trim: e.target.value })}
                   className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">VIN (optional)</Label>
+                <Input
+                  placeholder="e.g. 1HGBH41JXMN109186"
+                  value={row.vin}
+                  onChange={(e) =>
+                    updateRow(i, { vin: normalizeVinInput(e.target.value) })
+                  }
+                  maxLength={17}
+                  className="h-9 font-mono uppercase tabular-nums tracking-wide"
+                  spellCheck={false}
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">

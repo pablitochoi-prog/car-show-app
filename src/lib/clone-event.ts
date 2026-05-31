@@ -94,6 +94,7 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
         charityEmail: source.charityEmail,
         charityPhone: source.charityPhone,
         charityLogoUrl: source.charityLogoUrl,
+        vehicleSaleInquiriesEnabled: source.vehicleSaleInquiriesEnabled,
         paymentEnabled: source.paymentEnabled,
         platformFeeMode: source.platformFeeMode,
         platformSetupFeeCollected: false,
