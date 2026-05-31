@@ -4,6 +4,7 @@ import { guestRegisterSchema } from "@/lib/validation/registration";
 import { validateGuestRegistrationVehiclesAndClasses } from "@/lib/registration-vehicle-classes";
 import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { assignPublicIdsToGuestVehiclePayloads } from "@/lib/event-sms-vehicle-id";
+import { syncVehicleEntryIndexForRegistration } from "@/lib/vehicle-entry-index";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
 import { syncVehicleSaleListingsForGuestVehicles } from "@/lib/sync-vehicle-sale-listings";
@@ -166,6 +167,8 @@ async function postRegisterGuest(request: Request, eventId: string) {
     if (saleError) {
       throw new Error(saleError);
     }
+
+    await syncVehicleEntryIndexForRegistration(tx, reg.id);
 
     return reg;
   });

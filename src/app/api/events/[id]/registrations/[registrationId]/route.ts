@@ -8,6 +8,7 @@ import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 import { validateDonationNotDecreasedAfterPayment } from "@/lib/registration-payment-display";
 import { syncRegistrationVehiclesWithPublicIds } from "@/lib/event-sms-vehicle-id";
+import { syncVehicleEntryIndexForRegistration } from "@/lib/vehicle-entry-index";
 import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
 import { applyVehicleVinsFromRegistration } from "@/lib/registration-vehicle-vins";
 import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
@@ -180,6 +181,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       if (saleError) {
         throw new Error(saleError);
       }
+
+      await syncVehicleEntryIndexForRegistration(tx, registrationId);
 
       return updated;
     });

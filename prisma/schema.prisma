@@ -385,6 +385,7 @@ model Event {
 
   vehicleSaleListings  VehicleSaleListing[]
   vehicleSaleInquiries VehicleSaleInquiry[]
+  vehicleEntryIndexes  VehicleEntryIndex[]
   @@index([status, startDate])
   @@index([city, state])
   @@index([orgId])
@@ -531,6 +532,7 @@ model Registration {
   publicVotes  VehiclePublicVote[]
   judgeScores  VehicleJudgeScore[]
   vehicleSaleListings VehicleSaleListing[]
+  vehicleEntryIndexes VehicleEntryIndex[]
 
   @@unique([eventId, userId])
   @@index([eventId])
@@ -569,9 +571,38 @@ model RegistrationVehicle {
   publicVotes   VehiclePublicVote[]
   judgeScores   VehicleJudgeScore[]
   saleListing   VehicleSaleListing?
+  vehicleEntryIndex VehicleEntryIndex?
 
   @@unique([registrationId, vehicleId])
   @@map("registration_vehicles")
+}
+
+/// Indexed lookup by public vehicle / entry code (member RV rows and guest JSON vehicles).
+enum VehicleEntryIndexType {
+  REGISTRATION_VEHICLE
+  GUEST_JSON
+}
+
+model VehicleEntryIndex {
+  id                    String                @id @default(uuid())
+  /// Canonical vehicle entry code (uppercase), e.g. AXY-004 — matches RegistrationVehicle.publicVehicleId.
+  publicVehicleId       String                @unique
+  eventId               String
+  registrationId        String
+  entryType             VehicleEntryIndexType
+  registrationVehicleId String?               @unique
+  /// Index in Registration.guestVehicles JSON when entryType is GUEST_JSON.
+  guestVehicleIndex     Int?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  event               Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration        Registration         @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registrationVehicle RegistrationVehicle? @relation(fields: [registrationVehicleId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([registrationId])
+  @@map("vehicle_entry_index")
 }
 
 /// Owner opt-in to receive buyer inquiries for a vehicle at a specific event.

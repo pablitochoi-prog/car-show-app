@@ -106,10 +106,56 @@ Every QR/SMS/vote/sale lookup becomes one indexed query + one targeted fetch ins
 
 ### Separate commit?
 **Two commits recommended:**
-1. `feat: add VehicleEntryIndex schema, backfill script, write-path upserts`
-2. `feat: use VehicleEntryIndex in findVehicleEntryByCode with fallback`
+1. `feat: add VehicleEntryIndex schema, backfill script, write-path upserts` — **Phase 1A (implemented)**
+2. `feat: use VehicleEntryIndex in findVehicleEntryByCode with fallback` — **Phase 1B (not started)**
 
 ---
+
+### Phase 1A — implementation status (2026-05-31)
+
+**Read path:** **Not switched.** `findVehicleEntryByCode()` in `src/lib/vehicle-entry-lookup.ts` still uses `RegistrationVehicle.publicVehicleId` unique lookup + guest JSON prefix scan. No references to `VehicleEntryIndex` in read paths.
+
+**Migration:** `20260531140000_vehicle_entry_index`
+
+**Schema:** `VehicleEntryIndex` model with `publicVehicleId` (unique), `eventId`, `registrationId`, `entryType` (`REGISTRATION_VEHICLE` | `GUEST_JSON`), optional `registrationVehicleId` (unique), optional `guestVehicleIndex`. Indexes on `eventId`, `registrationId`. No PII stored.
+
+**Files changed (Phase 1A):**
+- `prisma/schema.prisma` — `VehicleEntryIndex` model + relations on `Event`, `Registration`, `RegistrationVehicle`
+- `prisma/migrations/20260531140000_vehicle_entry_index/migration.sql`
+- `src/lib/vehicle-entry-index.ts` — normalize, parse, build, upsert, sync, backfill helpers
+- `src/lib/vehicle-entry-index.test.ts` — member/guest rows, idempotent upsert, malformed JSON
+- `src/lib/event-sms-vehicle-id.ts` — sync index on RV create/repair/guest JSON backfill
+- `src/app/api/events/[id]/register-guest/route.ts` — sync after guest create
+- `src/app/api/events/[id]/registrations/[registrationId]/route.ts` — sync after guest PATCH
+- `src/app/api/registrations/[id]/claim/route.ts` — sync after claim converts guest → member RVs
+- `scripts/backfill-vehicle-entry-index.ts` — idempotent CLI backfill
+
+**Write paths wired:** member registration (`syncRegistrationVehiclesWithPublicIds`, `replaceAllRegistrationVehiclesWithPublicIds`), legacy RV repair, guest JSON ID backfill, guest register, guest organizer PATCH, claim.
+
+**Backfill commands:**
+```bash
+# Dry run (no writes; reports counts only)
+npx tsx --env-file=.env.local scripts/backfill-vehicle-entry-index.ts --dry-run
+
+# Apply (idempotent; safe to rerun)
+npx tsx --env-file=.env.local scripts/backfill-vehicle-entry-index.ts
+```
+
+**Remaining risks (Phase 1A):**
+- Index may drift if a code path assigns `publicVehicleId` without calling sync (mitigated by backfill + forward writes on known paths).
+- Cross-registration code collision skips upsert (`skippedRecords` in backfill stats); existing unique constraints on `RegistrationVehicle.publicVehicleId` should prevent new collisions.
+- Table is unused by reads until Phase 1B — zero user-facing behavior change until then.
+- Production deploy order: run migration, deploy app (writes begin), run backfill for historical rows.
+
+**Verification (Phase 1A):**
+- `prisma validate` — pass
+- `prisma generate` — pass
+- `eslint` on changed files — pass
+- `npm run build` — pass
+- `vitest run src/lib/vehicle-entry-index.test.ts` — 7 tests pass
+- Repo-wide `npx tsc --noEmit` — **pre-existing failures only** in `registration-vehicle-classes.test.ts` and `site-url.test.ts` (unrelated to Phase 1A; not fixed in this pass)
+
+**Phase 1B still required:** switch `findVehicleEntryByCode()` to query `VehicleEntryIndex` first with guest JSON fallback flag.
 
 ## Phase 2 — P1-6: Supporting database indexes
 

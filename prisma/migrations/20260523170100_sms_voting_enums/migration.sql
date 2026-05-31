@@ -1,26 +1,4 @@
--- Prisma expects PostgreSQL enum types; the initial SMS migration used TEXT columns.
-
-CREATE TYPE "SmsProvider" AS ENUM ('TWILIO', 'TELNYX');
-CREATE TYPE "SmsNumberStatus" AS ENUM ('ACTIVE', 'INACTIVE');
-CREATE TYPE "SmsVoteSessionStatus" AS ENUM ('PENDING_CATEGORY', 'COMPLETED', 'EXPIRED');
-
-ALTER TABLE "sms_numbers"
-  ALTER COLUMN "provider" DROP DEFAULT,
-  ALTER COLUMN "provider" TYPE "SmsProvider" USING ("provider"::"SmsProvider"),
-  ALTER COLUMN "provider" SET DEFAULT 'TWILIO';
-
-ALTER TABLE "sms_numbers"
-  ALTER COLUMN "status" DROP DEFAULT,
-  ALTER COLUMN "status" TYPE "SmsNumberStatus" USING ("status"::"SmsNumberStatus"),
-  ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
-
-ALTER TABLE "sms_vote_sessions"
-  ALTER COLUMN "provider" TYPE "SmsProvider" USING ("provider"::"SmsProvider");
-
-ALTER TABLE "sms_vote_sessions"
-  ALTER COLUMN "status" DROP DEFAULT,
-  ALTER COLUMN "status" TYPE "SmsVoteSessionStatus" USING ("status"::"SmsVoteSessionStatus"),
-  ALTER COLUMN "status" SET DEFAULT 'PENDING_CATEGORY';
-
-ALTER TABLE "sms_votes"
-  ALTER COLUMN "provider" TYPE "SmsProvider" USING ("provider"::"SmsProvider");
+-- No-op: enum types and enum columns are already created by 20260523170000_sms_voting.
+-- This migration previously duplicated CREATE TYPE and TEXT→enum ALTER statements for an
+-- earlier draft of 20260523170000_sms_voting that used TEXT columns. Kept in history so
+-- applied migration records remain valid; safe to replay on shadow and production DBs.

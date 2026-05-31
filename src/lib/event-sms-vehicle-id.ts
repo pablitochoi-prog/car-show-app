@@ -1,4 +1,9 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
+import {
+  syncVehicleEntryIndexForRegistration,
+  upsertVehicleEntryIndexRow,
+  VEHICLE_ENTRY_INDEX_TYPES,
+} from "@/lib/vehicle-entry-index";
 
 /** A–Z without I or O — easier to read and text (24³ prefixes per event). */
 export const VOTE_PREFIX_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -141,19 +146,28 @@ export async function repairLegacyVehiclePublicIdsForEvent(
       registration: { eventId },
     },
     orderBy: [{ registration: { createdAt: "asc" } }, { id: "asc" }],
-    select: { id: true },
+    select: { id: true, registrationId: true },
   });
   if (missing.length === 0) return;
 
   const ids = await reserveVehiclePublicIds(tx, eventId, missing.length);
   for (let i = 0; i < missing.length; i++) {
     const pid = ids[i]!;
+    const row = missing[i]!;
     await tx.registrationVehicle.update({
-      where: { id: missing[i]!.id },
+      where: { id: row.id },
       data: {
         publicVehicleId: pid,
         displayNumber: displayNumberFromPublicId(pid),
       },
+    });
+    await upsertVehicleEntryIndexRow(tx, {
+      publicVehicleId: pid,
+      eventId,
+      registrationId: row.registrationId,
+      entryType: VEHICLE_ENTRY_INDEX_TYPES.registrationVehicle,
+      registrationVehicleId: row.id,
+      guestVehicleIndex: null,
     });
   }
 }
@@ -185,6 +199,8 @@ export async function replaceAllRegistrationVehiclesWithPublicIds(
       },
     });
   }
+
+  await syncVehicleEntryIndexForRegistration(tx, registrationId);
 }
 
 export async function syncRegistrationVehiclesWithPublicIds(
@@ -241,6 +257,8 @@ export async function syncRegistrationVehiclesWithPublicIds(
       });
     }
   }
+
+  await syncVehicleEntryIndexForRegistration(tx, registrationId);
 }
 
 /** Allocate prefix and return it for a brand-new event row (use before create). */
@@ -320,6 +338,7 @@ export async function backfillGuestVehiclePublicIdsInJson(
         where: { id: row.id },
         data: { guestVehicles: updated as Prisma.InputJsonValue },
       });
+      await syncVehicleEntryIndexForRegistration(tx, row.id);
     });
   }
 }

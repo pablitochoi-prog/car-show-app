@@ -6,6 +6,7 @@ import {
   parseNumericSuffixFromPublicVehicleId,
   reserveVehiclePublicIds,
 } from "@/lib/event-sms-vehicle-id";
+import { syncVehicleEntryIndexForRegistration } from "@/lib/vehicle-entry-index";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -120,6 +121,8 @@ export async function POST(_request: Request, { params }: RouteParams) {
           registration.registrantPhone ?? registration.guestPhone ?? user.phone,
       },
     });
+
+    await syncVehicleEntryIndexForRegistration(tx, registration.id);
   });
 
   return NextResponse.json({ ok: true, registrationId: registration.id });
