@@ -9,6 +9,7 @@ import {
   userHasOrganizerStaffRole,
 } from "@/lib/event-staff";
 import { isUserBanned } from "@/lib/user-access";
+import { timeAsync } from "@/lib/request-timing";
 
 export async function getSession() {
   const supabase = await createClient();
@@ -115,12 +116,15 @@ async function ensurePrismaUser(supabaseUser: SupabaseAuthUser) {
 }
 
 async function getCurrentUserUncached() {
+  return timeAsync("auth.getCurrentUser", async () => {
   const supabaseUser = await getSession();
   if (!supabaseUser) return null;
 
-  const user = await prisma.user.findUnique({
-    where: { supabaseId: supabaseUser.id },
-  });
+  const user = await timeAsync("auth.prismaUserLookup", () =>
+    prisma.user.findUnique({
+      where: { supabaseId: supabaseUser.id },
+    }),
+  );
 
   if (user) {
     /* Sync Prisma email when Supabase auth email changes (e.g. after email change confirmation). */
@@ -139,6 +143,7 @@ async function getCurrentUserUncached() {
   }
 
   return ensurePrismaUser(supabaseUser);
+  });
 }
 
 /** Dedupes auth + DB work when layout and page both call this in one request. */
@@ -218,20 +223,30 @@ export async function canManageEvent(
 ) {
   if (platformRole === "ADMIN") return true;
 
-  if (await userHasOrganizerStaffRole(userId, eventId)) return true;
+  if (
+    await timeAsync("auth.canManageEvent.staffRole", () =>
+      userHasOrganizerStaffRole(userId, eventId),
+    )
+  ) {
+    return true;
+  }
 
   const orgId =
     orgIdHint !== undefined
       ? orgIdHint
       : (
-          await prisma.event.findUnique({
-            where: { id: eventId },
-            select: { orgId: true },
-          })
+          await timeAsync("auth.canManageEvent.eventLookup", () =>
+            prisma.event.findUnique({
+              where: { id: eventId },
+              select: { orgId: true },
+            }),
+          )
         )?.orgId;
 
   if (!orgId) return false;
-  const m = await getOrgMembership(userId, orgId);
+  const m = await timeAsync("auth.canManageEvent.orgMembership", () =>
+    getOrgMembership(userId, orgId),
+  );
   return m?.role === "owner";
 }
 

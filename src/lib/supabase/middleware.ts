@@ -8,6 +8,9 @@ import {
   shouldTouchSessionActivity,
 } from "@/lib/session-activity-server";
 import { idleLogoutResponse } from "@/lib/session-idle-middleware";
+import { ORGANIZER_OTP_REQUIRED_CODE } from "@/lib/step-up-config";
+import { isStepUpExemptPath } from "@/lib/organizer-step-up-policy";
+import { shouldRunSessionGuardsInMiddleware } from "@/lib/session-guards-middleware";
 
 const MFA_ALLOWED_PREFIXES = [
   "/login",
@@ -17,8 +20,20 @@ const MFA_ALLOWED_PREFIXES = [
   "/api/me/mfa/",
 ];
 
+const STAFF_STEP_UP_ALLOWED_PREFIXES = [
+  "/organizer/verify-otp",
+  "/api/organizer/otp/",
+  ...MFA_ALLOWED_PREFIXES,
+];
+
 function pathAllowedDuringMfaChallenge(pathname: string): boolean {
   return MFA_ALLOWED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix),
+  );
+}
+
+function pathAllowedDuringStaffStepUp(pathname: string): boolean {
+  return STAFF_STEP_UP_ALLOWED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(prefix),
   );
 }
@@ -92,9 +107,14 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/auth/") ||
     (!user && !isProtected);
 
-  if (user && !skipSessionGuardCheck) {
+  if (user && !skipSessionGuardCheck && shouldRunSessionGuardsInMiddleware(pathname)) {
     try {
       const guardsUrl = new URL("/api/auth/session-guards", request.nextUrl.origin);
+      guardsUrl.searchParams.set("pathname", pathname);
+      guardsUrl.searchParams.set("method", request.method);
+      if (request.nextUrl.search) {
+        guardsUrl.searchParams.set("search", request.nextUrl.search.slice(1));
+      }
       const guardsRes = await fetch(guardsUrl, {
         headers: { cookie: request.headers.get("cookie") ?? "" },
       });
@@ -102,6 +122,10 @@ export async function updateSession(request: NextRequest) {
         const data = (await guardsRes.json()) as {
           status?: string | null;
           adminMfaChallengeRequired?: boolean;
+          staffStepUpRequired?: boolean;
+          staffStepUpVerified?: boolean;
+          staffStepUpAdminMfaRequired?: boolean;
+          staffStepUpEventId?: string | null;
         };
 
         if (data.status === "BANNED" && pathname !== "/banned") {
@@ -133,6 +157,52 @@ export async function updateSession(request: NextRequest) {
           mfaUrl.pathname = "/login/mfa";
           mfaUrl.searchParams.set("redirect", pathname);
           return NextResponse.redirect(mfaUrl);
+        }
+
+        const needsStaffStepUp =
+          data.staffStepUpRequired &&
+          !data.staffStepUpVerified &&
+          !isStepUpExemptPath(pathname) &&
+          !pathAllowedDuringStaffStepUp(pathname);
+
+        if (needsStaffStepUp) {
+          if (data.staffStepUpAdminMfaRequired) {
+            if (pathname.startsWith("/api/")) {
+              return NextResponse.json(
+                {
+                  error: "Admin MFA verification required.",
+                  mfaChallengeRequired: true,
+                },
+                { status: 403 },
+              );
+            }
+            const mfaUrl = request.nextUrl.clone();
+            mfaUrl.pathname = "/login/mfa";
+            mfaUrl.searchParams.set("redirect", `${pathname}${request.nextUrl.search}`);
+            return NextResponse.redirect(mfaUrl);
+          }
+
+          if (pathname.startsWith("/api/")) {
+            return NextResponse.json(
+              {
+                error: "Organizer verification required.",
+                code: ORGANIZER_OTP_REQUIRED_CODE,
+              },
+              { status: 403 },
+            );
+          }
+
+          const otpUrl = request.nextUrl.clone();
+          otpUrl.pathname = "/organizer/verify-otp";
+          otpUrl.searchParams.set(
+            "next",
+            `${pathname}${request.nextUrl.search}`,
+          );
+          if (data.staffStepUpEventId) {
+            otpUrl.searchParams.set("eventId", data.staffStepUpEventId);
+          }
+          otpUrl.search = otpUrl.searchParams.toString();
+          return NextResponse.redirect(otpUrl);
         }
       }
     } catch (e) {

@@ -92,6 +92,19 @@ enum SmsVoteSessionStatus {
   EXPIRED
 }
 
+enum StepUpOtpPurpose {
+  ORGANIZER_STEP_UP
+}
+
+enum StepUpAuditAction {
+  OTP_REQUESTED
+  OTP_VERIFIED
+  OTP_FAILED
+  OTP_EXPIRED
+  OTP_RATE_LIMITED
+  ACCESS_DENIED
+}
+
 model User {
   id          String       @id @default(uuid())
   email       String       @unique
@@ -134,8 +147,44 @@ model User {
   sentMessages     Message[] @relation("MessageSender")
   receivedMessages Message[] @relation("MessageRecipient")
   messageStates    MessageUserState[]
+  stepUpOtpChallenges StepUpOtpChallenge[]
+  stepUpAuditLogs     StepUpAuditLog[]
 
   @@map("users")
+}
+
+model StepUpOtpChallenge {
+  id           String           @id @default(uuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose      StepUpOtpPurpose
+  codeHash     String
+  expiresAt    DateTime
+  attempts     Int              @default(0)
+  maxAttempts  Int              @default(5)
+  consumedAt   DateTime?
+  lastSentAt   DateTime?
+  emailSentAt  DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([userId, purpose, consumedAt])
+  @@map("step_up_otp_challenges")
+}
+
+model StepUpAuditLog {
+  id        String            @id @default(uuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId   String?
+  purpose   StepUpOtpPurpose
+  action    StepUpAuditAction
+  route     String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, createdAt])
+  @@map("step_up_audit_logs")
 }
 
 model Organization {

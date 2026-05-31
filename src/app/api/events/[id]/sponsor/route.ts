@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { eventSponsorSchema } from "@/lib/validation/sponsor";
+import { timeAsync } from "@/lib/request-timing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,33 +29,35 @@ function trimOrNull(value: string | undefined): string | null | undefined {
 }
 
 export async function GET(_request: Request, { params }: RouteParams) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  return timeAsync("api.events.sponsor.GET", async () => {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  const { id: eventId } = await params;
+    const { id: eventId } = await params;
 
-  const allowed = await canManageEvent(
-    user.id,
-    eventId,
-    undefined,
-    user.platformRole,
-  );
-  if (!allowed) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+    const event = await timeAsync("api.events.sponsor.event", () =>
+      prisma.event.findUnique({
+        where: { id: eventId },
+        select: { orgId: true, ...sponsorSelect },
+      }),
+    );
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: sponsorSelect,
+    if (!event) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const allowed = await timeAsync("api.events.sponsor.auth", () =>
+      canManageEvent(user.id, eventId, event.orgId, user.platformRole),
+    );
+    if (!allowed) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { orgId: _orgId, ...sponsor } = event;
+    return NextResponse.json(sponsor);
   });
-
-  if (!event) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  return NextResponse.json(event);
 }
 
 export async function PATCH(request: Request, { params }: RouteParams) {

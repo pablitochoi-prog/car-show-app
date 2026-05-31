@@ -5,6 +5,7 @@ import { Footer } from "@/components/layout/footer";
 import { UnreadMessagesShell } from "@/components/layout/unread-messages-shell";
 import { SessionIdleShell } from "@/components/session/session-idle-shell";
 import { ButtonFeedbackProvider } from "@/components/ui/button-feedback-provider";
+import { SWRProvider } from "@/components/providers/swr-provider";
 import { getSiteOrigin } from "@/lib/site-url";
 import "./globals.css";
 
@@ -37,13 +38,15 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col">
         <ButtonFeedbackProvider />
-        <SessionIdleShell>
-          <UnreadMessagesShell>
-            <SiteHeader />
-            <main className="flex-1">{children}</main>
-            <Footer />
-          </UnreadMessagesShell>
-        </SessionIdleShell>
+        <SWRProvider>
+          <SessionIdleShell>
+            <UnreadMessagesShell>
+              <SiteHeader />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </UnreadMessagesShell>
+          </SessionIdleShell>
+        </SWRProvider>
       </body>
     </html>
   );

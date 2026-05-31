@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { clearActivityCookies } from "@/lib/session-activity-server";
+import { clearStepUpCookie } from "@/lib/step-up-cookie-edge";
 
 /** Sign out and redirect or return 401 when idle timeout is exceeded. */
 export async function idleLogoutResponse(
@@ -27,6 +28,7 @@ export async function idleLogoutResponse(
     );
     copyAuthCookies(supabaseResponse, res);
     clearActivityCookies(res);
+    clearStepUpCookie(res);
     clearSupabaseCookies(request, res);
     return res;
   }
@@ -39,6 +41,7 @@ export async function idleLogoutResponse(
   const res = NextResponse.redirect(loginUrl);
   copyAuthCookies(supabaseResponse, res);
   clearActivityCookies(res);
+  clearStepUpCookie(res);
   clearSupabaseCookies(request, res);
   return res;
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEventAndLoad } from "@/lib/auth";
+import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { OrganizerMessagesClient } from "@/components/messages/organizer-messages-client";
 import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
@@ -15,6 +16,11 @@ export default async function OrganizerEventMessagesPage({
   if (!user) redirect("/login");
 
   const { id: eventId } = await params;
+
+  await requireStaffStepUpPage({
+    user,
+    pathname: `/organizer/events/${eventId}/messages`,
+  });
 
   const { allowed, event } = await canManageEventAndLoad(
     user.id,

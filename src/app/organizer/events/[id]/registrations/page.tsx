@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import type { RegistrationFeeType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { canManageEventRegistrations } from "@/lib/organizer-registrations-auth";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,11 @@ export default async function EventRegistrationsPage({
   if (!user) redirect("/login");
 
   const { id: eventId } = await params;
+
+  await requireStaffStepUpPage({
+    user,
+    pathname: `/organizer/events/${eventId}/registrations`,
+  });
 
   const allowed = await canManageEventRegistrations(
     user.id,

@@ -4,6 +4,7 @@ export function idleExcludedPath(pathname: string): boolean {
   if (
     pathname === "/login" ||
     pathname === "/login/mfa" ||
+    pathname === "/organizer/verify-otp" ||
     pathname === "/signup" ||
     pathname === "/forgot-password" ||
     pathname.startsWith("/auth/") ||
@@ -12,6 +13,7 @@ export function idleExcludedPath(pathname: string): boolean {
     pathname.startsWith("/api/auth/logout") ||
     pathname.startsWith("/api/auth/mfa/") ||
     pathname.startsWith("/api/me/mfa/") ||
+    pathname.startsWith("/api/organizer/otp/") ||
     pathname.startsWith("/api/stripe/webhook")
   ) {
     return true;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createSupabaseForResponse } from "@/lib/supabase/route-handler";
 import { clearActivityCookies } from "@/lib/session-activity-server";
+import { clearStepUpCookie } from "@/lib/step-up-session";
 
 export async function POST() {
   try {
@@ -15,6 +16,7 @@ export async function POST() {
     }
 
     clearActivityCookies(response);
+    clearStepUpCookie(response);
 
     // Explicitly delete all Supabase auth cookies (including chunked tokens)
     const cookieStore = await cookies();

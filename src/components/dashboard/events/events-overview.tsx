@@ -1,13 +1,13 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   hrefDashboardEvents,
   type EventsTab,
 } from "@/lib/dashboard-events-url";
 import { ShowPastEventsCheckbox } from "./show-past-events-checkbox";
 import { EventsPaginationBar } from "./events-pagination";
+import { EventsTabLink } from "./events-tab-link";
 import {
   EmptyManaging,
   EmptyParticipating,
@@ -58,51 +58,30 @@ export function EventsOverview(props: {
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border/80 bg-card shadow-sm">
-        <div className="border-b border-border px-4 pt-4 sm:px-6">
-          <nav aria-label="Event categories" className="flex gap-1 sm:gap-2">
-            <Link
-              href={hrefDashboardEvents("participating", 1, participatingLinkOptions)}
-              className={cn(
-                "relative flex-1 rounded-t-lg px-3 py-2.5 text-center text-sm font-medium transition-colors sm:flex-none sm:px-5",
-                participatingActive
-                  ? "bg-background text-foreground shadow-[inset_0_-2px_0_0_var(--primary)]"
-                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+        <div className="border-b border-border px-4 py-4 sm:px-6">
+          <nav
+            aria-label="Event categories"
+            className="flex flex-wrap gap-2"
+          >
+            <EventsTabLink
+              href={hrefDashboardEvents(
+                "participating",
+                1,
+                participatingLinkOptions,
               )}
-            >
-              <span className="inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
-                Participating
-                {participatingTotal > 0 ? (
-                  <span className="rounded-md bg-muted px-1.5 py-px text-[11px] font-normal tabular-nums text-muted-foreground">
-                    {participatingTotal}
-                  </span>
-                ) : null}
-              </span>
-              <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground sm:inline sm:mt-0 sm:ml-1.5 sm:text-xs">
-                Exhibiting &amp; attending
-              </span>
-            </Link>
+              active={participatingActive}
+              label="Participating"
+              description="Exhibiting & attending"
+              count={participatingTotal > 0 ? participatingTotal : undefined}
+            />
             {showManagingTab ? (
-              <Link
+              <EventsTabLink
                 href={hrefDashboardEvents("managing", 1)}
-                className={cn(
-                  "relative flex-1 rounded-t-lg px-3 py-2.5 text-center text-sm font-medium transition-colors sm:flex-none sm:px-5",
-                  managingActive
-                    ? "bg-background text-foreground shadow-[inset_0_-2px_0_0_var(--primary)]"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                )}
-              >
-                <span className="inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
-                  Managing
-                  {managingTotal > 0 ? (
-                    <span className="rounded-md bg-muted px-1.5 py-px text-[11px] font-normal tabular-nums text-muted-foreground">
-                      {managingTotal}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground sm:inline sm:mt-0 sm:ml-1.5 sm:text-xs">
-                  Staff &amp; organizer tools
-                </span>
-              </Link>
+                active={managingActive}
+                label="Managing"
+                description="Staff & organizer tools"
+                count={managingTotal > 0 ? managingTotal : undefined}
+              />
             ) : null}
           </nav>
         </div>

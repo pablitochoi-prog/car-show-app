@@ -261,3 +261,46 @@ export async function sendTestEmail(input: {
     html: `<p>${escapeHtml(body)}</p>`,
   });
 }
+
+export type OrganizerStepUpOtpEmailInput = {
+  to: string;
+  recipientName?: string | null;
+  code: string;
+  expiresInMinutes?: number;
+};
+
+/** One-time email OTP for event staff accessing sensitive management areas. */
+export async function sendOrganizerStepUpOtpEmail(
+  input: OrganizerStepUpOtpEmailInput,
+): Promise<EmailSendResult> {
+  const expires = input.expiresInMinutes ?? 10;
+
+  const text = [
+    greeting(input.recipientName),
+    "",
+    "For your attendees' privacy, verify your account before accessing event management information.",
+    "",
+    `Your verification code is: ${input.code}`,
+    "",
+    `This code expires in ${expires} minutes.`,
+    "If you did not request this code, you can ignore this email.",
+    "",
+    "CarShowScout",
+  ].join("\n");
+
+  const html = `
+    <p>${escapeHtml(greeting(input.recipientName))}</p>
+    <p>For your attendees' privacy, verify your account before accessing event management information.</p>
+    <p style="font-size:24px;font-weight:bold;letter-spacing:0.2em;">${escapeHtml(input.code)}</p>
+    <p>This code expires in ${expires} minutes.</p>
+    <p>If you did not request this code, you can ignore this email.</p>
+    <p>CarShowScout</p>
+  `.trim();
+
+  return sendTransactionalEmail({
+    to: input.to,
+    subject: "Your CarShowScout organizer verification code",
+    text,
+    html,
+  });
+}

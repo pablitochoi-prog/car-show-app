@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,19 +14,17 @@ import {
   buildEventAwardTrophyEntries,
   notifyEventCategoriesChanged,
 } from "@/lib/event-awards-trophies";
+import {
+  setEventAwardsCache,
+  setEventCategoriesCache,
+  useEventAwards,
+  useEventCategories,
+  useMasterAwards,
+  type EventAwardRow,
+  type EventCategoryRow,
+} from "@/hooks/use-event-setup-cache";
 
 type MasterAward = { id: string; name: string };
-type EventAwardRow = {
-  id: string;
-  specialAwardId: string | null;
-  name: string;
-  isCustom: boolean;
-};
-type EventCategoryRow = {
-  id: string;
-  name: string;
-  trophyCount: number;
-};
 
 export function EventAwardsSection({
   eventId,
@@ -35,41 +33,31 @@ export function EventAwardsSection({
   eventId: string;
   onCountChange?: (count: number) => void;
 }) {
-  const [masterList, setMasterList] = useState<MasterAward[]>([]);
-  const [eventAwards, setEventAwards] = useState<EventAwardRow[]>([]);
-  const [eventCategories, setEventCategories] = useState<EventCategoryRow[]>([]);
   const [customName, setCustomName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    const [awardsRes, catsRes, masterRes] = await Promise.all([
-      fetch(`/api/events/${eventId}/awards`, { credentials: "same-origin" }),
-      fetch(`/api/events/${eventId}/categories`, { credentials: "same-origin" }),
-      fetch("/api/awards", { credentials: "same-origin" }),
-    ]);
-    const awardsData = (await awardsRes.json()) as { awards?: EventAwardRow[] };
-    const catsData = (await catsRes.json()) as { categories?: EventCategoryRow[] };
-    const masterData = (await masterRes.json()) as { awards?: MasterAward[] };
-    setEventAwards(awardsData.awards ?? []);
-    setEventCategories(catsData.categories ?? []);
-    setMasterList(masterData.awards ?? []);
-  }, [eventId]);
+  const { data: awardsData } = useEventAwards(eventId);
+  const { data: categoriesData, mutate: mutateCategories } =
+    useEventCategories(eventId);
+  const { data: masterData } = useMasterAwards();
 
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+  const eventAwards =
+    (awardsData as { awards?: EventAwardRow[] } | undefined)?.awards ?? [];
+  const eventCategories = categoriesData?.categories ?? [];
+  const masterList =
+    (masterData as { awards?: MasterAward[] } | undefined)?.awards ?? [];
 
   useEffect(() => {
     function onCategoriesChanged(e: Event) {
       const detail = (e as CustomEvent<{ eventId?: string }>).detail;
-      if (detail?.eventId === eventId) void fetchData();
+      if (detail?.eventId === eventId) void mutateCategories();
     }
     window.addEventListener(EVENT_CATEGORIES_CHANGED, onCategoriesChanged);
     return () =>
       window.removeEventListener(EVENT_CATEGORIES_CHANGED, onCategoriesChanged);
-  }, [eventId, fetchData]);
+  }, [eventId, mutateCategories]);
 
   const trophyEntries = useMemo(
     () =>
@@ -106,7 +94,7 @@ export function EventAwardsSection({
         setError(data.error ?? "Could not add awards.");
         return;
       }
-      setEventAwards(data.awards ?? []);
+      await setEventAwardsCache(eventId, data.awards ?? []);
     } catch {
       setError("Network error.");
     } finally {
@@ -133,8 +121,8 @@ export function EventAwardsSection({
         setError(data.error ?? "Could not remove awards.");
         return;
       }
-      if (data.categories) setEventCategories(data.categories);
-      if (data.awards) setEventAwards(data.awards);
+      if (data.categories) await setEventCategoriesCache(eventId, data.categories);
+      if (data.awards) await setEventAwardsCache(eventId, data.awards);
       notifyEventCategoriesChanged(eventId);
     } catch {
       setError("Network error.");
@@ -162,7 +150,7 @@ export function EventAwardsSection({
         setError(data.error ?? "Could not add award.");
         return;
       }
-      setEventAwards(data.awards ?? []);
+      await setEventAwardsCache(eventId, data.awards ?? []);
       setCustomName("");
     } catch {
       setError("Network error.");

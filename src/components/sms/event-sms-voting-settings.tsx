@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,6 +76,9 @@ export function EventSmsVotingSettings({
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const userEditedRef = useRef(false);
+  const eventScheduleRef = useRef(eventSchedule);
+  eventScheduleRef.current = eventSchedule;
 
   const syncStatus = useCallback(
     (
@@ -92,7 +95,7 @@ export function EventSmsVotingSettings({
   );
 
   function applyDefaultVotingTimes() {
-    const defaults = defaultSmsVotingWindow(eventSchedule);
+    const defaults = defaultSmsVotingWindow(eventScheduleRef.current);
     setSmsVotingStartsAt(
       zonedLocalToDatetimeLocal(defaults.opens.date, defaults.opens.time),
     );
@@ -107,6 +110,9 @@ export function EventSmsVotingSettings({
       const res = await fetch(`/api/events/${eventId}/sms-voting`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
+
+      if (userEditedRef.current) return;
+
       const enabled = Boolean(data.smsVotingEnabled);
       const loadedCategories = (data.categories ?? []) as CategoryRow[];
       setSmsVotingEnabled(enabled);
@@ -145,25 +151,23 @@ export function EventSmsVotingSettings({
     } finally {
       setLoading(false);
     }
-  }, [eventId, eventSchedule, eventTimeZone, syncStatus]);
+  }, [eventId, eventTimeZone, syncStatus]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [eventId, load]);
 
   function handleEnableChange(checked: boolean) {
+    userEditedRef.current = true;
     setSmsVotingEnabled(checked);
     setMessage(null);
-    if (
-      checked &&
-      !smsVotingStartsAt &&
-      !smsVotingEndsAt
-    ) {
+    if (checked) {
       applyDefaultVotingTimes();
     }
   }
 
   function togglePreset(name: string) {
+    userEditedRef.current = true;
     setCategories((prev) => {
       const existing = prev.find((c) => c.name === name && !c.isCustom);
       if (existing) {
@@ -188,6 +192,7 @@ export function EventSmsVotingSettings({
   }
 
   function addCustomCategory() {
+    userEditedRef.current = true;
     const name = customName.trim();
     if (!name) return;
     if (categories.length >= 3) return;
@@ -210,6 +215,7 @@ export function EventSmsVotingSettings({
   }
 
   function removeCategory(index: number) {
+    userEditedRef.current = true;
     setCategories((prev) => prev.filter((_, i) => i !== index));
   }
 
@@ -259,6 +265,7 @@ export function EventSmsVotingSettings({
       setSmsPresets(data.presets ?? []);
       setInstructionPreview(data.instructionPreview ?? "");
       setSmsVotingEnabled(savedEnabled);
+      userEditedRef.current = false;
       syncStatus(savedEnabled, savedCategories, "save");
       setMessage({ type: "success", text: "SMS voting settings saved." });
     } catch (err) {
@@ -319,7 +326,10 @@ export function EventSmsVotingSettings({
                 id="smsVotingStartsAt"
                 aria-label="Voting opens"
                 value={smsVotingStartsAt}
-                onChange={setSmsVotingStartsAt}
+                onChange={(value) => {
+                  userEditedRef.current = true;
+                  setSmsVotingStartsAt(value);
+                }}
               />
             </div>
             <div className="space-y-2">
@@ -328,7 +338,10 @@ export function EventSmsVotingSettings({
                 id="smsVotingEndsAt"
                 aria-label="Voting closes"
                 value={smsVotingEndsAt}
-                onChange={setSmsVotingEndsAt}
+                onChange={(value) => {
+                  userEditedRef.current = true;
+                  setSmsVotingEndsAt(value);
+                }}
               />
             </div>
           </div>

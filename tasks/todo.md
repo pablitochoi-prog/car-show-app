@@ -588,3 +588,370 @@ export const SESSION_WARNING_LEAD_MINUTES =
 
 Implemented 60-minute sliding idle logout for all authenticated users. Server enforcement via HttpOnly `css_last_activity` cookie in middleware; `User.lastActivityAt` persisted with 2-minute throttle. Client `SessionIdleProvider` shows warning at 55 minutes (UX only); multi-tab sync via BroadcastChannel + localStorage. Stripe checkout sets 2-hour pause cookie before redirect. Login page shows idle message at `/login?reason=idle`. Dev testing: `NEXT_PUBLIC_SESSION_IDLE_TIMEOUT_DEV_MINUTES=2`. Run migration `20260530200000_user_last_activity_at`. See `docs/session-idle-test-checklist.md`.
 
+---
+
+# Organizer Email OTP Step-Up — Plan
+
+## Architecture inspection summary
+
+### How organizers are represented
+
+| Layer | Model |
+| --- | --- |
+| **Platform role** | `User.platformRole`: `USER`, `ORGANIZER`, `ADMIN` — gates who can create orgs/events |
+| **Org ownership** | `OrganizationMember.role === "owner"` — can manage events for that org |
+| **Event staff** | `EventStaffMember` + `EventStaffRoleLink` → `EventRoleDefinition.slug` (`organizer`, `registrar`, `treasurer`, `judge`, …) |
+| **Permission helpers** | `canManageEvent()` — admin, organizer staff slug, or org owner |
+| | `canManageEventRegistrations()` — organizer, registrar, treasurer staff, or `canManageEvent` |
+| | `canEditEvent()` / `isEventOrganizer()` — permission-layer checks on role arrays |
+
+### How the app knows which events a user manages
+
+- **My Events → Managing tab** (`/dashboard/events?tab=managing`): any `EventStaffMember` row (all staff roles)
+- **Edit Event button**: only shown when staff role slug is `organizer` (`ManagingCard`)
+- **Registrations button**: shown for `organizer` or `treasurer` staff roles
+- **Edit page auth**: `canManageEvent(userId, eventId, orgId, platformRole)` — broader than organizer slug alone (includes org owners + admin)
+
+### Sensitive UI routes (today)
+
+| Route | Auth check | Gate in v1? |
+| --- | --- | --- |
+| `/dashboard/events?tab=managing` | staff membership list | **No** — list only |
+| `/organizer/events/[id]/edit` | `canManageEvent` | **Yes** |
+| `/organizer/events/[id]/registrations` | `canManageEventRegistrations` | **Yes** |
+| `/organizer/events/[id]/registrations/[registrationId]` | same | **Yes** |
+| `/organizer/events/[id]/reports` | `canManageEvent` | **Yes** |
+| `/organizer/events/[id]/messages` | organizer messaging | **Yes** |
+| `/organizer/events/new` | create flow | **No** |
+| `/organizer/events/[id]/staff`, `/tiers`, `/organization`, `/dash-cards` | various | **No** (v1) |
+
+### Sensitive API routes (today)
+
+Under `/api/events/[id]/`:
+
+- **Registration PII**: `registrations/[registrationId]`, `registrations/export`, `registrations/bulk`, `sync-payment`, staff-photo view routes
+- **Event config mutations**: `route.ts` (PATCH), `payment-settings`, `sponsor`, `charity`, `categories`, `tiers`, `awards`, `sms-voting`, `clone`, `upload`, `staff`, `transfer-organizer`, etc.
+
+### Existing patterns to reuse
+
+| Pattern | Use for OTP step-up |
+| --- | --- |
+| **Admin MFA** | Supabase TOTP + AAL2; middleware via `/api/auth/session-guards`; `requireAdminMfaSession()` for APIs |
+| **Idle session** | HttpOnly signed cookie `css_last_activity`; cleared on logout + idle logout |
+| **SendGrid** | `src/lib/email/sendgrid.ts` transactional email helper |
+| **Middleware** | `updateSession()` — extend with organizer step-up redirects (parallel to admin MFA) |
+
+---
+
+## Approved security model (final)
+
+### Site Admin — no organizer email OTP
+
+Site Admins must **never** be required to complete organizer email OTP when accessing Edit Event, Registrations, Reports, Messages, or other organizer-sensitive screens.
+
+| Control | Behavior |
+| --- | --- |
+| **Login** | Password + Supabase authenticator/TOTP MFA (existing admin MFA flow) |
+| **Session** | 60-minute inactivity logout (existing idle timeout) |
+| **Sensitive access** | Once login + MFA (AAL2) is complete for the current session, **no additional step-up** |
+| **Stacking** | Do **not** require both admin MFA and organizer email OTP |
+
+**Implementation rule:** If `platformRole === ADMIN` and Supabase session is **AAL2**, treat step-up as **satisfied** for all sensitive organizer/event-management routes and APIs. Admins without AAL2 continue to use the **existing admin MFA challenge** (`/login/mfa`) — not the organizer email OTP page.
+
+### Event staff / organizers — email OTP step-up
+
+| Control | Behavior |
+| --- | --- |
+| **Who** | Any user who can access sensitive event-management data (see below) **except** Site Admins with valid AAL2 |
+| **When** | Once per login session, before first access to gated areas |
+| **Delivery** | 6-digit code via SendGrid to verified account email |
+| **Cleared on** | Logout, inactivity logout, new login |
+
+### Final access rule (single gate)
+
+Sensitive organizer/event-management access requires **one** of:
+
+1. **Site Admin** with completed Supabase MFA / **AAL2** session, **or**
+2. **Staff/organizer user** with completed **email OTP step-up** for the current login session
+
+Do not stack both for Site Admin.
+
+---
+
+## v1 scope decisions (approved)
+
+### 1. Who must complete email OTP step-up?
+
+Any user with access to attendee registration or sensitive event-management information:
+
+- Passes `canManageEventRegistrations(userId, eventId, platformRole)`, **or**
+- Has event staff role slug: **organizer**, **registrar**, or **treasurer**, **or**
+- Passes `canManageEvent()` for event config areas (edit event, etc.)
+
+**Excluded from email OTP:**
+- Site Admins with AAL2 (MFA satisfies step-up)
+- Plain attendees, public users, judge-only staff on public `/v/*` voting pages
+- Users with no sensitive event-management permission
+
+**Included in email OTP (v1):**
+- Organizer, registrar, treasurer staff
+- Org owners with registration/event management access
+- Platform `ORGANIZER` role users managing events
+
+### 2. Reports — yes, protected
+
+Require step-up for:
+
+- `/organizer/events/[id]/reports` (all report types — voting tabulation, future registration/operational reports)
+- Any related report APIs that return attendee, registration, voting/judging, or operational event data
+
+### 3. Organizer messages — yes, protected
+
+Require step-up for:
+
+- `/organizer/events/[id]/messages` (participant/registrant communications and contact context)
+
+### 4. Not gated (unchanged)
+
+- `/dashboard/events?tab=managing` — event list only, no attendee PII
+- `/organizer/events/new` — create flow, no registrant data yet
+- Public `/events/*`, `/v/*` voting, attendee dashboard, guest registration
+
+---
+
+## Design
+
+### Purpose-based model (future-proof)
+
+```ts
+enum StepUpPurpose {
+  ORGANIZER_STEP_UP = "ORGANIZER_STEP_UP", // v1: all staff sensitive access
+  // future: REGISTRAR_STEP_UP, TREASURER_STEP_UP, JUDGE_STEP_UP (split policies if needed)
+}
+```
+
+v1 uses a single purpose (`ORGANIZER_STEP_UP`) for all staff step-up; policy function determines *who* needs it.
+
+### Prisma models
+
+**`StepUpOtpChallenge`**
+- `id`, `userId`, `purpose` (enum), `codeHash`, `expiresAt`, `attempts`, `maxAttempts` (default 5), `consumedAt`, `lastSentAt`, `createdAt`
+- Index: `(userId, purpose, consumedAt)`
+
+**`StepUpAuditLog`**
+- `id`, `userId`, `eventId?`, `purpose`, `action` (REQUESTED, VERIFIED, FAILED, EXPIRED, RATE_LIMITED, ACCESS_DENIED), `route?`, `ip?`, `userAgent?`, `createdAt`
+
+### Session verification cookie
+
+- HttpOnly cookie: `css_step_up_organizer` (maps to `ORGANIZER_STEP_UP`)
+- **Signed payload** (HMAC-SHA256): `{ userId, sessionId, purpose, verifiedAt }`
+- `sessionId` from Supabase access token — invalidates on logout/login/session rotation
+- Cleared on: logout, inactivity logout, new login
+- **Not** stored in localStorage
+- **Never set for Site Admin** — admins rely on AAL2 only
+
+### OTP security
+
+- 6-digit code via `crypto.randomInt`
+- **bcrypt** hash — never plaintext
+- Expires **10 minutes**; resend cooldown **60 seconds**; max **5 attempts** per code
+- Generic errors; no user enumeration
+- Send only to **Supabase-verified email**
+- Never log OTP codes
+
+### Guard flow
+
+```
+User → sensitive page/API
+  → authenticated?
+  → has permission for this event/route?
+  → Site Admin + AAL2? → ALLOW (no email OTP)
+  → Site Admin + not AAL2? → existing admin MFA flow (/login/mfa) — NOT organizer OTP
+  → staff/organizer + valid step-up cookie for session? → ALLOW
+  → staff/organizer + no step-up? →
+      page: redirect /organizer/verify-otp?next=…&eventId=…
+      API: 403 { code: "ORGANIZER_OTP_REQUIRED" }
+```
+
+### Central policy helper
+
+```ts
+async function isSensitiveAccessSatisfied(ctx): Promise<boolean> {
+  if (isSiteAdmin(user) && mfa.currentLevel === "aal2") return true;
+  if (isSiteAdmin(user)) return false; // handled by admin MFA middleware, not OTP
+  if (!userNeedsStaffStepUp(user, eventId, route)) return true; // no sensitive access
+  return hasValidStepUpCookie(request, user, ORGANIZER_STEP_UP);
+}
+```
+
+---
+
+## Implementation phases
+
+### Phase 1 — Schema & core library
+- [x] Prisma enum `StepUpPurpose` + models `StepUpOtpChallenge`, `StepUpAuditLog` + migration
+- [x] `src/lib/step-up-config.ts` — OTP length, expiry, cooldown, max attempts
+- [x] `src/lib/step-up-session.ts` — sign/verify/clear HttpOnly cookie, bind to Supabase session id
+- [x] `src/lib/step-up-otp.ts` — generate, hash, verify, consume challenges
+- [x] `src/lib/organizer-step-up-policy.ts` — sensitive path/API matchers, admin AAL2 bypass
+- [x] `src/lib/step-up-audit.ts` — audit writes (no secrets)
+- [x] Unit tests for policy matchers, OTP verify, cookie signing
+
+### Phase 2 — Email
+- [x] `sendOrganizerStepUpOtpEmail({ to, recipientName, code, expiresInMinutes })` in `sendgrid.ts`
+- [x] Subject: “Your CarShowScout organizer verification code”
+- [x] Dedicated HTML/text template (not password reset)
+
+### Phase 3 — API routes
+- [x] `POST /api/organizer/otp/send` — reject site admins (they use MFA); create/resend challenge for staff
+- [x] `POST /api/organizer/otp/verify` — verify code, set step-up cookie, audit
+- [x] `GET /api/organizer/otp/status` — masked email, cooldown, verified flag
+
+### Phase 4 — Challenge UI
+- [x] `/organizer/verify-otp` page + mobile-friendly form
+- [x] Copy: *“For your attendees’ privacy, please verify your account before accessing event management information.”*
+- [x] Masked email, 6-digit input, resend after 60s cooldown, friendly errors
+- [x] **No admin “use authenticator” link on this page** — admins are redirected through admin MFA, not organizer OTP
+- [x] `next` + `eventId` via `safeInternalPath`
+
+### Phase 5 — Route guards
+
+**Middleware** (page redirects):
+- [x] Sensitive `/organizer/events/[id]/…` paths (see list below)
+- [x] Exclude `/organizer/verify-otp`, `/login`, `/login/mfa`, `/api/organizer/otp/*`
+- [x] Admin AAL2 → pass through; staff without step-up → redirect to verify-otp
+
+**Page helpers:** `requireStaffStepUpPage()` on gated server pages
+
+**API helper:** `requireStaffStepUpApi()` → `403 ORGANIZER_OTP_REQUIRED` (middleware handles API 403)
+
+**Sensitive page paths (v1)**:
+- `/organizer/events/[id]/edit`
+- `/organizer/events/[id]/registrations`
+- `/organizer/events/[id]/registrations/[registrationId]`
+- `/organizer/events/[id]/reports`
+- `/organizer/events/[id]/messages`
+
+**Sensitive API paths (v1)** — under `/api/events/[id]/`:
+- `registrations/**` (all registration/attendee PII)
+- `route.ts` PATCH (event config)
+- `payment-settings`, `sponsor`, `charity`, `categories`, `tiers/**`, `awards/**`, `sms-voting`, `clone`, `upload`, `staff/**`, `transfer-organizer`
+- Staff-photo view routes
+- Report-related APIs (as added / identified)
+- `/api/messages/**` when scoped to event organizer messages with participant data
+
+**Not gated:**
+- `/dashboard/events`, `/organizer/events/new`, public routes, `/v/*`, attendee APIs
+
+### Phase 6 — Session lifecycle
+- [x] Clear step-up cookie on logout + idle logout
+- [x] Exclude OTP routes from background idle-touch issues
+- [x] Ensure admin MFA middleware runs before/alongside step-up (admins never hit OTP)
+
+### Phase 7 — Tests & docs
+- [x] `docs/organizer-otp-test-checklist.md` (include admin-no-OTP, registrar/treasurer, reports, messages)
+- [x] Unit tests
+- [x] `npm run build`
+
+---
+
+## Verification matrix (approved)
+
+| User | Sensitive area | Required |
+| --- | --- | --- |
+| Public / attendee | Any | None |
+| Judge only | Public `/v/*` | None |
+| Organizer / registrar / treasurer staff | Edit, Registrations, Reports, Messages | Email OTP once per session |
+| Org owner (no admin) | Same | Email OTP once per session |
+| **Site Admin + AAL2** | All organizer-sensitive screens | **None** (MFA only) |
+| **Site Admin, not AAL2** | Admin routes | Admin MFA (`/login/mfa`) — **not** organizer OTP |
+| Staff after logout / idle logout | Any sensitive | Email OTP again |
+| Staff same session, OTP done | Any sensitive | None until logout |
+
+---
+
+## Files (expected)
+
+**New**
+- `prisma/migrations/…_step_up_otp/`
+- `src/lib/step-up-config.ts`, `step-up-session.ts`, `step-up-otp.ts`, `organizer-step-up-policy.ts`, `step-up-audit.ts`
+- `src/lib/require-organizer-step-up.ts`
+- `src/app/organizer/verify-otp/page.tsx`, `organizer-verify-otp-form.tsx`
+- `src/app/api/organizer/otp/send/route.ts`, `verify/route.ts`, `status/route.ts`
+- `docs/organizer-otp-test-checklist.md`
+
+**Modified**
+- `prisma/schema.prisma`, `sendgrid.ts`, `middleware.ts`, logout + idle logout, gated pages/APIs, `session-activity-policy.ts`
+
+---
+
+## Review (fill in after implementation)
+
+Organizer email OTP step-up is implemented end-to-end.
+
+**What shipped**
+- DB: `StepUpOtpChallenge`, `StepUpAuditLog` (migration `20260530210000_step_up_otp`)
+- Core libs: config, crypto (scrypt OTP + HMAC cookie), session cookie bound to Supabase `session_id`, OTP challenge flow, path policy, audit logging
+- Email: `sendOrganizerStepUpOtpEmail()` via SendGrid
+- APIs: `POST /api/organizer/otp/send|verify`, `GET /api/organizer/otp/status`
+- UI: `/organizer/verify-otp` with auto-send, resend cooldown, masked email
+- Guards: middleware via extended `/api/auth/session-guards` + `requireStaffStepUpPage()` on 5 sensitive pages
+- Session: step-up cookie cleared on logout and idle logout; OTP routes excluded from idle timer reset
+- Tests: `organizer-step-up-policy.test.ts`, `step-up-crypto.test.ts`; manual checklist in `docs/organizer-otp-test-checklist.md`
+
+**Access rules**
+- Site admin + AAL2 → no OTP
+- Site admin + enrolled MFA, not AAL2 → `/login/mfa` (never organizer OTP)
+- Site admin without MFA enrolled → allowed (same as admin routes)
+- Staff (organizer/registrar/treasurer) → email OTP once per login session for sensitive pages/APIs
+
+**Optional env:** `STEP_UP_COOKIE_SECRET` (documented in `.env.example`; falls back to service role key)
+
+---
+
+## API refresh / polling reduction (2026-05-23)
+
+### Problem
+Background polls and edit-page `keepMounted` sections caused 7+ parallel GETs on every organizer edit page load, stacking with 20–30s polls while each request took 7–21s in dev.
+
+### Changes
+- [x] Unread count poll: 20s → 60s; skip interval when tab hidden (still refreshes on focus)
+- [x] Session idle sync poll: 30s → 60s; skip when hidden; sync once when tab becomes visible
+- [x] Event setup cards: removed `keepMounted` — sponsor/charity/categories/awards/SMS only fetch when section is expanded
+
+### Review
+Edit page now loads zero setup-section API calls until the user opens a card. Per logged-in user, background traffic drops from ~3 polls/min to ~2 polls/min, and polls pause in background tabs.
+
+---
+
+## SWR caching + API latency profiling (2026-05-23)
+
+### Client caching (done)
+- [x] Added `swr` with 5-minute `dedupingInterval` via `SWRProvider` in root layout
+- [x] Hooks in `src/hooks/use-event-setup-cache.ts` for sponsor, charity, categories, available-categories, awards, master awards
+- [x] Event setup sections use shared cache; mutations update cache without refetch
+- [x] Re-opening a section within 5 minutes = zero network requests
+
+### Server latency investigation (findings)
+
+**Why 7–21s `application-code` in dev:**
+
+1. **Single Prisma connection (main culprit under load)** — `src/lib/db.ts` sets `connection_limit=1` when using Supabase pgbouncer. Parallel API calls (8+ on edit page) **queue on one DB connection**, so total wall time ≈ sum of individual query times.
+
+2. **Duplicate Supabase auth per request** — Middleware calls `supabase.auth.getUser()`, then each API route calls `getCurrentUser()` → another `getUser()`. ~150–360ms `proxy.ts` + ~1–3s auth each time.
+
+3. **Redundant DB round trips in handlers** — Sponsor/charity GET used to call `canManageEvent()` (extra `event.findUnique`) then fetch data again. **Fixed:** one `event.findUnique` with `orgId` + fields, then auth with `orgIdHint`.
+
+4. **Remote Supabase latency in dev** — Each auth + DB hop is a network round trip to hosted Postgres/Auth, not local.
+
+**Profiling tool:** Set `REQUEST_TIMING=1` in `.env.local` and restart dev. Terminal logs breakdown like:
+```
+[request-timing] auth.getSession 820ms
+[request-timing] auth.prismaUserLookup 1200ms
+[request-timing] api.events.sponsor.GET 4100ms
+```
+
+**Recommended next steps (not implemented — higher risk):**
+- Use Supabase **session mode** pooler (port 5432) for dev, or carefully raise `connection_limit` if pool allows
+- Pass auth user from middleware to routes (Next.js 16 header/cookie pattern) to skip second `getUser()`
+- Batch event setup into one `/api/events/[id]/setup` endpoint for initial load

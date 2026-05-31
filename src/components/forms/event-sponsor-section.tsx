@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
+import { useEventSponsor } from "@/hooks/use-event-setup-cache";
 
 type SponsorData = {
   sponsorName: string | null;
@@ -131,24 +132,26 @@ export function EventSponsorSection({
   const editingRef = useRef(editing);
   editingRef.current = editing;
 
-  const loadSponsor = useCallback(async () => {
-    const res = await fetch(`/api/events/${eventId}/sponsor`, {
-      credentials: "same-origin",
-    });
-    const data = (await res.json()) as SponsorData & { error?: string };
-    if (!res.ok) {
-      setError(data.error ?? "Could not load sponsor details.");
-      return;
-    }
-    const next = toFormState(data);
-    setSaved(next);
-    if (!editingRef.current) setDraft(next);
-    onConfiguredChange?.(hasSponsorInfo(data));
-  }, [eventId, onConfiguredChange]);
+  const { data, error: fetchError, mutate: mutateSponsor } = useEventSponsor(eventId);
 
   useEffect(() => {
-    void loadSponsor();
-  }, [loadSponsor]);
+    if (!data) return;
+    const sponsorData = data as SponsorData;
+    const next = toFormState(sponsorData);
+    setSaved(next);
+    if (!editingRef.current) setDraft(next);
+    onConfiguredChange?.(hasSponsorInfo(sponsorData));
+  }, [data, onConfiguredChange]);
+
+  useEffect(() => {
+    if (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Could not load sponsor details.",
+      );
+    }
+  }, [fetchError]);
 
   function patchDraft(partial: Partial<FormState>) {
     setDraft((prev) => (prev ? { ...prev, ...partial } : prev));
@@ -193,7 +196,7 @@ export function EventSponsorSection({
               : prev,
           );
         }
-        void loadSponsor();
+        void mutateSponsor();
       }
     } catch {
       setLogoError("Could not upload. Try again.");
@@ -229,6 +232,7 @@ export function EventSponsorSection({
         setError(data.error ?? "Could not save sponsor details.");
         return;
       }
+      await mutateSponsor(data, { revalidate: false });
       const next = toFormState(data);
       setSaved(next);
       setDraft(next);

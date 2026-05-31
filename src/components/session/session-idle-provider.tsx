@@ -27,7 +27,7 @@ type ActivityMessage = {
   lastActivityAt: number;
 };
 
-const POLL_MS = 30_000;
+const POLL_MS = 60_000;
 const HEARTBEAT_DEBOUNCE_MS = 30_000;
 const MIN_HEARTBEAT_INTERVAL_MS = 60_000;
 
@@ -270,13 +270,22 @@ export function SessionIdleProvider({
       window.addEventListener(name, onActivity, { passive: true });
     }
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void syncFromServer();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     pollTimerRef.current = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void syncFromServer();
     }, POLL_MS);
 
     return () => {
       if (heartbeatTimerRef.current) clearTimeout(heartbeatTimerRef.current);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       clearExpiryTimer();
       channelRef.current?.close();
       for (const name of events) {

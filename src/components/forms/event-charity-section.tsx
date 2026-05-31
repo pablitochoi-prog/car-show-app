@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
+import { useEventCharity } from "@/hooks/use-event-setup-cache";
 
 type CharityData = {
   charityName: string | null;
@@ -104,24 +105,26 @@ export function EventCharitySection({
   const editingRef = useRef(editing);
   editingRef.current = editing;
 
-  const loadCharity = useCallback(async () => {
-    const res = await fetch(`/api/events/${eventId}/charity`, {
-      credentials: "same-origin",
-    });
-    const data = (await res.json()) as CharityData & { error?: string };
-    if (!res.ok) {
-      setError(data.error ?? "Could not load charitable organization details.");
-      return;
-    }
-    const next = toFormState(data);
-    setSaved(next);
-    if (!editingRef.current) setDraft(next);
-    onConfiguredChange?.(hasCharityInfo(data));
-  }, [eventId, onConfiguredChange]);
+  const { data, error: fetchError, mutate: mutateCharity } = useEventCharity(eventId);
 
   useEffect(() => {
-    void loadCharity();
-  }, [loadCharity]);
+    if (!data) return;
+    const charityData = data as CharityData;
+    const next = toFormState(charityData);
+    setSaved(next);
+    if (!editingRef.current) setDraft(next);
+    onConfiguredChange?.(hasCharityInfo(charityData));
+  }, [data, onConfiguredChange]);
+
+  useEffect(() => {
+    if (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Could not load charitable organization details.",
+      );
+    }
+  }, [fetchError]);
 
   function patchDraft(partial: Partial<FormState>) {
     setDraft((prev) => (prev ? { ...prev, ...partial } : prev));
@@ -166,7 +169,7 @@ export function EventCharitySection({
               : prev,
           );
         }
-        void loadCharity();
+        void mutateCharity();
       }
     } catch {
       setLogoError("Could not upload. Try again.");
@@ -198,6 +201,7 @@ export function EventCharitySection({
         setError(data.error ?? "Could not save charitable organization details.");
         return;
       }
+      await mutateCharity(data, { revalidate: false });
       const next = toFormState(data);
       setSaved(next);
       setDraft(next);

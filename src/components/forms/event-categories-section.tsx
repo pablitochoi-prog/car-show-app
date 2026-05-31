@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,15 +14,12 @@ import {
   EVENT_CATEGORIES_CHANGED,
   notifyEventCategoriesChanged,
 } from "@/lib/event-awards-trophies";
-
-type MasterCategory = { id: string; name: string; groupName: string | null };
-type EventCategoryRow = {
-  id: string;
-  categoryId: string | null;
-  name: string;
-  trophyCount: number;
-  isCustom: boolean;
-};
+import {
+  setEventCategoriesCache,
+  useEventAvailableCategories,
+  useEventCategories,
+  type EventCategoryRow,
+} from "@/hooks/use-event-setup-cache";
 
 export function EventCategoriesSection({
   eventId,
@@ -31,72 +28,30 @@ export function EventCategoriesSection({
   eventId: string;
   onCountChange?: (count: number) => void;
 }) {
-  const [availableCategories, setAvailableCategories] = useState<
-    MasterCategory[]
-  >([]);
-  const [masterCategoryCount, setMasterCategoryCount] = useState<number | null>(
-    null,
-  );
-  const [eventCategories, setEventCategories] = useState<EventCategoryRow[]>([]);
   const [customName, setCustomName] = useState("");
   const [trophyCount, setTrophyCount] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
 
-  const fetchEventCategories = useCallback(async () => {
-    const res = await fetch(`/api/events/${eventId}/categories`, {
-      credentials: "same-origin",
-    });
-    const data = (await res.json()) as { categories?: EventCategoryRow[] };
-    setEventCategories(data.categories ?? []);
-  }, [eventId]);
+  const { data: categoriesData, mutate: mutateCategories } =
+    useEventCategories(eventId);
+  const { data: availableData, mutate: mutateAvailable } =
+    useEventAvailableCategories(eventId, editing);
 
-  const loadAvailableCategories = useCallback(async () => {
-    const res = await fetch(
-      `/api/events/${eventId}/available-categories`,
-      { credentials: "same-origin" },
-    );
-    const data = (await res.json()) as {
-      categories?: MasterCategory[];
-      masterCount?: number;
-      error?: string;
-    };
-    if (!res.ok) {
-      setAvailableCategories([]);
-      setMasterCategoryCount(data.masterCount ?? null);
-      setError(
-        data.error ??
-          "Could not load vehicle classes from Site Admin. Try again or refresh the page.",
-      );
-      return;
-    }
-    setAvailableCategories(data.categories ?? []);
-    setMasterCategoryCount(data.masterCount ?? 0);
-  }, [eventId]);
-
-  useEffect(() => {
-    void fetchEventCategories();
-    void loadAvailableCategories();
-  }, [fetchEventCategories, loadAvailableCategories]);
+  const eventCategories = categoriesData?.categories ?? [];
+  const availableCategories = availableData?.categories ?? [];
+  const masterCategoryCount = availableData?.masterCount ?? null;
 
   useEffect(() => {
     function onCategoriesChanged(e: Event) {
       const detail = (e as CustomEvent<{ eventId?: string }>).detail;
-      if (detail?.eventId === eventId) void fetchEventCategories();
+      if (detail?.eventId === eventId) void mutateCategories();
     }
     window.addEventListener(EVENT_CATEGORIES_CHANGED, onCategoriesChanged);
     return () =>
       window.removeEventListener(EVENT_CATEGORIES_CHANGED, onCategoriesChanged);
-  }, [eventId, fetchEventCategories]);
-
-  useEffect(() => {
-    if (editing) void loadAvailableCategories();
-  }, [editing, loadAvailableCategories]);
-
-  useEffect(() => {
-    onCountChange?.(eventCategories.length);
-  }, [eventCategories.length, onCountChange]);
+  }, [eventId, mutateCategories]);
 
   const pickOptions: PickListOption[] = availableCategories.map((c) => ({
     id: c.id,
@@ -110,6 +65,16 @@ export function EventCategoriesSection({
       : pickOptions.length === 0
         ? "All vehicle classes from Site Admin are already on this event."
         : undefined;
+
+  useEffect(() => {
+    onCountChange?.(eventCategories.length);
+  }, [eventCategories.length, onCountChange]);
+
+  async function applyCategoriesResponse(categories: EventCategoryRow[]) {
+    await setEventCategoriesCache(eventId, categories);
+    notifyEventCategoriesChanged(eventId);
+    if (editing) await mutateAvailable();
+  }
 
   async function handleAddSelected(categoryIds: string[]) {
     setBusy(true);
@@ -129,9 +94,7 @@ export function EventCategoriesSection({
         setError(data.error ?? "Could not add categories.");
         return;
       }
-      setEventCategories(data.categories ?? []);
-      notifyEventCategoriesChanged(eventId);
-      await loadAvailableCategories();
+      await applyCategoriesResponse(data.categories ?? []);
     } catch {
       setError("Network error.");
     } finally {
@@ -150,9 +113,7 @@ export function EventCategoriesSection({
         body: JSON.stringify({ eventCategoryIds }),
       });
       const data = (await res.json()) as { categories?: EventCategoryRow[] };
-      if (data.categories) setEventCategories(data.categories);
-      notifyEventCategoriesChanged(eventId);
-      await loadAvailableCategories();
+      if (data.categories) await applyCategoriesResponse(data.categories);
     } finally {
       setBusy(false);
     }
@@ -180,11 +141,9 @@ export function EventCategoriesSection({
         setError(data.error ?? "Could not add category.");
         return;
       }
-      setEventCategories(data.categories ?? []);
       setCustomName("");
       setTrophyCount(1);
-      notifyEventCategoriesChanged(eventId);
-      await loadAvailableCategories();
+      await applyCategoriesResponse(data.categories ?? []);
     } catch {
       setError("Network error.");
     } finally {
@@ -200,10 +159,7 @@ export function EventCategoriesSection({
       body: JSON.stringify({ eventCategoryId: ecId, trophyCount: count }),
     });
     const data = (await res.json()) as { categories?: EventCategoryRow[] };
-    if (data.categories) {
-      setEventCategories(data.categories);
-      notifyEventCategoriesChanged(eventId);
-    }
+    if (data.categories) await applyCategoriesResponse(data.categories);
   }
 
   return (
@@ -214,7 +170,6 @@ export function EventCategoriesSection({
         onStartEdit={() => {
           setEditing(true);
           setError("");
-          void loadAvailableCategories();
         }}
         onDone={() => {
           setEditing(false);

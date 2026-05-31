@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 
-const POLL_INTERVAL_MS = 20_000;
+const POLL_INTERVAL_MS = 60_000;
 
 type UnreadMessagesContextValue = {
   unreadCount: number;
@@ -68,10 +68,10 @@ export function UnreadMessagesProvider({
 
     window.addEventListener("focus", onVisible);
     document.addEventListener("visibilitychange", onVisible);
-    const intervalId = window.setInterval(
-      () => void refreshUnreadCount(),
-      POLL_INTERVAL_MS,
-    );
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refreshUnreadCount();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       window.removeEventListener("focus", onVisible);

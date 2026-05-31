@@ -43,7 +43,6 @@ export function EventSetupListCards({
       <CollapsibleCard
         title={sectionTitle("Registration Categories", categoryCount)}
         defaultOpen={false}
-        keepMounted
       >
         <EventCategoriesSection
           eventId={eventId}
@@ -53,14 +52,12 @@ export function EventSetupListCards({
       <CollapsibleCard
         title={sectionTitle("Awards & Trophies", trophyCount)}
         defaultOpen={false}
-        keepMounted
       >
         <EventAwardsSection eventId={eventId} onCountChange={setTrophyCount} />
       </CollapsibleCard>
       <CollapsibleCard
         title="SMS Voting"
         defaultOpen={false}
-        keepMounted
         badge={
           smsVotingStatus === "complete" ? (
             <CompletedBadge />
@@ -80,7 +77,6 @@ export function EventSetupListCards({
           sponsorConfigured ? "Sponsor Details (configured)" : "Sponsor Details"
         }
         defaultOpen={false}
-        keepMounted
       >
         <EventSponsorSection
           eventId={eventId}
@@ -94,7 +90,6 @@ export function EventSetupListCards({
             : "Charitable Organization"
         }
         defaultOpen={false}
-        keepMounted
       >
         <EventCharitySection
           eventId={eventId}

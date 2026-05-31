@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
+import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
 import { EventReportsNav } from "@/components/organizer/reports/event-reports-nav";
@@ -27,6 +28,12 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
 
   const { id: eventId } = await params;
   const sp = await searchParams;
+
+  await requireStaffStepUpPage({
+    user,
+    pathname: `/organizer/events/${eventId}/reports`,
+    search: sp.report ? `?report=${encodeURIComponent(sp.report)}` : undefined,
+  });
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },

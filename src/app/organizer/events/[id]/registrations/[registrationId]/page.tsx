@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEventAndLoad } from "@/lib/auth";
+import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { displayContactName } from "@/lib/contact-display";
 import { EventRegistrationPage } from "@/components/registration/event-registration-page";
 import { getPlatformFee } from "@/lib/platform-fee";
@@ -53,6 +54,11 @@ export default async function OrganizerRegistrationEditPage({
   if (!user) redirect("/login");
 
   const { id: eventId, registrationId } = await params;
+
+  await requireStaffStepUpPage({
+    user,
+    pathname: `/organizer/events/${eventId}/registrations/${registrationId}`,
+  });
 
   const { allowed } = await canManageEventAndLoad(
     user.id,

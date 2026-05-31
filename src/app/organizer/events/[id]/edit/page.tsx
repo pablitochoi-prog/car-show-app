@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
+import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventForm, type EventInitial } from "@/components/forms/event-form";
 import { parseDailyHours } from "@/lib/daily-hours";
 import { getEventStaffList, listEventRoleDefinitions } from "@/lib/event-staff";
@@ -37,6 +38,17 @@ export default async function EditEventPage({
 
   const { id } = await params;
   const sp = await searchParams;
+
+  const returnQuery = new URLSearchParams();
+  if (sp.session_id) returnQuery.set("session_id", sp.session_id);
+  if (sp.platform_fee_paid) returnQuery.set("platform_fee_paid", sp.platform_fee_paid);
+  const search = returnQuery.toString() ? `?${returnQuery.toString()}` : undefined;
+
+  await requireStaffStepUpPage({
+    user,
+    pathname: `/organizer/events/${id}/edit`,
+    search,
+  });
 
   if (sp.session_id && sp.platform_fee_paid === "1") {
     await fulfillPlatformSetupFeeFromCheckoutSession(sp.session_id);
