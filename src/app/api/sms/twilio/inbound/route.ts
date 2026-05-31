@@ -9,6 +9,10 @@ import {
   validateTwilioSignature,
 } from "@/lib/sms/providers/twilio";
 import { processInboundSmsVote } from "@/lib/sms/voting-service";
+import {
+  checkTwilioInboundRateLimit,
+  logRateLimitBlock,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +58,22 @@ export async function POST(request: Request) {
         headers: { "Content-Type": "text/xml" },
       });
     }
+  }
+
+  const twilioRateLimit = checkTwilioInboundRateLimit({ inbound, request });
+  if (!twilioRateLimit.ok) {
+    logRateLimitBlock({
+      route: "api.sms.twilio.inbound",
+      scope: "twilio-inbound",
+      retryAfterSeconds: twilioRateLimit.retryAfterSeconds,
+    });
+    // Return 200 TwiML so Twilio does not retry the webhook aggressively.
+    return new NextResponse(
+      buildTwilioTwimlResponse(
+        "Please wait a moment before sending another message.",
+      ),
+      { status: 200, headers: { "Content-Type": "text/xml" } },
+    );
   }
 
   try {

@@ -23,6 +23,11 @@ import {
   userHasActiveSmsNotificationsOptIn,
 } from "@/lib/sms-notifications-consent";
 import { withPerfTimingResponse } from "@/lib/perf-timing";
+import {
+  checkMemberRegistrationRateLimit,
+  logRateLimitBlock,
+  rateLimitJsonResponse,
+} from "@/lib/rate-limit";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -42,6 +47,20 @@ async function postRegister(request: Request, eventId: string) {
   }
   const writeDenied = writeAccessDeniedResponse(user);
   if (writeDenied) return writeDenied;
+
+  const memberRateLimit = checkMemberRegistrationRateLimit({
+    eventId,
+    userId: user.id,
+    request,
+  });
+  if (!memberRateLimit.ok) {
+    logRateLimitBlock({
+      route: "api.events.register",
+      scope: "member-register",
+      retryAfterSeconds: memberRateLimit.retryAfterSeconds,
+    });
+    return rateLimitJsonResponse(memberRateLimit);
+  }
 
   let body: unknown;
   try {

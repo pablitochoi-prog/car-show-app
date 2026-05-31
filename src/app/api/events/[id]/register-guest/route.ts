@@ -14,6 +14,11 @@ import {
   SMS_NOTIFICATIONS_OPT_IN_SOURCES,
 } from "@/lib/sms-notifications-consent";
 import { withPerfTimingResponse } from "@/lib/perf-timing";
+import {
+  checkGuestRegistrationRateLimit,
+  logRateLimitBlock,
+  rateLimitJsonResponse,
+} from "@/lib/rate-limit";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -27,6 +32,16 @@ export async function POST(request: Request, { params }: RouteParams) {
 }
 
 async function postRegisterGuest(request: Request, eventId: string) {
+  const guestRateLimit = checkGuestRegistrationRateLimit({ eventId, request });
+  if (!guestRateLimit.ok) {
+    logRateLimitBlock({
+      route: "api.events.register-guest",
+      scope: "guest-register",
+      retryAfterSeconds: guestRateLimit.retryAfterSeconds,
+    });
+    return rateLimitJsonResponse(guestRateLimit);
+  }
+
   let body: unknown;
   try {
     body = await request.json();

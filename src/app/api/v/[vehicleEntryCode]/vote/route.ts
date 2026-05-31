@@ -10,6 +10,11 @@ import {
   vehicleEntryCodePrefix,
   withPerfTimingResponse,
 } from "@/lib/perf-timing";
+import {
+  checkWebVoteRateLimit,
+  logRateLimitBlock,
+  rateLimitJsonResponse,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +43,19 @@ async function postVote(
   vehicleEntryCode: string,
   timingMeta: { eventId?: string },
 ) {
+  const voteRateLimit = checkWebVoteRateLimit({
+    vehicleEntryCode,
+    request,
+  });
+  if (!voteRateLimit.ok) {
+    logRateLimitBlock({
+      route: "api.v.vote",
+      scope: "web-vote",
+      retryAfterSeconds: voteRateLimit.retryAfterSeconds,
+    });
+    return rateLimitJsonResponse(voteRateLimit);
+  }
+
   const entry = await findVehicleEntryByCode(vehicleEntryCode);
   if (!entry) {
     return NextResponse.json({ error: "Vehicle entry not found." }, { status: 404 });

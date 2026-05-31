@@ -355,6 +355,37 @@ Caps connection churn, DB writes, SendGrid/R2 load from bots during registration
 ### Separate commit?
 **Yes** — `feat: rate limit guest registration and public voting endpoints`
 
+### Phase 3 — implementation status (2026-05-31)
+
+**Status:** Implemented — in-memory sliding-window rate limits on four public write endpoints. No schema changes. Sale inquiry DB limits and organizer OTP limits unchanged.
+
+**Approach:** Module-scoped in-memory store (per serverless instance). Hashed keys, 429 JSON for API routes. No new Redis/Upstash dependency.
+
+**Feature flag:** `PUBLIC_RATE_LIMIT_ENABLED` — enabled when unset. Set `false`, `0`, `no`, or `off` to disable all Phase 3 limits.
+
+**Endpoints protected:**
+
+| Endpoint | Limit (default) | Key strategy | Limited response |
+|----------|-----------------|--------------|------------------|
+| `POST register-guest` | 10 / 10 min | `guest-register:{eventId}:{ipHash}` | 429 + `Retry-After` |
+| `POST register` | 10 / 10 min | `member-register:{eventId}:{userId}` | 429 + `Retry-After` |
+| `POST vote` | 30 / 1 min | `web-vote:{codePrefix}:{ipHash}` | 429 + `Retry-After` |
+| `POST twilio/inbound` | 30 / 10 min | `twilio-inbound:{phoneHash\|sidHash\|ipHash}` | 200 TwiML (no 429 — avoids Twilio retries) |
+
+**Not modified:** sale inquiry (`vehicle-sale-inquiry-rate-limit.ts`), organizer OTP (`step-up-otp.ts`), `register-guest/upload`.
+
+**Rollback:** Set `PUBLIC_RATE_LIMIT_ENABLED=false` and redeploy.
+
+**Event-day risk:** Shared venue Wi‑Fi may share one IP. Monitor `rateLimit: true` logs; relax via `PUBLIC_RATE_LIMIT_*_LIMIT` / `_WINDOW_MS` env overrides.
+
+**Files changed:** `src/lib/rate-limit.ts`, `src/lib/rate-limit.test.ts`, four API routes, `.env.example`.
+
+**Verification:**
+```bash
+npm run test -- src/lib/rate-limit.test.ts
+npm run build
+```
+
 ---
 
 ## Phase 4 — P0-3: Async registration side effects
