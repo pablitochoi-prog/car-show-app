@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, runInteractiveTransaction } from "@/lib/db";
 import { getCurrentUser, writeAccessDeniedResponse } from "@/lib/auth";
 import { registerForEventSchema } from "@/lib/validation/registration";
 import { validateRegistrationVehiclesAndClasses } from "@/lib/registration-vehicle-classes";
-import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
 import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { isEventAssetsPublicUrl } from "@/lib/storage/public-asset-url";
 import { validateDonationNotDecreasedAfterPayment } from "@/lib/registration-payment-display";
@@ -13,7 +12,11 @@ import {
 } from "@/lib/event-sms-vehicle-id";
 import { applyVehicleNicknamesFromRegistration } from "@/lib/registration-vehicle-nicknames";
 import { applyVehicleVinsFromRegistration } from "@/lib/registration-vehicle-vins";
-import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
+import {
+  isRegistrationPostSubmitBackgroundEnabled,
+  runRegistrationPostSubmitSideEffects,
+  scheduleRegistrationPostSubmitSideEffects,
+} from "@/lib/registration-post-submit";
 import { syncVehicleSaleListingsForLoggedInVehicles } from "@/lib/sync-vehicle-sale-listings";
 import {
   buildSmsNotificationsConsentFields,
@@ -241,7 +244,7 @@ async function postRegister(request: Request, eventId: string) {
 
   let registration;
   try {
-    registration = await prisma.$transaction(async (tx) => {
+    registration = await runInteractiveTransaction(async (tx) => {
     const createdVehicleIds: string[] = [];
 
     for (const nv of newVehicles) {
@@ -383,7 +386,12 @@ async function postRegister(request: Request, eventId: string) {
   });
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : "Registration could not be saved.";
+      err instanceof Error
+        ? err.message.includes("Unable to start a transaction") ||
+          err.message.includes("Transaction API error")
+          ? "Registration is busy right now. Please try again in a moment."
+          : err.message
+        : "Registration could not be saved.";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
@@ -400,13 +408,16 @@ async function postRegister(request: Request, eventId: string) {
     });
   }
 
-  try {
-    await syncAllRegistrationStaffPhotos(registration.id);
-  } catch (e) {
-    console.error("POST register staff photo snapshot:", e);
+  const postSubmitCtx = {
+    route: "api.events.register",
+    eventId,
+    registrationId: registration.id,
+  };
+  if (isRegistrationPostSubmitBackgroundEnabled()) {
+    scheduleRegistrationPostSubmitSideEffects(postSubmitCtx);
+  } else {
+    await runRegistrationPostSubmitSideEffects(postSubmitCtx);
   }
-
-  await notifyRegistrationConfirmationEmail(registration.id);
 
   const paymentComplete = registration.paymentStatus === "PAID";
 

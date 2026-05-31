@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, runInteractiveTransaction } from "@/lib/db";
 import { guestRegisterSchema } from "@/lib/validation/registration";
 import { validateGuestRegistrationVehiclesAndClasses } from "@/lib/registration-vehicle-classes";
 import { isTierCurrentlyOpen } from "@/lib/tiers";
 import { assignPublicIdsToGuestVehiclePayloads } from "@/lib/event-sms-vehicle-id";
-import { syncVehicleEntryIndexForRegistration } from "@/lib/vehicle-entry-index";
-import { syncAllRegistrationStaffPhotos } from "@/lib/event-registration-staff-photos";
-import { notifyRegistrationConfirmationEmail } from "@/lib/email/notify-registration-confirmation-email";
+import {
+  isRegistrationPostSubmitBackgroundEnabled,
+  runRegistrationPostSubmitSideEffects,
+  scheduleRegistrationPostSubmitSideEffects,
+} from "@/lib/registration-post-submit";
 import { syncVehicleSaleListingsForGuestVehicles } from "@/lib/sync-vehicle-sale-listings";
 import {
   buildSmsNotificationsConsentFields,
@@ -21,6 +23,19 @@ import {
 } from "@/lib/rate-limit";
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+function resolveRegistrationSaveError(err: unknown): string {
+  if (err instanceof Error) {
+    if (
+      err.message.includes("Unable to start a transaction") ||
+      err.message.includes("Transaction API error")
+    ) {
+      return "Registration is busy right now. Please try again in a moment.";
+    }
+    return err.message;
+  }
+  return "Registration could not be saved.";
+}
 
 export async function POST(request: Request, { params }: RouteParams) {
   const { id: eventId } = await params;
@@ -141,7 +156,7 @@ async function postRegisterGuest(request: Request, eventId: string) {
 
   let registration;
   try {
-    registration = await prisma.$transaction(async (tx) => {
+    registration = await runInteractiveTransaction(async (tx) => {
     const guestVehicles = await assignPublicIdsToGuestVehiclePayloads(
       tx,
       eventId,
@@ -183,23 +198,23 @@ async function postRegisterGuest(request: Request, eventId: string) {
       throw new Error(saleError);
     }
 
-    await syncVehicleEntryIndexForRegistration(tx, reg.id);
-
     return reg;
   });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Registration could not be saved.";
+    const message = resolveRegistrationSaveError(err);
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  try {
-    await syncAllRegistrationStaffPhotos(registration.id);
-  } catch (e) {
-    console.error("POST register-guest staff photo snapshot:", e);
+  const postSubmitCtx = {
+    route: "api.events.register-guest",
+    eventId,
+    registrationId: registration.id,
+  };
+  if (isRegistrationPostSubmitBackgroundEnabled()) {
+    scheduleRegistrationPostSubmitSideEffects(postSubmitCtx);
+  } else {
+    await runRegistrationPostSubmitSideEffects(postSubmitCtx);
   }
-
-  await notifyRegistrationConfirmationEmail(registration.id);
 
   const vehiclePublicIds = (
     Array.isArray(registration.guestVehicles)
