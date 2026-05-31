@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -29,10 +29,13 @@ import { RemoveRegistrationsDialog } from "@/components/organizer/remove-registr
 import { ComposeMessageDialog } from "@/components/messages/compose-message-dialog";
 import { CreateDashCardsLink } from "@/components/organizer/create-dash-cards-link";
 import {
-  applyColumnFilters,
+  buildOrganizerRegistrationsListQueryString,
+  type OrganizerRegistrationsListParams,
+  type OrganizerRegistrationsSortKey,
+} from "@/lib/organizer-registrations-list";
+import {
   RegistrationsColumnFilter,
   RegistrationsFilterSummary,
-  useColumnFilterOptions,
   type ColumnFilterValue,
 } from "@/components/organizer/registrations-column-filter";
 import {
@@ -47,8 +50,16 @@ import {
   Trash2,
 } from "lucide-react";
 
-type SortKey = RegistrationColumnKey | "email";
+type SortKey = OrganizerRegistrationsSortKey;
 type SortDir = "asc" | "desc";
+
+type RegistrationsPagination = {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  eventTotalCount: number;
+};
 
 type BulkAction =
   | "cancel"
@@ -170,6 +181,10 @@ export function OrganizerRegistrationsClient({
   isDonationEvent = false,
   dashCardsAllowed = true,
   dashCardsBlockedMessage,
+  listParams,
+  pagination,
+  statusFilterOptions,
+  tierFilterOptions,
 }: {
   eventId: string;
   eventLabel: string;
@@ -180,8 +195,13 @@ export function OrganizerRegistrationsClient({
   isDonationEvent?: boolean;
   dashCardsAllowed?: boolean;
   dashCardsBlockedMessage?: string;
+  listParams: OrganizerRegistrationsListParams;
+  pagination: RegistrationsPagination;
+  statusFilterOptions: string[];
+  tierFilterOptions: string[];
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const rows = useMemo(
     () =>
       buildOrganizerRegistrationRows(
@@ -205,40 +225,47 @@ export function OrganizerRegistrationsClient({
   const [customRefundOpen, setCustomRefundOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [statusFilter, setStatusFilter] = useState<ColumnFilterValue>(null);
-  const [tierFilter, setTierFilter] = useState<ColumnFilterValue>(null);
   const { widths, onResizeStart } = useRegistrationsColumnLayout();
 
-  const statusOptions = useColumnFilterOptions(
-    rows,
-    (r) => r.displayStatus.label,
-  );
-  const tierOptions = useColumnFilterOptions(rows, (r) => r.tierName);
+  const sortKey = listParams.sort;
+  const sortDir = listParams.sortDir;
 
-  const filteredRows = useMemo(
-    () =>
-      applyColumnFilters(rows, [
-        {
-          getValue: (r) => r.displayStatus.label,
-          selected: statusFilter,
-        },
-        { getValue: (r) => r.tierName, selected: tierFilter },
-      ]),
-    [rows, statusFilter, tierFilter],
-  );
+  const statusFilter: ColumnFilterValue = listParams.statusFilter
+    ? new Set(listParams.statusFilter)
+    : null;
+  const tierFilter: ColumnFilterValue = listParams.tierFilter
+    ? new Set(listParams.tierFilter)
+    : null;
+
+  function navigateList(
+    updates: Partial<OrganizerRegistrationsListParams>,
+    options?: { resetPage?: boolean },
+  ) {
+    const next: OrganizerRegistrationsListParams = {
+      ...listParams,
+      ...updates,
+      page: options?.resetPage ? 1 : (updates.page ?? listParams.page),
+    };
+    const qs = buildOrganizerRegistrationsListQueryString(next);
+    router.push(`${pathname}${qs}`);
+  }
+
+  const sorted = useMemo(() => {
+    if (sortKey === "fee" || sortKey === "collected" || sortKey === "due") {
+      return sortRows(rows, sortKey, sortDir);
+    }
+    return rows;
+  }, [rows, sortKey, sortDir]);
 
   const hasActiveFilters =
-    (statusFilter !== null && statusFilter.size < statusOptions.length) ||
-    (tierFilter !== null && tierFilter.size < tierOptions.length);
+    (statusFilter !== null &&
+      statusFilter.size > 0 &&
+      statusFilter.size < statusFilterOptions.length) ||
+    (tierFilter !== null &&
+      tierFilter.size > 0 &&
+      tierFilter.size < tierFilterOptions.length);
 
-  const sorted = useMemo(
-    () => sortRows(filteredRows, sortKey, sortDir),
-    [filteredRows, sortKey, sortDir],
-  );
-
-  const subtotals = useMemo(() => computeSubtotals(filteredRows), [filteredRows]);
+  const subtotals = useMemo(() => computeSubtotals(sorted), [sorted]);
 
   const feeColumnLabel = isDonationEvent ? "Donation" : "Reg. fee";
   const feeSubtotalLabel = isDonationEvent ? "Total donations" : "Total reg. fees";
@@ -283,11 +310,13 @@ export function OrganizerRegistrationsClient({
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
+      navigateList({
+        sort: key,
+        sortDir: sortDir === "asc" ? "desc" : "asc",
+      });
+      return;
     }
+    navigateList({ sort: key, sortDir: "asc" }, { resetPage: true });
   }
 
   function toggleOne(id: string) {
@@ -402,13 +431,28 @@ export function OrganizerRegistrationsClient({
     );
   }
 
-  if (rows.length === 0) {
+  if (pagination.eventTotalCount === 0) {
     return (
       <p className="text-center text-sm text-muted-foreground sm:text-left">
         No registrations yet.
       </p>
     );
   }
+
+  const previousHref =
+    pagination.page > 1
+      ? `${pathname}${buildOrganizerRegistrationsListQueryString({
+          ...listParams,
+          page: pagination.page - 1,
+        })}`
+      : null;
+  const nextHref =
+    pagination.page < pagination.totalPages
+      ? `${pathname}${buildOrganizerRegistrationsListQueryString({
+          ...listParams,
+          page: pagination.page + 1,
+        })}`
+      : null;
 
   return (
     <div className="space-y-3">
@@ -449,12 +493,17 @@ export function OrganizerRegistrationsClient({
       />
 
       <RegistrationsFilterSummary
-        visibleCount={filteredRows.length}
-        totalCount={rows.length}
+        visibleCount={pagination.totalCount}
+        totalCount={pagination.eventTotalCount}
         hasActiveFilters={hasActiveFilters}
         onClear={() => {
-          setStatusFilter(null);
-          setTierFilter(null);
+          navigateList(
+            {
+              statusFilter: null,
+              tierFilter: null,
+            },
+            { resetPage: true },
+          );
         }}
       />
 
@@ -609,15 +658,29 @@ export function OrganizerRegistrationsClient({
               <tr>
                 <th className="w-10 p-0" />
                 {headerCell("Status", "status", "status", {
-                  options: statusOptions,
+                  options: statusFilterOptions,
                   value: statusFilter,
-                  onChange: setStatusFilter,
+                  onChange: (next) => {
+                    navigateList(
+                      {
+                        statusFilter: next ? [...next] : null,
+                      },
+                      { resetPage: true },
+                    );
+                  },
                 })}
                 {headerCell("Name", "name", "name")}
                 {headerCell("Tier", "tier", "tier", {
-                  options: tierOptions,
+                  options: tierFilterOptions,
                   value: tierFilter,
-                  onChange: setTierFilter,
+                  onChange: (next) => {
+                    navigateList(
+                      {
+                        tierFilter: next ? [...next] : null,
+                      },
+                      { resetPage: true },
+                    );
+                  },
                 })}
                 {headerCell("# Cars", "cars", "cars")}
                 {headerCell(feeColumnLabel, "fee", "fee")}
@@ -733,7 +796,7 @@ export function OrganizerRegistrationsClient({
               <tr className="font-medium">
                 <td className="p-2" />
                 <td className="px-3 py-2.5 text-xs" colSpan={2}>
-                  Subtotals
+                  Page subtotals
                 </td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">
                   {subtotals.registrants} registrant
@@ -759,11 +822,47 @@ export function OrganizerRegistrationsClient({
                   colSpan={7}
                 >
                   {feeSubtotalLabel}, amount collected, and amount due exclude
-                  platform convenience fees (club revenue).
+                  platform convenience fees (club revenue). Subtotals reflect
+                  this page only.
                 </td>
               </tr>
             </tfoot>
           </table>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          Page {pagination.page} of {pagination.totalPages}
+          {hasActiveFilters
+            ? ` · ${pagination.totalCount} matching`
+            : ` · ${pagination.totalCount} total`}
+        </p>
+        <div className="flex items-center gap-2">
+          {previousHref ? (
+            <Link
+              href={previousHref}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+            >
+              Previous
+            </Link>
+          ) : (
+            <Button variant="outline" size="sm" disabled>
+              Previous
+            </Button>
+          )}
+          {nextHref ? (
+            <Link
+              href={nextHref}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+            >
+              Next
+            </Link>
+          ) : (
+            <Button variant="outline" size="sm" disabled>
+              Next
+            </Button>
+          )}
         </div>
       </div>
     </div>

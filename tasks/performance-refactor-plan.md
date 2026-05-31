@@ -390,8 +390,66 @@ npm run build
 
 ## Phase 4 — P0-3: Async registration side effects
 
+**Status:** Complete
+
 ### Objective
 Return registration API responses immediately after DB commit; move staff-photo R2 sync and confirmation email off the critical path.
+
+### Side effects moved off response path (background via `after()`)
+| Side effect | Route(s) | Notes |
+|-------------|----------|-------|
+| `syncAllRegistrationStaffPhotos` | member register, guest register | R2 copy of registrant/vehicle photos for staff dash cards |
+| `notifyRegistrationConfirmationEmail` | member register, guest register | SendGrid confirmation (already never-throws internally) |
+
+Both run in parallel inside `runRegistrationPostSubmitSideEffects()` after the registration transaction commits.
+
+### Side effects left synchronous (and why)
+| Step | Route(s) | Why critical |
+|------|----------|--------------|
+| Rate limit check | member, guest | Must reject before any DB work |
+| Validation / tier / category checks | member, guest | Business rules |
+| `$transaction` (registration, vehicles, sale listings, VehicleEntryIndex for guest) | member, guest | Data integrity |
+| SMS consent user profile update | member only | Persists opt-in before user leaves flow |
+| Stripe org lookup for `checkoutRequired` | member, guest | Required response field for payment UI |
+
+**Not changed:** `registrations/[registrationId]/route.ts` PATCH still syncs staff photos inline (edit flow, out of Phase 4 POST scope).
+
+### Implementation
+- **New:** `src/lib/registration-post-submit.ts` — `scheduleRegistrationPostSubmitSideEffects()` uses Next.js `after()` (built-in, no `@vercel/functions` dependency)
+- **Flag:** `REGISTRATION_POST_SUBMIT_BACKGROUND` (default enabled). Set `false` to restore synchronous awaits for rollback
+- **Logging:** `[registration-post-submit]` with `route`, `eventId`, `registrationId`, `sideEffect`, `durationMs`, `success` — no PII
+- **Error isolation:** Each side effect wrapped in try/catch; failures logged, never fail registration response
+- **No duplicate emails:** Single schedule call per successful registration POST; email helper unchanged
+
+### Exact files changed
+- `src/lib/registration-post-submit.ts` (new)
+- `src/lib/registration-post-submit.test.ts` (new)
+- `src/app/api/events/[id]/register/route.ts`
+- `src/app/api/events/[id]/register-guest/route.ts`
+- `.env.example`
+
+### Rollback strategy
+1. **Quick:** Set `REGISTRATION_POST_SUBMIT_BACKGROUND=false` — routes await side effects before response (pre-Phase 4 behavior)
+2. **Full revert:** Restore `await syncAllRegistrationStaffPhotos` + `await notifyRegistrationConfirmationEmail` in both register routes; remove helper imports
+
+### Verification
+```bash
+npm run test -- src/lib/registration-post-submit.test.ts
+npm run build
+npx tsx --env-file=.env.local scripts/backfill-vehicle-entry-index.ts --dry-run
+```
+
+Manual: register as guest and member — response returns before email/R2 work; email still arrives; staff photos appear within seconds.
+
+### Risk level (residual)
+**Low–medium** — Brief delay before dash-card staff photos if viewed immediately after register; `after()` on Vercel keeps work in same invocation (unlike fire-and-forget without `after()`).
+
+### Separate commit
+**Yes** — `perf: defer registration email and staff photo sync from response path`
+
+---
+
+### Original plan notes (reference)
 
 ### Exact files likely involved
 - `src/app/api/events/[id]/register/route.ts` — L376–382 today
@@ -418,9 +476,6 @@ Users wait for SendGrid + N× R2 copies before JSON response; ties up serverless
 ### Why this improves scalability
 Shorter request duration → higher effective throughput on serverless; fewer timed-out registrations under load.
 
-### Risk level
-**Medium** — `waitUntil` behavior must be verified on Vercel; lazy photo sync may cause brief dash-card blank photos if Phase 6 not done yet.
-
 ### How to test locally
 1. Register (member + guest) — response returns quickly (< 1s without waiting for email)
 2. Confirm email still arrives (SendGrid configured)
@@ -432,21 +487,67 @@ Shorter request duration → higher effective throughput on serverless; fewer ti
 2. Verify confirmation emails received for test registrations
 3. Organizer dash-card preview for new registration — photos present
 
-### Rollback plan
-- Revert to `await sync...; await notify...` before response (single file revert per route)
-
 ### Schema / migration impact
 **None**
-
-### Separate commit?
-**Yes** — `perf: defer registration email and staff photo sync from response path`
 
 ---
 
 ## Phase 5 — P0-4: Organizer registration pagination
 
+**Status:** Complete
+
 ### Objective
 Load organizer registration lists in pages server-side instead of fetching entire events into memory and filtering in the browser.
+
+### Pagination strategy
+- **Offset pagination** via Prisma `skip` / `take` with deterministic `orderBy`
+- **URL-driven state:** `?page=1&pageSize=50&sort=name&sortDir=asc&status=...&tier=...`
+- **Default page size:** 50
+- **Max page size:** 100 (clamped in `parseOrganizerRegistrationsSearchParams`)
+- Invalid `page` defaults to 1; page beyond last page clamps to last page (no crash)
+- Filters and sort update URL → full SSR navigation via `router.push`
+
+### Side effects moved / deferred
+| Item | Phase 5 behavior |
+|------|------------------|
+| Registration list load | Paginated — one page per request |
+| Status / tier filters | Server-side `where` (status labels mapped to Prisma OR clauses) |
+| Sort (name, email, tier, status, cars) | Server-side `orderBy` |
+| Sort (fee, collected, due) | **Current page only** — computed money columns sorted client-side on visible rows |
+| Table subtotals | **Current page only** (footer labeled "Page subtotals") |
+| CSV export | **Unchanged** — still full dataset via `/api/events/[id]/registrations/export` (Phase 5b streaming optional) |
+| Bulk actions / dash cards | Unchanged — operate on selected rows on current page |
+
+### Files changed
+- `src/lib/organizer-registrations-list-query.ts` (new) — parse URL params, build where/orderBy, query string helper
+- `src/lib/organizer-registrations-list.ts` (new) — paginated Prisma loader + row mapping
+- `src/lib/organizer-registrations-list.test.ts` (new) — param parsing, clamp, where builder
+- `src/app/organizer/events/[id]/registrations/page.tsx` — uses `loadOrganizerRegistrationsPage`, `searchParams`
+- `src/components/organizer/organizer-registrations-client.tsx` — URL-driven filters/sort, Previous/Next pagination
+
+### Performance timing
+`page.organizer.registrations.load` now logs:
+- `registrationCount` — rows on current page
+- `totalCount` — registrations matching filters
+- `page`, `pageSize`
+
+### Verification
+```bash
+npm run test -- src/lib/organizer-registrations-list.test.ts
+npm run build
+```
+
+Manual: visit `/organizer/events/{id}/registrations`, confirm page 1 ≤50 rows, Next/Previous, filters in URL, registration detail links, CSV export, dash-card selection.
+
+### Rollback strategy
+Revert `page.tsx` to unbounded `findMany` and restore client-only filter/sort in `organizer-registrations-client.tsx` (remove pagination props and URL navigation). Delete `organizer-registrations-list*.ts` if fully reverting.
+
+### Separate commit
+**Yes** — `perf: paginate organizer event registrations list (50 per page)`
+
+---
+
+### Original plan notes (reference)
 
 ### Exact files likely involved
 - `src/app/organizer/events/[id]/registrations/page.tsx` — remove unbounded `findMany`

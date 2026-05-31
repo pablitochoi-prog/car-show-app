@@ -11,23 +11,31 @@ import { EventNameWithNumber } from "@/components/events/event-name-with-number"
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { getPlatformFee } from "@/lib/platform-fee";
 import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
-import type { OrganizerRegistrationInput } from "@/lib/organizer-registration-rows";
 import { OrganizerRegistrationsClient } from "@/components/organizer/organizer-registrations-client";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
 import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
 import { EventSaleInquirySummary } from "@/components/organizer/event-sale-inquiry-summary";
 import { loadEventSaleInquiryStats } from "@/lib/event-sale-inquiry-stats";
 import { withPerfTiming } from "@/lib/perf-timing";
+import {
+  ORGANIZER_REGISTRATION_STATUS_FILTER_LABELS,
+  loadOrganizerRegistrationsPage,
+  parseOrganizerRegistrationsSearchParams,
+} from "@/lib/organizer-registrations-list";
 
 export default async function EventRegistrationsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const { id: eventId } = await params;
+  const sp = await searchParams;
+  const listParams = parseOrganizerRegistrationsSearchParams(sp);
 
   await requireStaffStepUpPage({
     user,
@@ -55,96 +63,48 @@ export default async function EventRegistrationsPage({
     ? loadEventSaleInquiryStats(eventId)
     : Promise.resolve(null);
 
-  const [rawRows, platformFee, eventMeta, platformFeeStatus, saleInquiryStats] =
-    await withPerfTiming(
-      "page.organizer.registrations.load",
-      { eventId },
-      async () =>
-        Promise.all([
-          prisma.registration.findMany({
-            where: { eventId },
-            select: {
-              id: true,
-              userId: true,
-              status: true,
-              paymentStatus: true,
-              amountCents: true,
-              platformFeeCents: true,
-              refundedCents: true,
-              createdAt: true,
-              user: {
-                select: {
-                  name: true,
-                  email: true,
-                  phone: true,
-                  firstName: true,
-                  lastName: true,
-                  status: true,
-                },
-              },
-              tier: { select: { name: true, priceCents: true } },
-              vehicles: { select: { id: true } },
-              guestFirstName: true,
-              guestLastName: true,
-              guestEmail: true,
-              guestPhone: true,
-              registrantFirstName: true,
-              registrantLastName: true,
-              registrantEmail: true,
-              registrantPhone: true,
-              guestVehicles: true,
-            },
-            orderBy: { createdAt: "asc" },
-          }),
-          getPlatformFee(),
-          prisma.event.findUnique({
-            where: { id: eventId },
-            select: {
-              registrationFeeType: true,
-              registrationFeeDollars: true,
-            },
-          }),
-          getEventPlatformFeeStatus(eventId),
-          saleInquiryStatsPromise,
-        ]),
-      (result) => ({
-        success: result[2] != null,
-        registrationCount: result[0].length,
-      }),
-    );
-
-  if (!eventMeta) notFound();
-
-  const registrationInputs: OrganizerRegistrationInput[] = rawRows.map(
-    (r) => ({
-      id: r.id,
-      userId: r.userId,
-      status: r.status,
-      paymentStatus: r.paymentStatus,
-      amountCents: r.amountCents,
-      platformFeeCents: r.platformFeeCents,
-      refundedCents: r.refundedCents,
-      createdAt: r.createdAt.toISOString(),
-      tierName: r.tier.name,
-      tierPriceCents: r.tier.priceCents,
-      vehicles: r.vehicles,
-      guestVehicles: r.guestVehicles,
-      user: r.user,
-      guestFirstName: r.guestFirstName,
-      guestLastName: r.guestLastName,
-      guestEmail: r.guestEmail,
-      guestPhone: r.guestPhone,
-      registrantFirstName: r.registrantFirstName,
-      registrantLastName: r.registrantLastName,
-      registrantEmail: r.registrantEmail,
-      registrantPhone: r.registrantPhone,
+  const [
+    registrationsPage,
+    platformFee,
+    eventMeta,
+    platformFeeStatus,
+    saleInquiryStats,
+  ] = await withPerfTiming(
+    "page.organizer.registrations.load",
+    { eventId },
+    async () =>
+      Promise.all([
+        loadOrganizerRegistrationsPage(eventId, listParams),
+        getPlatformFee(),
+        prisma.event.findUnique({
+          where: { id: eventId },
+          select: {
+            registrationFeeType: true,
+            registrationFeeDollars: true,
+          },
+        }),
+        getEventPlatformFeeStatus(eventId),
+        saleInquiryStatsPromise,
+      ]),
+    (result) => ({
+      success: result[1] != null,
+      registrationCount: result[0].rows.length,
+      totalCount: result[0].totalCount,
+      page: result[0].page,
+      pageSize: result[0].pageSize,
     }),
   );
+
+  if (!eventMeta) notFound();
 
   const registrationFeeType =
     (eventMeta.registrationFeeType ?? "FREE") as RegistrationFeeType;
 
   const eventLabel = `${formatEventShowNumber(event.showNumber)} ${event.name}`;
+
+  const hasActiveFilters =
+    (listParams.statusFilter?.length ?? 0) > 0 ||
+    (listParams.tierFilter?.length ?? 0) > 0;
 
   return (
     <div className="page-shell max-w-6xl space-y-6">
@@ -171,8 +131,9 @@ export default async function EventRegistrationsPage({
             />
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {registrationInputs.length} registrant
-            {registrationInputs.length === 1 ? "" : "s"}
+            {hasActiveFilters
+              ? `${registrationsPage.totalCount} matching registrant${registrationsPage.totalCount === 1 ? "" : "s"} (${registrationsPage.eventTotalCount} total)`
+              : `${registrationsPage.eventTotalCount} registrant${registrationsPage.eventTotalCount === 1 ? "" : "s"}`}
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -203,13 +164,23 @@ export default async function EventRegistrationsPage({
       <OrganizerRegistrationsClient
         eventId={eventId}
         eventLabel={eventLabel}
-        registrationInputs={registrationInputs}
+        registrationInputs={registrationsPage.rows}
         registrationFeeType={registrationFeeType}
         suggestedDonationDollars={eventMeta.registrationFeeDollars}
         platformFee={platformFee}
         isDonationEvent={registrationFeeType === "DONATION"}
         dashCardsAllowed={platformFeeStatus?.paid ?? true}
         dashCardsBlockedMessage={platformFeeStatus?.dashCardsBlockedMessage}
+        listParams={registrationsPage.params}
+        pagination={{
+          page: registrationsPage.page,
+          pageSize: registrationsPage.pageSize,
+          totalCount: registrationsPage.totalCount,
+          totalPages: registrationsPage.totalPages,
+          eventTotalCount: registrationsPage.eventTotalCount,
+        }}
+        statusFilterOptions={[...ORGANIZER_REGISTRATION_STATUS_FILTER_LABELS]}
+        tierFilterOptions={registrationsPage.tierFilterOptions}
       />
     </div>
   );
