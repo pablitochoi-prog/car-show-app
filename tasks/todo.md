@@ -1293,3 +1293,619 @@ model VehicleSaleInquiry {
 ### Review (vehicle sale inquiry feature — complete)
 
 Phases 1–8 complete. Owners can opt in per vehicle when the event enables sale inquiries; dash cards show a sale QR and badge; buyers submit inquiries on the public sale page; owners receive email (and optional future SMS); logged-in sellers manage inquiries in the dashboard; admins see full PII; organizers see counts only. Abuse controls: honeypot, rate limits, hashed client metadata, negative-offer validation.
+
+---
+
+# Award & Judging Architecture — Phase 1A + 1B (in progress)
+
+**Full spec:** [judging-template-architecture-plan.md](./judging-template-architecture-plan.md)
+
+## Summary
+
+Three **separate** award workflows (additive, no breaking changes):
+
+| Workflow | Status | Models |
+|----------|--------|--------|
+| **Public Voting** | Existing | `VotingCategory`, `VehiclePublicVote`, `SmsVote` |
+| **Structured Score Sheet Judging** | Phase 1A done | `JudgingTemplate` → `EventJudgingTemplate` → `JudgeScoreSheet` |
+| **Assigned Judge Ballot Voting** | Phase 1B done | `JudgeBallotCategory` → `JudgeBallotAllocation` → `JudgeBallotVote` |
+
+**Naming:** `EventCategory` = registration class. `JudgeBallotCategory` = award like Best Paint (not the same). Workflows #2 and #3 do **not** share data tables.
+
+## Todo
+
+### Phase 0 — Review
+- [x] User approves combined plan
+
+### Phase 1A — Score sheet schema + seed
+- [x] Global + event judging template tables + score sheet snapshots
+- [x] Migration SQL + `db push` on dev (`20260601120000_judging_and_ballot`)
+- [x] Seed 4 global templates (`npm run db:seed-judging-templates`)
+- [x] `clone-judging-template-to-event.ts` + `calculate-score.ts` + tests
+- [x] `snapshot-score-sheet.ts` (template → score sheet snapshot)
+
+### Phase 1B — Judge ballot schema
+- [x] `JudgeBallotCategory`, eligible classes, judge assignments, allocations, votes
+- [x] Migration (same migration file)
+- [x] `judge-ballot-validation.ts` + allocation sync + results aggregation + tests
+- [x] Minimal API routes (admin templates, clone, ballot CRUD, judge vote upsert, results)
+
+### Phase 1C — Backend verification
+- [x] Integration test suite `phase-1c-integration.test.ts` (`npm run test:judging-integration`)
+- [x] Clone flow verified (structure, intentional separate copies, 60s transaction timeout)
+- [x] Snapshot immutability + DEDUCTION/ADDITIVE/ORIGINALITY_CONDITION from snapshots
+- [x] Ballot create/open/vote/close/results + eligibility + judge assignment
+- [x] Compatibility imports (legacy judge score, SMS voting, entry lookup)
+
+### Phase 2A — Organizer: Awards & Judging hub
+- [x] `/organizer/events/[id]/awards-judging` hub with three tiles
+- [x] Terminology labels (Vehicle Class, Award Category, Voting Method)
+- [x] Nav tab "Awards & Judging" on event organizer nav
+- [x] Public voting sub-page (existing SMS settings)
+
+### Phase 2B — Organizer: judge ballot admin UI
+- [x] `/organizer/events/[id]/awards-judging/ballot`
+- [x] Create/edit award categories (DRAFT)
+- [x] votesPerJudge, maxPerVehicle, eligible vehicle classes, judge assignment
+- [x] Open / Close / Finalize actions
+- [x] Ranked results table per category
+
+### Phase 2C — Judge mobile ballot UI
+- [x] `/judge` — My Judging Assignments hub
+- [x] `/judge/events/[id]/ballot` — award category list
+- [x] `/judge/events/[id]/ballot/[catId]` — mobile voting screen with sticky footer
+- [x] Judge APIs: assignments, ballot list/detail, vehicle entry lookup
+- [x] Auto-save via existing PUT votes endpoint; read-only when CLOSED/FINALIZED
+- [x] Client + integration tests
+
+### Phase 2D — Structured Score Sheet Organizer UI
+- [x] `/organizer/events/[id]/awards-judging/score-sheets` — template builder UI
+- [x] Clone global templates → event `EventJudgingTemplate`
+- [x] Edit sections, criteria, deductions, guidance with edit-lock rules
+- [x] Running total + mismatch warnings
+- [x] Read-only judge form preview
+- [x] `EventJudgingClass` CRUD + vehicle class mapping
+- [x] APIs + integration tests
+
+### Phase 2E — Judge mobile score sheet UI
+- [x] Judge assignments API: include score sheet assignment counts per event
+- [x] Judge hub UI (`/judge`): show Score Sheet Judging section per event
+- [x] Judge event score sheet list route (`/judge/events/[id]/score-sheets`)
+- [x] Judge score sheet detail route (`/judge/events/[id]/score-sheets/[sheetId]`)
+- [x] Judge APIs for score sheets:
+  - [x] `GET /api/judge/events/[id]/score-sheets` (list)
+  - [x] `GET /api/judge/events/[id]/score-sheets/[sheetId]` (detail)
+  - [x] `PATCH /api/judge/events/[id]/score-sheets/[sheetId]` (save draft points/deductions/notes)
+  - [x] `POST /api/judge/events/[id]/score-sheets/[sheetId]/submit` (mark submitted + compute final score)
+- [x] Score calculation integration using snapshot model (`calculateScoreFromSnapshot`)
+- [x] Mobile UX:
+  - [x] sticky footer with running total / max points
+  - [x] large tap targets for quick scoring
+  - [x] collapsible guidance blocks
+  - [x] clear read-only state after submit/finalize
+- [x] Focused regression tests (judge score sheet API/service + no impact to judge ballot/public vote)
+- [x] Manual verification notes + Phase 2E review section update
+
+### Phase 4A — Score sheet results + CSV
+
+### Phase 4B — Judge ballot results (ranked, tie indicator, admin vote spread)
+
+### Phase 5 — Polish (DnD, event clone, deprecate legacy 1–100)
+
+## Review (Phase 1A + 1B)
+
+**Schema:** Added enums and models for structured score sheet judging (global `JudgingTemplate` tree → event `EventJudgingTemplate` copy → `JudgeScoreSheet` snapshots) and assigned judge ballot voting (`JudgeBallotCategory` → `JudgeBallotAllocation` → `JudgeBallotVote`). Migration file at `prisma/migrations/20260601120000_judging_and_ballot/migration.sql`; dev DB synced via `db push`.
+
+**Seed:** Four global templates — PCA (300), AACA (400), Marque Authenticity (700), Modified/Custom (700). Run `npm run db:seed-judging-templates`.
+
+**Services:**
+- `src/lib/judging/clone-judging-template-to-event.ts` — transactional global → event clone
+- `src/lib/judging/calculate-score.ts` — pure scoring by methodology
+- `src/lib/judging/snapshot-score-sheet.ts` — event template → score sheet snapshot
+- `src/lib/judging/judge-ballot-validation.ts` — vote limit rules (total, per-vehicle, eligibility, OPEN-only edits)
+- `src/lib/judging/judge-ballot-allocation.ts` — open/close category, allocation sync
+- `src/lib/judging/judge-ballot-results.ts` — ranked results with tie flag; admin vote spread optional
+- `src/lib/judging/upsert-judge-ballot-vote.ts` — validated vote upsert with allocation recompute
+
+**API plumbing:**
+- `GET /api/admin/judging-templates`
+- `GET|POST /api/events/[id]/judging-templates` + `POST .../clone`
+- `GET|POST /api/events/[id]/judge-ballot/categories` + `PATCH .../[catId]` (open/close/finalize)
+- `PUT /api/judge/events/[id]/ballot/[catId]/votes`
+- `GET /api/events/[id]/judge-ballot/results?categoryId=`
+
+**Other:** `VehicleEntryRecord.eventCategoryId` added for ballot eligibility. Legacy `VehicleJudgeScore`, public/SMS voting unchanged.
+
+**Tests:** 10 unit tests + 12 integration tests (`npm run test:judging-integration`). Build passes.
+
+---
+
+## Review (Phase 1C + 2A + 2B)
+
+**Phase 1C:** Added `phase-1c-integration.test.ts` — 9 DB integration checks + 3 compatibility import checks. Fixed clone transaction timeout (60s) for remote Supabase. Added `calculate-score-from-snapshot.ts`. Extended ballot PATCH to update eligible classes and judge assignments in DRAFT.
+
+**Phase 2A:** Hub at `/organizer/events/[id]/awards-judging` with three tiles (Public Voting, Judge Ballot Awards, Score Sheet Judging). New nav tab. Sub-pages for public voting (existing SMS settings) and score sheets (Phase 2D placeholder).
+
+**Phase 2B:** Full ballot admin at `/organizer/events/[id]/awards-judging/ballot` — create/edit DRAFT categories, open/close/finalize, ranked results table with tie indicator.
+
+---
+
+## Review (Phase 2C)
+
+**Routes:** `/judge`, `/judge/events/[id]/ballot`, `/judge/events/[id]/ballot/[catId]` — mobile-first layout (max-w-lg).
+
+**APIs:** `GET /api/judge/assignments`, `GET /api/judge/events/[id]/ballot`, `GET /api/judge/events/[id]/ballot/[catId]`, `GET /api/judge/events/[id]/vehicle-entry`.
+
+**UX:** Sticky votes-remaining footer, large tap targets, collapsible guidance, vehicle lookup preview, +/- controls, auto-save, offline warning, read-only when CLOSED/FINALIZED.
+
+**Dashboard:** "My Judging" tile → `/judge`.
+
+**Tests:** `judge-ballot-client-validation.test.ts`, `judge-ballot-judge-api.test.ts` (in `npm run test:judging-integration`).
+
+### Phase 2C verification checklist (automated + code review)
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Organizer creates Assigned Judge Ballot award category | ✅ Phase 2B admin UI + ballot POST API |
+| 2 | Category hidden from judges while DRAFT | ✅ `loadJudgeBallotCategoriesForEvent` filters OPEN only; test: "judge loads eligible OPEN categories only" |
+| 3 | Category visible to assigned judges once OPEN | ✅ `openJudgeBallotCategory` + list test |
+| 4 | Judge lookup by publicVehicleId / entry code | ✅ `GET /api/judge/events/[id]/vehicle-entry` + `findVehicleEntryByCode` |
+| 5 | Eligible vehicle class rules enforced | ✅ `isVehicleEligibleForBallotCategory`; test: "blocks ineligible vehicle class" |
+| 6 | Category-specific judge assignment enforced | ✅ `assertJudgeCanAccessBallotCategory`; test: "blocks non-assigned judge" |
+| 7 | Votes auto-save correctly | ✅ PUT votes endpoint; voting screen debounced save |
+| 8 | Votes remaining updates after add/increase/decrease/remove | ✅ allocation recompute in `upsertJudgeBallotVote`; test verifies votesUsed/remaining |
+| 9 | Max votes per vehicle enforced | ✅ test: "blocks vote over allocation and per-vehicle max" |
+| 10 | Votes read-only after CLOSED/FINALIZED | ✅ test: "blocks voting when category is closed"; `canEdit: false` |
+| 11 | Admin results update after judge votes | ✅ Phase 1C "runs judge ballot create → open → vote → results flow" |
+| 12 | Other workflows unaffected | ✅ Phase 1C compatibility import checks (legacy judge score, public vote, vehicle entry) |
+
+---
+
+## Review (Phase 2D)
+
+**Schema:** Expanded `EventJudgingClass` with name, description, isActive, sortOrder. Added `EventJudgingClassEligibleCategory` junction (many vehicle classes → one judging class). Migration: `prisma/migrations/20260602120000_event_judging_class_expand/migration.sql`.
+
+**Route:** `/organizer/events/[id]/awards-judging/score-sheets` — replaces Phase 2D placeholder.
+
+**APIs:**
+- `GET /api/events/[id]/judging-templates/source` — global templates for clone picker
+- `GET|PATCH /api/events/[id]/judging-templates/[templateId]` — read/update metadata + edit-lock info
+- `PUT /api/events/[id]/judging-templates/[templateId]/structure` — full structure save (respects lock)
+- `GET|POST /api/events/[id]/judging-classes` + `PATCH|DELETE .../[classId]`
+
+**Services:**
+- `event-judging-edit-lock.ts` — OPEN / DRAFT_WARNING / LOCKED from score sheet statuses
+- `event-judging-template-validation.ts` — section/item point mismatch warnings
+- `event-judging-template-service.ts` — load, metadata update, structure replace
+- `event-judging-class-service.ts` — judging class CRUD + eligible vehicle class mapping
+
+**UI:** Accordion sections via `CollapsibleCard`, inline deduction editing, collapsible judge guidance, running total warnings, read-only preview, judging class panel with judge-assignment placeholder for Phase 2E.
+
+**Tests:** 3 validation unit tests + 6 Phase 2D integration tests. Full suite: **27/27 passing**. Build passes.
+
+**Not in scope (Phase 2E):** Judge-facing score sheet mobile UI, judge assignment on judging classes.
+
+---
+
+## Review (Phase 2E)
+
+**Judge hub updates:** `/judge` now shows both judging workstreams per event card: **Judge Ballot Awards** and **Score Sheet Judging**. Assignment payload from `GET /api/judge/assignments` now includes score sheet totals and pending counts.
+
+**New judge score sheet routes:**
+- `/judge/events/[id]/score-sheets` — class/vehicle picker for starting or resuming sheets
+- `/judge/events/[id]/score-sheets/[sheetId]` — mobile scoring form with sticky footer score, save draft, submit, and read-only state after submit/finalize
+
+**New judge score sheet APIs:**
+- `GET /api/judge/events/[id]/score-sheets`
+- `POST /api/judge/events/[id]/score-sheets/start`
+- `GET|PATCH /api/judge/events/[id]/score-sheets/[sheetId]`
+- `POST /api/judge/events/[id]/score-sheets/[sheetId]/submit`
+
+**Data/service layer:**
+- `judge-score-sheet-judge-data.ts` — event/class/vehicle assignment listing, start-or-resume snapshot creation, detail loading with access checks
+- `judge-score-sheet-mutations.ts` — draft saves with validation and submit/finalize flow
+- Uses existing snapshot architecture (`snapshotEventTemplateToScoreSheet`) and calculation (`calculateScoreFromSnapshot`) so template edits do not mutate in-progress/submitted sheets
+
+**Validation/guards implemented:**
+- judge role required for event access
+- block missing class/vehicle/not eligible/mismatched class
+- block editing non-DRAFT sheets
+- enforce score/deduction bounds and required deduction comments
+- preserve one score sheet per judge+vehicle (event unique key)
+
+**Regression tests:**
+- Added `judge-score-sheet-judge-flow.test.ts` (assignment visibility, start/resume snapshot, draft save, required comment enforcement, submit/read-only, unauthorized judge blocked)
+- Existing judge ballot integration suite remains passing (no ballot/public vote regressions)
+
+**Verification run:**
+- `npm run build` ✅
+- `npm run test -- src/lib/supabase/route-handler.test.ts src/lib/mfa-session.test.ts` ✅
+- `npm run test:judging-integration` ✅ (27/27)
+- `vitest run src/lib/judging/judge-score-sheet-judge-flow.test.ts` ✅ (4/4)
+
+---
+
+## Manual QA (Phase 2E)
+
+### Status
+
+**✅ Phase 2E manual QA COMPLETE — checklist rows 1–21 PASS** (2026-06-01, Cruisin Classics / EVT-1003).
+
+Automated QA also complete: `npm run build`, judging integration `27/27`, score sheet flow `4/4`, auth regression tests. Draft-save pattern-error defect **CLOSED**. No open Phase 2E defects from manual QA.
+
+### Verified in this environment
+
+- `npm run build` passes
+- judge ballot + score sheet judging integration suite passes (`27/27`)
+- judge score sheet flow integration passes (`4/4`)
+- auth regression tests pass (`route-handler`, `mfa-session`)
+- no lint errors introduced in new Phase 2E files
+
+### Browser/manual checklist results
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Organizer creates/opens event | ✅ PASS — `/admin` loaded, normal time; no Prisma P2024; no repeated Supabase `getSession` warning |
+| 2 | Organizer opens Awards & Judging | ✅ PASS — hub loaded (EVT-1003); Public Voting, Judge Ballot Awards, Score Sheet Judging tiles + terminology panel visible; nav tab active; no P2024/getSession warnings |
+| 3 | Judge Ballot Awards still works | ✅ PASS — organizer opened ballot category; judge (pchoi573@gmail.com) sees event in `/judge` with 1 open category after OPEN |
+| 4 | Score Sheet setup has active class/template | ✅ PASS — template + judging class `PC Style - Hot Rods` mapped to Classic/Muscle Car (PCA Event Copy) |
+| 5 | Assign judge role | ✅ PASS — Little Engine / pchoi573@gmail.com assigned as judge |
+| 6 | Go to `/judge` | ✅ PASS — Cruisin Classics Car Show visible after ballot category OPEN |
+| 7 | Event card shows Ballot + Score Sheet counts | ✅ PASS — “Judge Ballot Awards: 1 open”; “Score Sheet Judging: 2 pending of 2” (after class mapping) |
+| 8 | Open Score Sheet Judging | ✅ PASS — setup page loads; templates + judging class mapping configured |
+| 9 | Start score sheet for vehicle | ✅ PASS — AZV-001 opened under PC Style - Hot Rods (DEDUCTION) |
+| 10 | Snapshot created | ✅ PASS — structured sheet loaded (Exterior section, criteria, deduction options) |
+| 11 | Save draft | ✅ PASS — AZV-001; Minor blemish (-1); no pattern error |
+| 12 | Leave/return | ✅ PASS — list → reopen AZV-001 |
+| 13 | Draft resumes correctly | ✅ PASS — deduction persisted after resume |
+| 14 | Required comment enforcement | ✅ PASS — N/A manual (PCA Paint & Finish); integration + unit tests |
+| 15 | Submit/finalize | ✅ PASS — AZV-003 submitted; 293.0 pts in list |
+| 16 | Submitted sheet read-only | ✅ PASS — AZV-003 detail read-only; SUBMITTED; final score visible; not editable |
+| 17 | Final score looks correct | ✅ PASS — AZV-003 shows 293.0 pts (manual spot-check) |
+| 18 | Ballot still works after score sheet usage | ✅ PASS — judge Best Paint (AZV-004, 2 votes); organizer results match (rank 1, 2 total votes, 1 judge) |
+| 19 | No Prisma P2024 in admin/organizer/judge pages | ✅ PASS — explicit sweep: `/admin`, organizer awards-judging, `/judge`; no P2024 |
+| 20 | No repeated Supabase insecure getSession warning | ✅ PASS — re-verified in auth re-check (#21); no warning observed |
+| 21 | Signup/login/logout still works | ✅ PASS — login, dashboard, admin, organizer, judge, logout; no PKCE/getSession/P2024 issues |
+
+### Known limitation (documented)
+
+- `EventJudgingClass` does not yet support class-specific judge assignment.
+- Current MVP behavior: all event judges can judge active configured score sheet classes.
+- This matches the accepted fallback rule.
+
+### Defects found
+
+- ~~**Score sheet draft save — pattern error on Save**~~ **CLOSED — verified PASS (2026-06-01):** Original FAIL on AZV-001 fixed; re-tested PASS.
+- **No open defects** from Phase 2E manual QA (rows 1–21 PASS).
+
+### Remaining manual QA (score sheet)
+
+1. ~~Open submitted **AZV-003** detail → confirm read-only~~ ✅ PASS
+2. ~~Draft save → leave → resume (**AZV-001**)~~ ✅ PASS
+3. ~~Re-test draft Save — no pattern error~~ ✅ PASS
+4. *(Optional)* Required comment UI on an item with `requiresCommentOnDeduction` enabled — integration/unit tests cover; manual spot-check if organizer toggles flag on a template item.
+
+### QA defect — Awards & Judging not visible from Edit Event (diagnosed + fixed + verified)
+
+**Reported:** Organizer Edit Event screen for Cruisin Classics Car Show did not show an obvious “Awards & Judging” entry; judge saw no active assignments because setup could not be reached.
+
+**Diagnosis:**
+
+| Check | Finding |
+|-------|---------|
+| Route exists | ✅ `/organizer/events/[id]/awards-judging` exists and is wired |
+| Nav item added | ✅ `EventOrganizerNav` includes “Awards & Judging” tab |
+| Edit page uses same nav | ✅ `edit/page.tsx` renders `EventOrganizerNav` |
+| Role/permission hiding on nav | ❌ Not hidden — all tabs render unconditionally |
+| Event status / feature flag | ❌ No gating on nav item |
+| Page access | ✅ `canManageEvent()` — platform admin, org owner, organizer staff |
+| Admin + organizer access | ✅ Both supported on hub route |
+| Nav mismatch | ❌ No separate edit nav — same component used across organizer event pages |
+
+**Root cause (UX/discoverability):**
+1. Top nav tab existed but used `flex-1 min-w-0` on 5 tabs, compressing labels and requiring horizontal scroll on mobile — easy to miss “Awards & Judging”.
+2. Edit Event setup cards had “Awards & Trophies” and “SMS Voting” but **no in-page link** to the Awards & Judging hub, so organizers looked inside the form and did not find judging setup.
+
+**Targeted fix (nav visibility only — no judging backend changes):**
+- `event-organizer-nav.tsx`: tabs now `shrink-0` with clearer horizontal scroll behavior
+- `event-setup-list-cards.tsx`: added **“Awards & Judging”** collapsible card with button → `/organizer/events/[id]/awards-judging`
+
+**Verification:**
+- `npm run build` ✅
+- `npm run test:judging-integration` ✅ (27/27)
+- ✅ Re-tested in browser: Edit Event → nav tab + setup card → Awards & Judging accessible (EVT-1003, 2026-06-01 QA)
+
+### Live browser QA log (user-reported)
+
+- **Step 1**
+  - **Status:** PASS
+  - **Route tested:** `/admin`
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase insecure `getSession` warning)
+  - **Notes:** page loaded in normal time
+
+- **Step 2**
+  - **Status:** PASS (with navigation note)
+  - **Route tested:** `/organizer/events/977b4328-3a37-45d0-b819-81d161659953/awards-judging`
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Awards & Judging hub loaded for Cruisin Classics Car Show / EVT-1003. Public Voting, Judge Ballot Awards, and Score Sheet Judging tiles visible; terminology panel visible; Awards & Judging tab active.
+  - **Notes:** Direct route works. Earlier Edit Event discoverability issue noted — targeted nav/setup-card fix applied and **re-verified PASS** from Edit Event (nav tab + setup card both visible).
+
+- **QA Update — Awards & Judging discoverability (from Edit Event)**
+  - **Status:** PASS
+  - **Route tested:** `/organizer/events/977b4328-3a37-45d0-b819-81d161659953/edit`
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Edit Event exposes Awards & Judging via nav tab and setup card/link; organizer can reach Awards & Judging setup from event UI.
+  - **Notes:** Discoverability issue appears fixed. Proceeding to ballot/score sheet setup and judge visibility tests.
+
+- **QA Update — Judge Ballot assignment visibility**
+  - **Status:** PASS
+  - **Routes tested:** Organizer ballot admin (Open Voting) → `/judge` (as pchoi573@gmail.com / Little Engine)
+  - **Visible error message:** none
+  - **Terminal/server log error:** not reported
+  - **Browser result:** After organizer clicked Open Voting for a Judge Ballot Award category, assigned judge sees Cruisin Classics Car Show in `/judge` with “Judge Ballot Awards: 1 open” and “Score Sheet Judging: No assigned classes”.
+  - **Conclusion:** Judge role alone does not surface work in `/judge`; at least one ballot category must be OPEN or score sheet judging must be configured. Behavior matches design.
+  - **Notes:** No defect. Organizer UI should keep status distinction clear (DRAFT = hidden from judges; OPEN = visible; CLOSED/FINALIZED = read-only/unavailable per design). Acceptable for MVP.
+
+- **QA Update — Judge Ballot voting screen**
+  - **Status:** PASS
+  - **Routes tested:** `/judge` → `/judge/events/977b4328-3a37-45d0-b819-81d161659953/ballot` → Best Paint category detail (Little Engine / pchoi573@gmail.com)
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Open category Best Paint accessible. Allocation: 5 votes total, max 2 per vehicle. Vehicle lookup `AZV-004` works (Golden Goose, 1947 Buick Roadmaster, Classic). Vote controls visible; “Use all remaining votes (2 max)” respects per-vehicle max; Add vote button present.
+  - **Notes:** Judge Ballot Awards flow functional after category OPEN. No defect.
+
+- **QA Update — Score Sheet Judging setup page**
+  - **Status:** PARTIAL PASS
+  - **Route tested:** `/organizer/events/977b4328-3a37-45d0-b819-81d161659953/awards-judging/score-sheets`
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Setup page loaded. Score Sheet Templates section visible. Event template `PCA (Porsche Club) — Event Copy` shows 300 pts · 3 sections · 0 score sheets; status OPEN; Start from Template button visible.
+  - **Notes:** Template setup appears functional. **Next:** verify Judging Class / vehicle class mapping lower on page so assigned judges see score sheet work in `/judge` (currently “No assigned classes” expected until mapping complete).
+
+- **QA Update — Score Sheet Judging class mapping**
+  - **Status:** PASS
+  - **Route tested:** `/organizer/events/977b4328-3a37-45d0-b819-81d161659953/awards-judging/score-sheets`
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Judging Classes section configured. Class `PC Style - Hot Rods` → template `PCA (Porsche Club) — Event Copy`; vehicle classes `Classic`, `Muscle Car` mapped. UI notes judge assignment coming in Phase 2E.
+  - **Expected MVP:** All event judges can judge active configured classes (no class-specific judge assignment yet).
+  - **Notes:** Setup appears complete. **Next:** log in as Little Engine and confirm `/judge` shows Score Sheet Judging work for this event.
+
+- **QA Update — Judge sees Score Sheet Judging assignments**
+  - **Status:** PASS
+  - **Route tested:** `/judge` (Little Engine / pchoi573@gmail.com)
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Cruisin Classics Car Show visible in My Judging Assignments. Judge Ballot Awards: 1 open. Score Sheet Judging: 2 pending of 2.
+  - **Verified:** Event judge role recognized; open ballot category still visible; active configured score sheet class surfaced; pending count correct.
+  - **Notes:** Score Sheet Judging visibility working. **Next:** open score sheet flow — start → save draft → resume → required comment → submit/finalize → read-only.
+
+- **QA Update — Judge mobile score sheet opened**
+  - **Status:** PASS
+  - **Route tested:** Judge score sheet detail (Cruisin Classics / PC Style - Hot Rods / AZV-001; Little Engine / pchoi573@gmail.com)
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Structured score sheet opened. Class `PC Style - Hot Rods`, vehicle `AZV-001`, methodology DEDUCTION. Section `1. Exterior` with collapsible judge guidance; criteria and deduction options visible (Minor blemish -1, Major blemish -5). Mobile layout readable/usable.
+  - **Notes:** Start/open flow working. **Next:** draft save, resume, required comment validation, submit/finalize, read-only.
+
+- **QA Update — Judge mobile score sheet save/draft**
+  - **Status:** FAIL → **FIXED → VERIFIED PASS** (see draft save/resume QA below)
+  - **Route tested:** Judge score sheet detail (Cruisin Classics / PC Style - Hot Rods / AZV-001)
+  - **Visible error message:** “The string did not match the expected pattern.” (Safari/WebKit `JSON.parse` on non-JSON PATCH response)
+  - **Diagnosis:** PATCH `/api/judge/events/[id]/score-sheets/[sheetId]` could return an HTML error page when validation errors thrown inside `prisma.$transaction()` were not mapped to JSON; client `res.json()` surfaced the generic Safari message instead of a validation error.
+  - **Fix (targeted — judge score sheet path only):**
+    - `judge-score-sheet-draft-validation.ts` — validate items before DB writes
+    - `judge-score-sheet-mutations.ts` — transaction writes only (no business throws inside tx)
+    - PATCH/submit routes — `judgeScoreSheetAccessErrorResponse()` + JSON 500 fallback (never HTML)
+    - `judge-score-sheet-screen.tsx` — `readResponseJson()`, client comment validation, field-level “Deduction comment is required.”
+  - **Automated verification:** `npm run build` ✅; judge score sheet flow `4/4` ✅; `test:judging-integration` `27/27` ✅; draft validation unit tests `3/3` ✅
+  - **Manual re-test checklist:** select Minor blemish (-1) → Save (no comment) → add comment if required → leave/resume → submit → read-only
+
+- **QA Update — Score sheet submit/finalize**
+  - **Status:** PASS (read-only re-verified separately below)
+  - **Route tested:** Judge mobile score sheet flow — Cruisin Classics / PC Style - Hot Rods
+  - **Visible error message:** none on submit (earlier AZV-001 draft pattern error — **defect closed**)
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Score sheet submitted successfully. Vehicle **AZV-003** — *Black Beauty, Part II · 1967 Ford Mustang*. List shows status **SUBMITTED**, final score **293.0 pts**.
+  - **Verified:** Submit/finalize path works; submitted sheet appears in score sheet list with final score.
+  - **Not yet verified:** ~~All score sheet core flows~~ ✅ draft save/resume/pattern error closed on AZV-001.
+
+- **QA Update — Submitted score sheet read-only behavior**
+  - **Status:** PASS
+  - **Route tested:** Submitted score sheet detail — vehicle **AZV-003** (Cruisin Classics / PC Style - Hot Rods)
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Submitted sheet opens in read-only mode. Status **SUBMITTED**; final score visible; controls disabled — sheet cannot be edited after submission.
+  - **Notes:** Submit/finalize and read-only behavior confirmed working.
+
+- **QA Update — Draft save / resume / required comment**
+  - **Status:** PASS
+  - **Route tested:** Judge mobile score sheet detail — **AZV-001** (Cruisin Classics / PC Style - Hot Rods)
+  - **Visible error message:** none (no “string did not match the expected pattern”)
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Paint & Finish → Minor blemish (-1); score ~299.0 / 300; **Save** with no comment succeeded; back to list → reopened AZV-001 → deduction still checked.
+  - **Required comment:** N/A — PCA Paint & Finish does not require comment on deduction by default.
+  - **Notes:** Draft save and resume working; original pattern-error defect closed.
+
+- **QA Update — Ballot still works after score sheet usage**
+  - **Status:** PASS
+  - **Route tested:** `/judge` → Cruisin Classics Car Show → Judge Ballot Awards → **Best Paint**
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Ballot opens after score sheet testing. **AZV-004** (*Golden Goose · 1947 Buick Roadmaster · Classic*) visible with **2 votes** (at max 2/vehicle); **3 votes remaining**; auto-save visible; vote controls available; max-per-vehicle respected.
+  - **Notes:** Judge Ballot Awards remains functional after score sheet draft/save/submit testing.
+
+- **QA Update — Organizer ballot results after judge vote**
+  - **Status:** PASS
+  - **Route tested:** Organizer → Awards & Judging → Judge Ballot Awards → **Best Paint** results
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Results view shows Little Engine’s votes correctly. Category **Best Paint** (Open; 5 votes/judge; max 2/vehicle). Results: rank **1** — **AZV-004** *Golden Goose · 1947 Buick Roadmaster* — **2 total votes**, **1 judge**. Summary: 1 vote row, 2 allocations.
+  - **Notes:** Corroborates checklist **#18** — ballot data flows judge → organizer results after score sheet usage.
+
+- **QA Update — P2024 sweep / organizer Awards & Judging**
+  - **Status:** PASS
+  - **Route tested:** `/organizer/events/977b4328-3a37-45d0-b819-81d161659953/awards-judging`
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Awards & Judging hub loaded. Public Voting **Configured**; Judge Ballot Awards **1 open**; Score Sheet Judging **1 template**; event nav + Awards & Judging tab active.
+  - **Notes:** Closes checklist **#19** — organizer Awards & Judging re-check (see full sweep below).
+
+- **QA Update — P2024 sweep complete**
+  - **Status:** PASS
+  - **Routes tested:** `/admin` · `/organizer/events/977b4328-3a37-45d0-b819-81d161659953/awards-judging` · `/judge`
+  - **Visible error message:** none
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** All routes loaded. Awards & Judging hub: Public Voting configured; Judge Ballot **1 open**; Score Sheet **1 template**. Judge assignments page loads. Admin route loads.
+  - **Notes:** Explicit admin/organizer/judge P2024 sweep complete. Database pool timeout (P2024) not observed during manual QA — checklist **#19** confirmed.
+
+- **QA Update — Signup/login/logout re-check**
+  - **Status:** PASS
+  - **Routes tested:** Login → `/dashboard` → `/admin` → organizer Awards & Judging → `/judge` → Logout
+  - **Visible error message:** none (no PKCE code verifier error)
+  - **Terminal/server log error:** none observed (no Prisma P2024, no repeated Supabase `getSession` warning)
+  - **Browser result:** Existing user login OK; protected routes load per role; organizer Awards & Judging and judge assignments load; logout works.
+  - **Notes:** Checklist **#21** PASS. **Phase 2E manual QA complete — rows 1–21 PASS.**
+
+---
+
+## Auth PKCE callback fix (post getUser cleanup)
+
+### Root cause
+
+Server-side `POST /api/auth/signup` used `createSupabaseForResponse()` (correct for PKCE), but when email confirmation was required (`hasSession === false`) the JSON response was returned **without** copying Set-Cookie headers from the auth response. The PKCE code verifier cookie never reached the browser, so `/auth/callback?code=...` failed with “PKCE code verifier not found in storage.”
+
+Password reset had a similar issue: `resetPasswordForEmail` used `createClient()` from `server.ts`, which does not reliably attach cookies in route handlers.
+
+### Fix
+
+- [x] `jsonWithSupabaseCookies()` helper in `src/lib/supabase/route-handler.ts`
+- [x] Signup always returns auth cookies after successful `signUp()` (including `requiresEmailVerification: true`)
+- [x] Reset-password uses `createSupabaseForResponse()` and returns the same response object
+- [x] Unit test: `src/lib/supabase/route-handler.test.ts`
+- [x] **No revert** of `getVerifiedSupabaseUser()` / MFA JWT `aal` changes
+
+### Manual verification checklist
+
+Use one origin only (e.g. `http://localhost:3000`). Supabase Dashboard → Authentication → URL Configuration must include `{origin}/auth/callback`.
+
+| # | Flow | Expected |
+|---|------|----------|
+| 1 | New email/password signup | 201 + Set-Cookie includes `*-code-verifier` in DevTools → Network → signup response |
+| 2 | Email confirmation link | Lands on `/auth/callback`, session established, redirect to `/dashboard` (or `next=`) — **no PKCE error** |
+| 3 | Login | Session cookies set; protected pages load |
+| 4 | Logout | Session cleared; protected routes redirect to login |
+| 5 | Admin / organizer / judge routes | Still authorized via `getVerifiedSupabaseUser()` |
+| 6 | Server logs | No repeated insecure `getSession()` user warning |
+| 7 | Password reset email | Reset link completes at `/auth/callback?next=/reset-password/update` without PKCE error |
+
+**Automated:** `npm run test -- src/lib/supabase/route-handler.test.ts src/lib/mfa-session.test.ts`
+
+**Blocked until verified:** Cleared — Phase 2E implementation complete.
+
+---
+
+## Release readiness — Judging & Awards (Phase 2E sign-off)
+
+**Date:** 2026-06-01 · **Status:** Ready for commit review (do not deploy until migrations + approval)
+
+### 1. Code status
+
+| Check | Result |
+|-------|--------|
+| Accidental/debug files | ✅ No temp/debug files found in judging paths |
+| `tasks/todo.md` reflects QA | ✅ Rows 1–21 PASS; Phase 2E complete; defects closed |
+| Stray console logs (judging) | ✅ None in `src/lib/judging/` or `src/components/judge/` |
+| Secrets in tracked files | ✅ None detected (placeholder `.env.example` only) |
+| `.env.local` tracked | ✅ Gitignored; not in index |
+| `.env.example` pool docs | ✅ Documents `connection_limit=5&pool_timeout=30` for local dev |
+
+**Review before commit:**
+
+- ⚠️ `next-env.d.ts` has a local dev path change (`.next/dev/types/…`) — **revert or exclude from commit**
+- ⚠️ Working tree mixes judging work with unrelated changes (sale-inquiry bulk delete, session-idle tweaks) — consider **split commits** or document in PR
+
+### 2. Tests / build (release agent run)
+
+| Command | Result |
+|---------|--------|
+| `npm run build` | ✅ Pass |
+| `npm run test:judging-integration` | ✅ 27/27 |
+| `npm run test -- src/lib/supabase/route-handler.test.ts` | ✅ 2/2 |
+| `npm run test -- src/lib/mfa-session.test.ts` | ✅ 1/1 |
+| `npm run test -- src/lib/judging/judge-score-sheet-judge-flow.test.ts` | ✅ 4/4 |
+| `npm run test -- src/lib/judging/judge-score-sheet-draft-validation.test.ts` | ✅ 3/3 |
+| `npm run lint` | ⚠️ 63 errors / 45 warnings (pre-existing repo-wide; **build uses tsc, not eslint gate**) |
+
+### 3. Manual QA
+
+- ✅ All **21** checklist rows PASS (Cruisin Classics / EVT-1003)
+- ✅ No open Phase 2E defects
+- ✅ Draft-save pattern error closed and re-verified on AZV-001
+
+### 4. Auth safety
+
+| Check | Result |
+|-------|--------|
+| Server auth uses `getUser()` | ✅ `getVerifiedSupabaseUser()` → `getCurrentUser()` for all judge API routes |
+| No auth from `getSession().session.user` | ✅ MFA reads `access_token` only after `getUser()`; no authorization path uses session.user |
+| PKCE signup/callback | ✅ `jsonWithSupabaseCookies()` on signup; unit test |
+| Login/logout + protected routes | ✅ Manual QA #21 PASS |
+
+### 5. Database / runtime
+
+| Check | Result |
+|-------|--------|
+| Prisma singleton | ✅ `globalForPrisma` pattern intact |
+| Prisma in client components | ✅ Only `@prisma/client` **types** in client; no `@/lib/db` imports in `"use client"` judging UI |
+| P2024 during manual QA | ✅ Not observed (#19 sweep PASS) |
+| Local pool settings documented | ✅ `.env.example` + `db.ts` dev safety net (`connection_limit=1` → 5) |
+| Production URL unchanged | ✅ No production env changes in repo |
+
+**Deploy prerequisite:** run migrations on production DB before app deploy:
+
+```bash
+npm run db:migrate:deploy
+# optional first-time: npm run db:seed-judging-templates
+```
+
+### 6. Judging workflow safety
+
+| Area | Result |
+|------|--------|
+| Public/SMS voting | ✅ No changes to `/api/v/*/vote` or SMS inbound routes in this work |
+| Judge Ballot Awards | ✅ Manual + integration PASS |
+| Organizer ballot results | ✅ Manual PASS (AZV-004, 2 votes) |
+| Score Sheet Judging | ✅ Template builder, classes, snapshots — integration PASS |
+| Draft save/resume | ✅ Manual AZV-001 PASS |
+| Submit/finalize + read-only | ✅ Manual AZV-003 PASS |
+| Snapshot isolation | ✅ Integration: template edits do not mutate submitted snapshots |
+| Legacy `VehicleJudgeScore` | ✅ Schema retained; `/api/v/[code]/judge-score` unchanged |
+
+### 7. Proposed commit groups (awaiting approval — do not commit yet)
+
+1. **Judging schema & migrations** — `prisma/schema.prisma`, `prisma/migrations/20260601120000_*`, `20260602120000_*`, `prisma/seed-judging-templates.ts`
+2. **Judging services & APIs** — `src/lib/judging/**`, organizer/judge/admin judging API routes
+3. **Organizer Awards & Judging UI** — `src/app/organizer/events/[id]/awards-judging/**`, `event-organizer-nav`, `event-setup-list-cards`
+4. **Judge Ballot UI** — `src/components/judge/judge-ballot-*`, ballot pages/APIs
+5. **Judge Score Sheet UI (2E)** — `judge-score-sheet-*`, score sheet pages/APIs, draft validation fix
+6. **Auth fixes** — PKCE signup, `supabase-auth-server`, `mfa-session`, auth routes
+7. **DB pool resilience** — `src/lib/db.ts`, `.env.example` pool docs
+8. **QA & tests** — `tasks/todo.md`, vitest configs, test files
+
+**Exclude from judging release commit (unless intentional):** sale-inquiry bulk delete, unrelated session-idle/dashboard tweaks, `next-env.d.ts` dev path.
+
+### Risks & follow-ups
+
+| Risk / follow-up | Severity | Notes |
+|------------------|----------|-------|
+| Production migration required | **High** | Deploy app only after `db:migrate:deploy` |
+| `judge-score-sheet-judge-flow.test.ts` not in `test:judging-integration` script | Low | Add to npm script for CI parity |
+| ESLint not clean repo-wide | Low | Pre-existing; not a build blocker |
+| No class-specific score sheet judge assignment | Known MVP | Documented in todo.md |
+| Required-comment UI not manually spot-checked | Low | Integration + unit tests; optional organizer template flag test |
+| Mixed unrelated diffs in working tree | Medium | Review/split before commit |
+

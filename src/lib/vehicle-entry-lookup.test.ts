@@ -45,6 +45,7 @@ const memberRv = {
   vehicleQrUrl: null,
   votingStatus: null,
   judgingStatus: null,
+  eventCategoryId: null,
   vehicle: {
     year: 1969,
     make: "Ford",
