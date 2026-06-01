@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseForResponse } from "@/lib/supabase/route-handler";
 import { resetPasswordSchema } from "@/lib/validation/auth";
 
 export async function POST(request: Request) {
@@ -23,7 +23,10 @@ export async function POST(request: Request) {
     const nextPath = "/reset-password/update";
     const redirectTo = `${base}/auth/callback?next=${encodeURIComponent(nextPath)}`;
 
-    const supabase = await createClient();
+    const response = NextResponse.json({
+      message: "If an account exists, a reset link has been sent",
+    });
+    const supabase = await createSupabaseForResponse(response);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
     });
@@ -42,10 +45,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Success, or generic message when we hide misconfig in production (anti-enumeration)
-    return NextResponse.json({
-      message: "If an account exists, a reset link has been sent",
-    });
+    // Success, or generic message when we hide misconfig in production (anti-enumeration).
+    // Return the same response object so PKCE cookies from Supabase are included.
+    return response;
   } catch (error) {
     console.error("Reset password error:", error);
     return NextResponse.json(

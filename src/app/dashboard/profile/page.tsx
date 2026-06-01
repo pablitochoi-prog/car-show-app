@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser, getSession } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
+import { getVerifiedSupabaseUser } from "@/lib/supabase-auth-server";
 import { prisma } from "@/lib/db";
 import { MyProfileClient } from "@/components/profile/my-profile-client";
 import { splitUserDisplayName } from "@/lib/profile-display-name";
@@ -11,7 +12,7 @@ export default async function MyProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const supabaseUser = await getSession();
+  const supabaseUser = await getVerifiedSupabaseUser();
   const rawNewEmail = (supabaseUser as unknown as Record<string, unknown>)
     ?.new_email;
   const pendingEmail =

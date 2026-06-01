@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { decodeAccessTokenPayload } from "@/lib/supabase-auth-server";
 
 export type MfaSessionState = {
   hasVerifiedTotp: boolean;
@@ -9,23 +10,45 @@ export type MfaSessionState = {
   needsMfaVerification: boolean;
 };
 
-/** Read Supabase MFA assurance level and verified TOTP factors (no secrets). */
+const EMPTY_MFA_STATE: MfaSessionState = {
+  hasVerifiedTotp: false,
+  verifiedFactorId: null,
+  currentLevel: "aal1",
+  nextLevel: "aal1",
+  needsMfaVerification: false,
+};
+
+/**
+ * Read MFA assurance level and verified TOTP factors using getUser() only.
+ * Avoids mfa.getAuthenticatorAssuranceLevel(), which reads session.user from getSession().
+ */
 export async function getMfaSessionState(
   supabase: SupabaseClient,
 ): Promise<MfaSessionState> {
-  const [{ data: aalData }, { data: factorsData }] = await Promise.all([
-    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
-    supabase.auth.mfa.listFactors(),
-  ]);
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+  if (error || !user) return EMPTY_MFA_STATE;
 
-  const currentLevel = aalData?.currentLevel ?? "aal1";
-  const nextLevel = aalData?.nextLevel ?? "aal1";
-
-  const totpFactors = factorsData?.totp ?? [];
+  const totpFactors = (user.factors ?? []).filter(
+    (f) => f.factor_type === "totp",
+  );
   const verified = totpFactors.filter((f) => f.status === "verified");
   const hasVerifiedTotp = verified.length > 0;
   const verifiedFactorId = verified[0]?.id ?? null;
 
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token ?? null;
+  let currentLevel = "aal1";
+  if (accessToken) {
+    const payload = decodeAccessTokenPayload(accessToken);
+    if (payload?.aal === "aal1" || payload?.aal === "aal2") {
+      currentLevel = payload.aal;
+    }
+  }
+
+  const nextLevel = hasVerifiedTotp ? "aal2" : currentLevel;
   const needsMfaVerification =
     hasVerifiedTotp && nextLevel === "aal2" && currentLevel !== "aal2";
 

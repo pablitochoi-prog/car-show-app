@@ -1,9 +1,9 @@
 import { Prisma, type RegistrationFeeType } from "@prisma/client";
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import { cache } from "react";
-import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { redirect } from "next/navigation";
+import { getVerifiedSupabaseUser } from "@/lib/supabase-auth-server";
 import {
   getUserEventRoles as getUserEventRolesFromStaff,
   userHasOrganizerStaffRole,
@@ -11,16 +11,15 @@ import {
 import { isUserBanned } from "@/lib/user-access";
 import { timeAsync } from "@/lib/request-timing";
 
+/** @deprecated Use getVerifiedSupabaseUser — this already calls getUser(), not getSession(). */
 export async function getSession() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
+  return getVerifiedSupabaseUser();
 }
 
+export { getVerifiedSupabaseUser } from "@/lib/supabase-auth-server";
+
 export async function requireAuth() {
-  const user = await getSession();
+  const user = await getVerifiedSupabaseUser();
   if (!user) {
     redirect("/login");
   }
@@ -117,7 +116,7 @@ async function ensurePrismaUser(supabaseUser: SupabaseAuthUser) {
 
 async function getCurrentUserUncached() {
   return timeAsync("auth.getCurrentUser", async () => {
-  const supabaseUser = await getSession();
+  const supabaseUser = await getVerifiedSupabaseUser();
   if (!supabaseUser) return null;
 
   const user = await timeAsync("auth.prismaUserLookup", () =>

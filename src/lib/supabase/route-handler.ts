@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import type { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 /**
  * For Route Handlers: Supabase session cookies must be set on the same
@@ -33,4 +33,15 @@ export function copyResponseCookies(from: NextResponse, to: NextResponse) {
   for (const c of from.cookies.getAll()) {
     to.cookies.set(c.name, c.value, c);
   }
+}
+
+/** JSON response with Supabase auth cookies (PKCE verifier, session) from a prior auth call. */
+export function jsonWithSupabaseCookies<T extends Record<string, unknown>>(
+  authResponse: NextResponse,
+  body: T,
+  init?: ResponseInit,
+): NextResponse {
+  const out = NextResponse.json(body, init);
+  copyResponseCookies(authResponse, out);
+  return out;
 }

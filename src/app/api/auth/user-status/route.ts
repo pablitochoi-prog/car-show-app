@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getVerifiedSupabaseUser } from "@/lib/supabase-auth-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Lightweight status check for middleware (banned redirect). */
 export async function GET() {
-  const supabaseUser = await getSession();
+  const supabaseUser = await getVerifiedSupabaseUser();
   if (!supabaseUser) {
     return NextResponse.json({ status: null });
   }

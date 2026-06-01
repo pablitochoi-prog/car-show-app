@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import {
-  copyResponseCookies,
   createSupabaseForResponse,
+  jsonWithSupabaseCookies,
 } from "@/lib/supabase/route-handler";
 import { prisma } from "@/lib/db";
 import { signupSchema } from "@/lib/validation/auth";
@@ -145,31 +145,34 @@ export async function POST(request: Request) {
             : [];
 
         if (fields.some((f) => f.includes("username"))) {
-          return NextResponse.json(
+          return jsonWithSupabaseCookies(
+            cookieResponse,
             {
               error:
                 "That username is already taken. Please choose a unique username.",
               code: "USERNAME_TAKEN",
             },
-            { status: 409 }
+            { status: 409 },
           );
         }
         if (fields.some((f) => f.includes("email"))) {
-          return NextResponse.json(
+          return jsonWithSupabaseCookies(
+            cookieResponse,
             {
               error:
                 "That email is already registered in our system. Try logging in instead.",
             },
-            { status: 409 }
+            { status: 409 },
           );
         }
 
-        return NextResponse.json(
+        return jsonWithSupabaseCookies(
+          cookieResponse,
           {
             error:
               "An account with these details already exists. Try logging in instead.",
           },
-          { status: 409 }
+          { status: 409 },
         );
       }
 
@@ -180,7 +183,7 @@ export async function POST(request: Request) {
           ? dbError.message
           : "Could not save your profile. Please try again.";
 
-      return NextResponse.json({ error: detail }, { status: 500 });
+      return jsonWithSupabaseCookies(cookieResponse, { error: detail }, { status: 500 });
     }
 
     const payload = {
@@ -188,13 +191,9 @@ export async function POST(request: Request) {
       requiresEmailVerification: !hasSession,
     };
 
-    if (hasSession) {
-      const out = NextResponse.json(payload, { status: 201 });
-      copyResponseCookies(cookieResponse, out);
-      return out;
-    }
-
-    return NextResponse.json(payload, { status: 201 });
+    // Always attach auth cookies — PKCE code verifier is required when the user
+    // confirms email and returns to /auth/callback (even if no session yet).
+    return jsonWithSupabaseCookies(cookieResponse, payload, { status: 201 });
   } catch (error) {
     console.error("Signup error:", error);
 

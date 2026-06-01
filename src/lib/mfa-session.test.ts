@@ -1,33 +1,60 @@
-import { describe, expect, it } from "vitest";
-import { mfaEnrollErrorMessage, totpQrCodeDataUrl } from "@/lib/mfa-session";
+import { describe, expect, it, vi } from "vitest";
+import { getMfaSessionState } from "@/lib/mfa-session";
 
-describe("mfaEnrollErrorMessage", () => {
-  it("maps factor limit errors", () => {
-    expect(mfaEnrollErrorMessage("Enrolled factors exceed allowed limit")).toContain(
-      "previous setup",
-    );
-  });
+function mockSupabase(input: {
+  user?: {
+    factors?: {
+      id: string;
+      factor_type: string;
+      status: string;
+    }[];
+  } | null;
+  accessToken?: string | null;
+  getUserError?: Error;
+}) {
+  return {
+    auth: {
+      getUser: vi.fn(async () => ({
+        data: { user: input.user ?? null },
+        error: input.getUserError ?? null,
+      })),
+      getSession: vi.fn(async () => ({
+        data: {
+          session: input.accessToken
+            ? { access_token: input.accessToken }
+            : null,
+        },
+        error: null,
+      })),
+      mfa: {
+        getAuthenticatorAssuranceLevel: vi.fn(),
+        listFactors: vi.fn(),
+      },
+    },
+  };
+}
 
-  it("maps disabled MFA errors", () => {
-    expect(mfaEnrollErrorMessage("MFA is not enabled")).toContain("Supabase");
-  });
+describe("getMfaSessionState", () => {
+  it("uses getUser() and does not call getAuthenticatorAssuranceLevel", async () => {
+    const payload = Buffer.from(
+      JSON.stringify({ aal: "aal1", session_id: "sess-1" }),
+    ).toString("base64url");
+    const token = `hdr.${payload}.sig`;
 
-  it("falls back to generic message", () => {
-    expect(mfaEnrollErrorMessage("something else")).toContain("Try again");
-  });
-});
+    const supabase = mockSupabase({
+      user: {
+        factors: [
+          { id: "f1", factor_type: "totp", status: "verified" },
+        ],
+      },
+      accessToken: token,
+    });
 
-describe("totpQrCodeDataUrl", () => {
-  it("passes through Supabase-prefixed data URLs unchanged", () => {
-    const fromSupabase =
-      'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg"></svg>';
-    expect(totpQrCodeDataUrl(fromSupabase)).toBe(fromSupabase);
-  });
+    const state = await getMfaSessionState(supabase as never);
 
-  it("wraps raw SVG markup", () => {
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
-    expect(totpQrCodeDataUrl(svg)).toBe(
-      `data:image/svg+xml;utf-8,${encodeURIComponent(svg)}`,
-    );
+    expect(state.hasVerifiedTotp).toBe(true);
+    expect(state.needsMfaVerification).toBe(true);
+    expect(supabase.auth.getUser).toHaveBeenCalled();
+    expect(supabase.auth.mfa.getAuthenticatorAssuranceLevel).not.toHaveBeenCalled();
   });
 });
