@@ -1,7 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { Award } from "lucide-react";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   CompletedBadge,
   NotEnabledBadge,
@@ -60,6 +64,24 @@ export function EventSetupListCards({
         defaultOpen={false}
       >
         <EventAwardsSection eventId={eventId} onCountChange={setTrophyCount} />
+      </CollapsibleCard>
+      <CollapsibleCard title="Awards & Judging" defaultOpen={false}>
+        <div className="space-y-3 text-sm">
+          <p className="text-muted-foreground">
+            Configure public voting, assigned judge ballot awards, and structured
+            score sheet judging for this event.
+          </p>
+          <Link
+            href={`/organizer/events/${eventId}/awards-judging`}
+            className={cn(
+              buttonVariants({ variant: "default" }),
+              "inline-flex h-11 w-full items-center justify-center gap-2 sm:w-auto",
+            )}
+          >
+            <Award className="size-4" aria-hidden />
+            Open Awards &amp; Judging Setup
+          </Link>
+        </div>
       </CollapsibleCard>
       <CollapsibleCard
         title="SMS Voting"

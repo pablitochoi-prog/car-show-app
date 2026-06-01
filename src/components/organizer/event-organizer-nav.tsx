@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, FileBarChart, Mail, Pencil } from "lucide-react";
+import { Award, ClipboardList, FileBarChart, Mail, Pencil } from "lucide-react";
 import {
   PendingLink,
   PendingNavSpinner,
@@ -12,7 +12,8 @@ export type EventOrganizerNavTab =
   | "edit"
   | "registrations"
   | "reports"
-  | "messages";
+  | "messages"
+  | "awards-judging";
 
 type Props = {
   eventId: string;
@@ -37,6 +38,12 @@ const TABS: {
     label: "Event Registrations",
     href: (id) => `/organizer/events/${id}/registrations`,
     icon: ClipboardList,
+  },
+  {
+    id: "awards-judging",
+    label: "Awards & Judging",
+    href: (id) => `/organizer/events/${id}/awards-judging`,
+    icon: Award,
   },
   {
     id: "reports",
@@ -64,7 +71,7 @@ export function EventOrganizerNav({ eventId, active, className }: Props) {
   return (
     <nav
       className={cn(
-        "flex gap-1 overflow-x-auto rounded-lg border bg-card p-1.5",
+        "flex gap-1 overflow-x-auto rounded-lg border bg-card p-1.5 [-webkit-overflow-scrolling:touch]",
         className,
       )}
       aria-label="Event organizer sections"
@@ -77,7 +84,7 @@ export function EventOrganizerNav({ eventId, active, className }: Props) {
             href={href(eventId)}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-xs transition-colors sm:gap-2 sm:px-3 sm:py-2 sm:text-sm",
+              "flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs transition-colors sm:gap-2 sm:px-4 sm:py-2 sm:text-sm",
               isActive
                 ? "bg-primary text-primary-foreground"
                 : "border border-border bg-background hover:bg-muted",
