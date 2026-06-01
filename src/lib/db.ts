@@ -42,15 +42,31 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 /**
- * Supabase pooler (pgbouncer): Prisma must use a single connection per client instance.
- * Without this, each PrismaClient opens a large default pool and quickly hits EMAXCONN.
+ * Supabase pooler (pgbouncer): Prisma must use a bounded pool per client instance.
+ * In local dev, connection_limit=1 causes P2024 when middleware session-guards,
+ * layout unread counts, and page queries run concurrently on the same singleton.
  */
 function prismaDatasourceUrl(): string {
-  const url = process.env.DATABASE_URL!;
-  if (/[?&]connection_limit=/i.test(url)) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  const limit = /pgbouncer=true/i.test(url) ? 1 : 5;
-  return `${url}${sep}connection_limit=${limit}`;
+  let url = process.env.DATABASE_URL!;
+  const isDev = process.env.NODE_ENV !== "production";
+
+  // Dev safety net: Supabase copy-paste often includes connection_limit=1.
+  if (isDev && /connection_limit=1(?=&|$)/i.test(url)) {
+    url = url.replace(/connection_limit=1/i, "connection_limit=5");
+  }
+
+  if (!/[?&]pool_timeout=/i.test(url)) {
+    const sep = url.includes("?") ? "&" : "?";
+    url = `${url}${sep}pool_timeout=30`;
+  }
+
+  if (!/[?&]connection_limit=/i.test(url)) {
+    const sep = url.includes("?") ? "&" : "?";
+    const limit = /pgbouncer=true/i.test(url) ? (isDev ? 5 : 1) : 5;
+    url = `${url}${sep}connection_limit=${limit}`;
+  }
+
+  return url;
 }
 
 function createPrismaClient(): PrismaClient {
