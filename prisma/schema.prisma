@@ -114,6 +114,42 @@ enum VehicleSaleInquiryStatus {
   CONTACTED
 }
 
+enum JudgingMethodology {
+  DEDUCTION
+  ADDITIVE
+  ORIGINALITY_CONDITION
+}
+
+enum JudgingDeductionBucket {
+  ORIGINALITY
+  CONDITION
+}
+
+enum JudgeScoreSheetStatus {
+  DRAFT
+  SUBMITTED
+  FINALIZED
+}
+
+enum EventJudgingTemplateEditLock {
+  OPEN
+  DRAFT_WARNING
+  LOCKED
+}
+
+enum JudgeBallotCategoryStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  FINALIZED
+}
+
+enum JudgeBallotAllocationStatus {
+  ACTIVE
+  SUBMITTED
+  LOCKED
+}
+
 model User {
   id          String       @id @default(uuid())
   email       String       @unique
@@ -169,6 +205,10 @@ model User {
   stepUpAuditLogs     StepUpAuditLog[]
   vehicleSaleListings VehicleSaleListing[]
   vehicleSaleInquiries VehicleSaleInquiry[] @relation("VehicleSaleInquirySeller")
+  judgeScoreSheets JudgeScoreSheet[] @relation("JudgeScoreSheets")
+  judgeBallotCategoryAssignments JudgeBallotCategoryJudge[]
+  judgeBallotAllocations JudgeBallotAllocation[]
+  judgeBallotVotes JudgeBallotVote[]
 
   @@map("users")
 }
@@ -386,6 +426,12 @@ model Event {
   vehicleSaleListings  VehicleSaleListing[]
   vehicleSaleInquiries VehicleSaleInquiry[]
   vehicleEntryIndexes  VehicleEntryIndex[]
+  eventJudgingTemplates EventJudgingTemplate[]
+  eventJudgingClasses   EventJudgingClass[]
+  judgeScoreSheets      JudgeScoreSheet[]
+  judgeBallotCategories JudgeBallotCategory[]
+  judgeBallotAllocations JudgeBallotAllocation[]
+  judgeBallotVotes      JudgeBallotVote[]
   @@index([status, startDate])
   @@index([city, state])
   @@index([orgId])
@@ -531,6 +577,8 @@ model Registration {
   vehicles RegistrationVehicle[]
   publicVotes  VehiclePublicVote[]
   judgeScores  VehicleJudgeScore[]
+  judgeScoreSheets JudgeScoreSheet[]
+  judgeBallotVotes JudgeBallotVote[]
   vehicleSaleListings VehicleSaleListing[]
   vehicleEntryIndexes VehicleEntryIndex[]
 
@@ -576,6 +624,8 @@ model RegistrationVehicle {
 
   publicVotes   VehiclePublicVote[]
   judgeScores   VehicleJudgeScore[]
+  judgeBallotVotes JudgeBallotVote[]
+  judgeScoreSheets JudgeScoreSheet[]
   saleListing   VehicleSaleListing?
   vehicleEntryIndex VehicleEntryIndex?
 
@@ -843,6 +893,8 @@ model EventCategory {
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   registrationVehicles RegistrationVehicle[]
+  judgeBallotEligibleClasses JudgeBallotEligibleClass[]
+  judgingClassEligible EventJudgingClassEligibleCategory?
 
   createdAt DateTime @default(now())
 
@@ -1021,4 +1073,376 @@ model SmsVote {
   @@index([eventId, vehicleEntryCode])
   @@index([provider, providerMessageId])
   @@map("sms_votes")
+}
+
+// ─── Structured score sheet judging (Phase 1A) ───────────────────────────────
+
+/// Global master judging template (clone source only — never used for live scoring).
+model JudgingTemplate {
+  id           String               @id @default(uuid())
+  slug         String               @unique
+  name         String
+  description  String?              @db.Text
+  methodology  JudgingMethodology
+  totalPoints  Int
+  isActive     Boolean              @default(true)
+  sortOrder    Int                  @default(0)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  sections     JudgingTemplateSection[]
+  eventCopies  EventJudgingTemplate[]
+
+  @@map("judging_templates")
+}
+
+model JudgingTemplateSection {
+  id              String   @id @default(uuid())
+  templateId      String
+  name            String
+  sortOrder       Int      @default(0)
+  weightPercent   Float?
+  maxSectionPoints Int?
+  judgeGuidance   String?  @db.Text
+
+  template JudgingTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  items    JudgingTemplateItem[]
+
+  @@index([templateId, sortOrder])
+  @@map("judging_template_sections")
+}
+
+model JudgingTemplateItem {
+  id                         String   @id @default(uuid())
+  sectionId                  String
+  label                      String
+  sortOrder                  Int      @default(0)
+  maxPoints                  Int
+  judgeGuidance              String?  @db.Text
+  requiresCommentOnDeduction Boolean  @default(false)
+
+  section          JudgingTemplateSection           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  deductionOptions JudgingTemplateDeductionOption[]
+
+  @@index([sectionId, sortOrder])
+  @@map("judging_template_items")
+}
+
+model JudgingTemplateDeductionOption {
+  id               String                  @id @default(uuid())
+  itemId           String
+  label            String
+  pointsDeducted   Int
+  sortOrder        Int                     @default(0)
+  deductionBucket  JudgingDeductionBucket?
+
+  item JudgingTemplateItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, sortOrder])
+  @@map("judging_template_deduction_options")
+}
+
+/// Event-specific judging template (live rules — cloned from global or created from scratch).
+model EventJudgingTemplate {
+  id               String                       @id @default(uuid())
+  eventId          String
+  sourceTemplateId String?
+  name             String
+  description      String?                      @db.Text
+  methodology      JudgingMethodology
+  totalPoints      Int
+  editLock         EventJudgingTemplateEditLock @default(OPEN)
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  event          Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sourceTemplate JudgingTemplate?         @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull)
+  sections       EventJudgingSection[]
+  classes        EventJudgingClass[]
+  scoreSheets    JudgeScoreSheet[]
+
+  @@index([eventId])
+  @@map("event_judging_templates")
+}
+
+model EventJudgingSection {
+  id               String   @id @default(uuid())
+  templateId       String
+  name             String
+  sortOrder        Int      @default(0)
+  weightPercent    Float?
+  maxSectionPoints Int?
+  judgeGuidance    String?  @db.Text
+
+  template EventJudgingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  items    EventJudgingItem[]
+
+  @@index([templateId, sortOrder])
+  @@map("event_judging_sections")
+}
+
+model EventJudgingItem {
+  id                         String   @id @default(uuid())
+  sectionId                  String
+  label                      String
+  sortOrder                  Int      @default(0)
+  maxPoints                  Int
+  judgeGuidance              String?  @db.Text
+  requiresCommentOnDeduction Boolean  @default(false)
+
+  section          EventJudgingSection           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  deductionOptions EventJudgingDeductionOption[]
+
+  @@index([sectionId, sortOrder])
+  @@map("event_judging_items")
+}
+
+model EventJudgingDeductionOption {
+  id              String                  @id @default(uuid())
+  itemId          String
+  label           String
+  pointsDeducted  Int
+  sortOrder       Int                     @default(0)
+  deductionBucket JudgingDeductionBucket?
+
+  item EventJudgingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, sortOrder])
+  @@map("event_judging_deduction_options")
+}
+
+/// Structured judging class — maps vehicle classes to a score sheet template.
+model EventJudgingClass {
+  id                     String   @id @default(uuid())
+  eventId                String
+  name                   String
+  description            String?  @db.Text
+  eventJudgingTemplateId String
+  isActive               Boolean  @default(true)
+  sortOrder              Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  event              Event                               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  template           EventJudgingTemplate                @relation(fields: [eventJudgingTemplateId], references: [id], onDelete: Cascade)
+  eligibleCategories EventJudgingClassEligibleCategory[]
+  scoreSheets        JudgeScoreSheet[]
+
+  @@index([eventId, sortOrder])
+  @@map("event_judging_classes")
+}
+
+/// Vehicle registration classes eligible for a structured judging class.
+model EventJudgingClassEligibleCategory {
+  id                  String @id @default(uuid())
+  eventJudgingClassId String
+  eventCategoryId     String @unique
+
+  eventJudgingClass EventJudgingClass @relation(fields: [eventJudgingClassId], references: [id], onDelete: Cascade)
+  eventCategory     EventCategory     @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+
+  @@index([eventJudgingClassId])
+  @@map("event_judging_class_eligible_categories")
+}
+
+/// Judge score sheet — snapshots event template structure when judging starts.
+model JudgeScoreSheet {
+  id                     String                @id @default(uuid())
+  eventId                String
+  eventJudgingTemplateId String
+  eventJudgingClassId    String?
+  vehicleEntryCode       String
+  registrationId         String
+  registrationVehicleId  String?
+  judgeUserId            String
+  status                 JudgeScoreSheetStatus @default(DRAFT)
+  methodology            JudgingMethodology
+  totalPoints            Int
+  finalScore             Float?
+  originalityDeductions  Int                   @default(0)
+  conditionDeductions    Int                   @default(0)
+  generalNotes           String?               @db.Text
+  submittedAt            DateTime?
+  finalizedAt            DateTime?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+
+  event                Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventJudgingTemplate EventJudgingTemplate @relation(fields: [eventJudgingTemplateId], references: [id], onDelete: Cascade)
+  eventJudgingClass    EventJudgingClass?   @relation(fields: [eventJudgingClassId], references: [id], onDelete: SetNull)
+  registration         Registration         @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registrationVehicle  RegistrationVehicle? @relation(fields: [registrationVehicleId], references: [id], onDelete: SetNull)
+  judge                User                 @relation("JudgeScoreSheets", fields: [judgeUserId], references: [id], onDelete: Cascade)
+  sections             JudgeScoreSheetSection[]
+
+  @@unique([eventId, vehicleEntryCode, judgeUserId])
+  @@index([eventId, eventJudgingTemplateId])
+  @@map("judge_score_sheets")
+}
+
+model JudgeScoreSheetSection {
+  id               String   @id @default(uuid())
+  scoreSheetId     String
+  name             String
+  sortOrder        Int      @default(0)
+  weightPercent    Float?
+  maxSectionPoints Int?
+  judgeGuidance    String?  @db.Text
+
+  scoreSheet JudgeScoreSheet       @relation(fields: [scoreSheetId], references: [id], onDelete: Cascade)
+  items      JudgeScoreSheetItem[]
+
+  @@index([scoreSheetId, sortOrder])
+  @@map("judge_score_sheet_sections")
+}
+
+model JudgeScoreSheetItem {
+  id                         String   @id @default(uuid())
+  sectionId                  String
+  label                      String
+  sortOrder                  Int      @default(0)
+  maxPoints                  Int
+  judgeGuidance              String?  @db.Text
+  requiresCommentOnDeduction Boolean  @default(false)
+  awardedPoints              Float?
+  itemNotes                  String?  @db.Text
+
+  section          JudgeScoreSheetSection              @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  deductionOptions JudgeScoreSheetDeductionOption[]
+  deductions       JudgeScoreSheetDeduction[]
+
+  @@index([sectionId, sortOrder])
+  @@map("judge_score_sheet_items")
+}
+
+model JudgeScoreSheetDeductionOption {
+  id              String                  @id @default(uuid())
+  itemId          String
+  label           String
+  pointsDeducted  Int
+  sortOrder       Int                     @default(0)
+  deductionBucket JudgingDeductionBucket?
+
+  item JudgeScoreSheetItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, sortOrder])
+  @@map("judge_score_sheet_deduction_options")
+}
+
+model JudgeScoreSheetDeduction {
+  id              String                  @id @default(uuid())
+  itemId          String
+  optionId        String?
+  label           String
+  pointsDeducted  Int
+  deductionBucket JudgingDeductionBucket?
+  comment         String?                 @db.Text
+
+  item JudgeScoreSheetItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@map("judge_score_sheet_deductions")
+}
+
+// ─── Assigned judge ballot voting (Phase 1B) ─────────────────────────────────
+
+/// Judge-voted award category (Best Paint, Best in Show, etc.).
+model JudgeBallotCategory {
+  id                         String                    @id @default(uuid())
+  eventId                    String
+  name                       String
+  description                String?                   @db.Text
+  sortOrder                  Int                       @default(0)
+  isActive                   Boolean                   @default(true)
+  status                     JudgeBallotCategoryStatus @default(DRAFT)
+  votesPerJudge              Int
+  maxVotesPerJudgePerVehicle Int                       @default(1)
+  startsAt                   DateTime?
+  endsAt                     DateTime?
+  showResultsToJudges        Boolean                   @default(false)
+  judgeGuidance              String?                   @db.Text
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+
+  event            Event                        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eligibleClasses  JudgeBallotEligibleClass[]
+  judgeAssignments JudgeBallotCategoryJudge[]
+  allocations      JudgeBallotAllocation[]
+  votes            JudgeBallotVote[]
+
+  @@index([eventId, sortOrder])
+  @@index([eventId, status])
+  @@map("judge_ballot_categories")
+}
+
+/// Which registration vehicle classes may receive votes (empty = all classes).
+model JudgeBallotEligibleClass {
+  categoryId      String
+  eventCategoryId String
+
+  category      JudgeBallotCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  eventCategory EventCategory       @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, eventCategoryId])
+  @@map("judge_ballot_eligible_classes")
+}
+
+/// Optional: restrict category to specific judges. Empty = all event judges.
+model JudgeBallotCategoryJudge {
+  categoryId  String
+  judgeUserId String
+
+  category JudgeBallotCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  judge    User                @relation(fields: [judgeUserId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, judgeUserId])
+  @@map("judge_ballot_category_judges")
+}
+
+/// Vote budget for one judge in one award category.
+model JudgeBallotAllocation {
+  id                  String                      @id @default(uuid())
+  eventId             String
+  categoryId          String
+  judgeUserId         String
+  totalVotesAllocated Int
+  votesUsed           Int                         @default(0)
+  status              JudgeBallotAllocationStatus @default(ACTIVE)
+  submittedAt         DateTime?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  event    Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  category JudgeBallotCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  judge    User                @relation(fields: [judgeUserId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, judgeUserId])
+  @@index([eventId, judgeUserId])
+  @@map("judge_ballot_allocations")
+}
+
+/// One row per judge × award category × vehicle; voteCount may be > 1.
+model JudgeBallotVote {
+  id                    String   @id @default(uuid())
+  eventId               String
+  categoryId            String
+  judgeUserId           String
+  registrationId        String
+  registrationVehicleId String?
+  vehicleEntryCode      String
+  voteCount             Int
+  notes                 String?  @db.Text
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  event               Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  category            JudgeBallotCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  judge               User                @relation(fields: [judgeUserId], references: [id], onDelete: Cascade)
+  registration        Registration        @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registrationVehicle RegistrationVehicle? @relation(fields: [registrationVehicleId], references: [id], onDelete: SetNull)
+
+  @@unique([categoryId, judgeUserId, vehicleEntryCode])
+  @@index([categoryId, vehicleEntryCode])
+  @@index([eventId, categoryId])
+  @@map("judge_ballot_votes")
 }
