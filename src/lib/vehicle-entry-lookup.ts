@@ -67,6 +67,7 @@ function buildFromRegistrationVehicle(
     vehicleQrUrl: string | null;
     votingStatus: string | null;
     judgingStatus: string | null;
+    eventCategoryId: string | null;
     vehicle: {
       year: number;
       make: string;
@@ -121,6 +122,7 @@ function buildFromRegistrationVehicle(
       rv.vehicle.notes,
     ),
     classLabel: categoryLabel(rv.eventCategory),
+    eventCategoryId: rv.eventCategoryId,
     photoUrl,
     votingStatus: rv.votingStatus,
     judgingStatus: rv.judgingStatus,
@@ -174,6 +176,7 @@ function buildFromGuest(
     nickname: gv.nickname?.trim() || null,
     vehicleStory: gv.notes?.trim() || null,
     classLabel,
+    eventCategoryId: gv.eventCategoryId ?? null,
     photoUrl,
     votingStatus: null,
     judgingStatus: null,

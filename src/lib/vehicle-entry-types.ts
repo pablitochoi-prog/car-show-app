@@ -18,6 +18,8 @@ export type VehicleEntryRecord = {
   /** Event-specific vehicle story for public pages and dash cards. */
   vehicleStory: string | null;
   classLabel: string;
+  /** Registration vehicle class ID for ballot eligibility checks. */
+  eventCategoryId: string | null;
   /** Public http(s) URL or same-origin API path for event-published photo. */
   photoUrl: string | null;
   votingStatus: string | null;
