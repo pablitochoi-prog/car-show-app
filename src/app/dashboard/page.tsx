@@ -32,6 +32,12 @@ const destinations = [
     icon: "trophy" as const,
   },
   {
+    href: "/judge",
+    title: "My Judging",
+    description: "Judge ballot awards — vote for vehicles at assigned events.",
+    icon: "trophy" as const,
+  },
+  {
     href: "/dashboard/clubs",
     title: "My Clubs",
     description: "Car clubs and organizations you belong to.",
