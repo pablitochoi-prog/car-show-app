@@ -10,27 +10,23 @@ export async function snapshotEventTemplateToScoreSheet(input: {
   registrationVehicleId?: string | null;
   judgeUserId: string;
 }) {
-  const template = await prisma.eventJudgingTemplate.findFirst({
-    where: { id: input.eventJudgingTemplateId, eventId: input.eventId },
-    include: {
-      sections: {
-        orderBy: { sortOrder: "asc" },
-        include: {
-          items: {
-            orderBy: { sortOrder: "asc" },
-            include: {
-              deductionOptions: { orderBy: { sortOrder: "asc" } },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  if (!template) {
-    throw new Error("Event judging template not found.");
+  const { scoreSheet, created } = await findOrCreateJudgeScoreSheet(input);
+  if (!created) {
+    throw new Error("A score sheet already exists for this judge and vehicle.");
   }
+  return scoreSheet;
+}
 
+/** One score sheet per judge × vehicle; returns existing sheet when present. */
+export async function findOrCreateJudgeScoreSheet(input: {
+  eventId: string;
+  eventJudgingTemplateId: string;
+  eventJudgingClassId?: string | null;
+  vehicleEntryCode: string;
+  registrationId: string;
+  registrationVehicleId?: string | null;
+  judgeUserId: string;
+}): Promise<{ scoreSheet: Awaited<ReturnType<typeof prisma.judgeScoreSheet.create>>; created: boolean }> {
   const existing = await prisma.judgeScoreSheet.findUnique({
     where: {
       eventId_vehicleEntryCode_judgeUserId: {
@@ -39,13 +35,41 @@ export async function snapshotEventTemplateToScoreSheet(input: {
         judgeUserId: input.judgeUserId,
       },
     },
-    select: { id: true },
+    include: {
+      sections: {
+        orderBy: { sortOrder: "asc" },
+        include: {
+          items: {
+            orderBy: { sortOrder: "asc" },
+            include: { deductionOptions: { orderBy: { sortOrder: "asc" } } },
+          },
+        },
+      },
+    },
   });
   if (existing) {
-    throw new Error("A score sheet already exists for this judge and vehicle.");
+    return { scoreSheet: existing, created: false };
   }
 
-  return prisma.judgeScoreSheet.create({
+  const template = await prisma.eventJudgingTemplate.findFirst({
+    where: { id: input.eventJudgingTemplateId, eventId: input.eventId },
+    include: {
+      sections: {
+        orderBy: { sortOrder: "asc" },
+        include: {
+          items: {
+            orderBy: { sortOrder: "asc" },
+            include: { deductionOptions: { orderBy: { sortOrder: "asc" } } },
+          },
+        },
+      },
+    },
+  });
+  if (!template) {
+    throw new Error("Event judging template not found.");
+  }
+
+  const created = await prisma.judgeScoreSheet.create({
     data: {
       eventId: input.eventId,
       eventJudgingTemplateId: template.id,
@@ -101,4 +125,5 @@ export async function snapshotEventTemplateToScoreSheet(input: {
       },
     },
   });
+  return { scoreSheet: created, created: true };
 }

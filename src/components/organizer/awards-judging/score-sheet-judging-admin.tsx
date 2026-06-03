@@ -302,6 +302,12 @@ export function ScoreSheetJudgingAdmin({
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
         <Link
+          href={`/organizer/events/${eventId}/awards-judging/score-sheets/assignments`}
+          className={cn(buttonVariants({ variant: "outline" }))}
+        >
+          Assign judges
+        </Link>
+        <Link
           href={`/organizer/events/${eventId}/awards-judging/score-sheets/results`}
           className={cn(buttonVariants())}
         >

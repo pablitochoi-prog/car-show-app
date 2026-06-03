@@ -144,6 +144,13 @@ enum JudgeScoreSheetStatus {
   FINALIZED
 }
 
+/// Per vehicle + scorecard category assignment status (Phase 5D).
+enum EventJudgeCategoryAssignmentStatus {
+  NOT_JUDGED
+  SAVED_FOR_LATER
+  SUBMITTED
+}
+
 enum EventJudgingTemplateEditLock {
   OPEN
   DRAFT_WARNING
@@ -219,6 +226,8 @@ model User {
   vehicleSaleListings VehicleSaleListing[]
   vehicleSaleInquiries VehicleSaleInquiry[] @relation("VehicleSaleInquirySeller")
   judgeScoreSheets JudgeScoreSheet[] @relation("JudgeScoreSheets")
+  eventJudgeCategoryAssignments EventJudgeCategoryAssignment[] @relation("EventJudgeCategoryAssignments")
+  eventJudgeCategoryAssignmentsAssigned EventJudgeCategoryAssignment[] @relation("EventJudgeCategoryAssignmentsAssignedBy")
   judgeBallotCategoryAssignments JudgeBallotCategoryJudge[]
   judgeBallotAllocations JudgeBallotAllocation[]
   judgeBallotVotes JudgeBallotVote[]
@@ -442,6 +451,7 @@ model Event {
   eventJudgingTemplates EventJudgingTemplate[]
   eventJudgingClasses   EventJudgingClass[]
   judgeScoreSheets      JudgeScoreSheet[]
+  eventJudgeCategoryAssignments EventJudgeCategoryAssignment[]
   judgeBallotCategories JudgeBallotCategory[]
   judgeBallotAllocations JudgeBallotAllocation[]
   judgeBallotVotes      JudgeBallotVote[]
@@ -639,6 +649,7 @@ model RegistrationVehicle {
   judgeScores   VehicleJudgeScore[]
   judgeBallotVotes JudgeBallotVote[]
   judgeScoreSheets JudgeScoreSheet[]
+  judgeCategoryAssignments EventJudgeCategoryAssignment[]
   saleListing   VehicleSaleListing?
   vehicleEntryIndex VehicleEntryIndex?
 
@@ -1183,6 +1194,7 @@ model EventJudgingTemplate {
   sections       EventJudgingSection[]
   classes        EventJudgingClass[]
   scoreSheets    JudgeScoreSheet[]
+  categoryAssignments EventJudgeCategoryAssignment[]
 
   @@index([eventId])
   @@map("event_judging_templates")
@@ -1200,6 +1212,7 @@ model EventJudgingSection {
 
   template EventJudgingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   items    EventJudgingItem[]
+  judgeAssignments EventJudgeCategoryAssignment[]
 
   @@index([templateId, sortOrder])
   @@map("event_judging_sections")
@@ -1256,6 +1269,7 @@ model EventJudgingClass {
   template           EventJudgingTemplate                @relation(fields: [eventJudgingTemplateId], references: [id], onDelete: Cascade)
   eligibleCategories EventJudgingClassEligibleCategory[]
   scoreSheets        JudgeScoreSheet[]
+  categoryAssignments EventJudgeCategoryAssignment[]
 
   @@index([eventId, sortOrder])
   @@map("event_judging_classes")
@@ -1303,6 +1317,7 @@ model JudgeScoreSheet {
   registrationVehicle  RegistrationVehicle? @relation(fields: [registrationVehicleId], references: [id], onDelete: SetNull)
   judge                User                 @relation("JudgeScoreSheets", fields: [judgeUserId], references: [id], onDelete: Cascade)
   sections             JudgeScoreSheetSection[]
+  categoryAssignments  EventJudgeCategoryAssignment[]
 
   @@unique([eventId, vehicleEntryCode, judgeUserId])
   @@index([eventId, eventJudgingTemplateId])
@@ -1379,6 +1394,39 @@ model JudgeScoreSheetDeduction {
 
   @@index([itemId])
   @@map("judge_score_sheet_deductions")
+}
+
+/// Organizer assignment: judge × vehicle × scorecard category (section).
+model EventJudgeCategoryAssignment {
+  id                        String                            @id @default(uuid())
+  eventId                   String
+  eventJudgingTemplateId    String
+  eventJudgingClassId       String?
+  registrationVehicleId     String
+  vehicleEntryCode          String
+  judgeUserId               String
+  eventJudgingSectionId     String
+  status                    EventJudgeCategoryAssignmentStatus @default(NOT_JUDGED)
+  judgeScoreSheetId         String?
+  assignedAt                DateTime                          @default(now())
+  assignedByUserId          String
+  reassignedFromJudgeUserId String?
+  updatedAt                 DateTime                          @updatedAt
+
+  event               Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventJudgingTemplate EventJudgingTemplate @relation(fields: [eventJudgingTemplateId], references: [id], onDelete: Cascade)
+  eventJudgingClass   EventJudgingClass?    @relation(fields: [eventJudgingClassId], references: [id], onDelete: SetNull)
+  registrationVehicle RegistrationVehicle   @relation(fields: [registrationVehicleId], references: [id], onDelete: Cascade)
+  judge               User                  @relation("EventJudgeCategoryAssignments", fields: [judgeUserId], references: [id], onDelete: Cascade)
+  assignedBy          User                  @relation("EventJudgeCategoryAssignmentsAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Cascade)
+  section             EventJudgingSection   @relation(fields: [eventJudgingSectionId], references: [id], onDelete: Cascade)
+  judgeScoreSheet     JudgeScoreSheet?      @relation(fields: [judgeScoreSheetId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, registrationVehicleId, eventJudgingSectionId])
+  @@index([eventId, judgeUserId])
+  @@index([eventId, vehicleEntryCode])
+  @@index([judgeScoreSheetId])
+  @@map("event_judge_category_assignments")
 }
 
 // ─── Assigned judge ballot voting (Phase 1B) ─────────────────────────────────
