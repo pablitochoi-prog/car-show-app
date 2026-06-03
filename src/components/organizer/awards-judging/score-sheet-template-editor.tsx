@@ -1,5 +1,9 @@
 "use client";
 
+import type {
+  JudgingSubcategoryPointType,
+  JudgingSubcategoryScoringType,
+} from "@prisma/client";
 import { ChevronDown, ChevronUp, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +12,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import {
+  defaultItemDraft,
+  defaultSectionDraft,
+  isPersistedClientKey,
   itemPointsTotal,
+  METHODOLOGY_OPTIONS,
   newClientKey,
+  SCORING_GROUP_PRESETS,
   sectionPointsTotal,
   templateSectionsTotal,
+  VEHICLE_TYPE_PRESETS,
   type EditLockInfo,
+  type ItemDraft,
   type SectionDraft,
   type TemplateDraft,
   type ValidationWarning,
@@ -26,26 +37,64 @@ function move<T>(list: T[], from: number, to: number): T[] {
   return copy;
 }
 
+function patchItemScoringType(
+  item: ItemDraft,
+  scoringType: JudgingSubcategoryScoringType,
+): ItemDraft {
+  if (scoringType === "DISCRETIONARY") {
+    return {
+      ...item,
+      scoringType,
+      allowMultipleViolations: false,
+      deductionOptions: [],
+    };
+  }
+  if (scoringType === "FULL") {
+    const first = item.deductionOptions[0];
+    return {
+      ...item,
+      scoringType,
+      deductionOptions: [
+        {
+          clientKey: first?.clientKey ?? newClientKey(),
+          label: first?.label?.trim() ? first.label : "Select",
+          pointsDeducted: first?.pointsDeducted ?? 1,
+          sortOrder: 0,
+          deductionBucket: first?.deductionBucket ?? null,
+        },
+      ],
+    };
+  }
+  return { ...item, scoringType };
+}
+
 export function ScoreSheetTemplateEditor({
   draft,
   setDraft,
   editLockInfo,
   warnings,
+  blockingErrors,
   saving,
   onSave,
   showPreview,
   onTogglePreview,
+  showArchived,
+  onShowArchivedChange,
 }: {
   draft: TemplateDraft;
   setDraft: (d: TemplateDraft) => void;
   editLockInfo: EditLockInfo;
   warnings: ValidationWarning[];
+  blockingErrors: string[];
   saving: boolean;
   onSave: () => void;
   showPreview: boolean;
   onTogglePreview: () => void;
+  showArchived: boolean;
+  onShowArchivedChange: (v: boolean) => void;
 }) {
   const structureLocked = !editLockInfo.canEditStructure;
+  const isOriginalityTemplate = draft.methodology === "ORIGINALITY_CONDITION";
   const runningTotal = templateSectionsTotal(draft);
   const totalMismatch = runningTotal !== draft.totalPoints;
 
@@ -56,22 +105,32 @@ export function ScoreSheetTemplateEditor({
     setDraft({ ...draft, sections });
   }
 
-  function addSection() {
-    setDraft({
-      ...draft,
-      sections: [
-        ...draft.sections,
-        {
-          clientKey: newClientKey(),
-          name: "New Judging Section",
-          sortOrder: draft.sections.length,
-          weightPercent: "",
-          maxSectionPoints: "",
-          judgeGuidance: "",
-          items: [],
-        },
-      ],
-    });
+  function archiveOrRemoveSection(si: number) {
+    const section = draft.sections[si];
+    if (!section) return;
+    const archive =
+      editLockInfo.scoreSheetCount > 0 && isPersistedClientKey(section.clientKey);
+    if (archive) {
+      updateSection(si, { isActive: false });
+      return;
+    }
+    setDraft({ ...draft, sections: draft.sections.filter((_, i) => i !== si) });
+  }
+
+  function archiveOrRemoveItem(si: number, ii: number) {
+    const section = draft.sections[si];
+    const item = section?.items[ii];
+    if (!section || !item) return;
+    const archive =
+      editLockInfo.scoreSheetCount > 0 && isPersistedClientKey(item.clientKey);
+    if (archive) {
+      const items = section.items.map((it, j) =>
+        j === ii ? { ...it, isActive: false } : it,
+      );
+      updateSection(si, { items });
+      return;
+    }
+    updateSection(si, { items: section.items.filter((_, j) => j !== ii) });
   }
 
   return (
@@ -88,16 +147,92 @@ export function ScoreSheetTemplateEditor({
         </div>
       ) : null}
 
+      {blockingErrors.length > 0 ? (
+        <div
+          className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm"
+          role="alert"
+        >
+          <p className="font-medium">Fix these issues before saving:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {blockingErrors.map((msg) => (
+              <li key={msg}>{msg}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Score Sheet Template Name</Label>
+        <div className="space-y-2 sm:col-span-2">
+          <Label>Event template name</Label>
           <Input
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
           />
         </div>
         <div className="space-y-2">
-          <Label>Total Points</Label>
+          <Label>Scoring group</Label>
+          <Input
+            value={draft.scoringGroup}
+            disabled={structureLocked}
+            list="scoring-group-presets"
+            placeholder="e.g. AACA, PCA, NCRS"
+            onChange={(e) => setDraft({ ...draft, scoringGroup: e.target.value })}
+          />
+          <datalist id="scoring-group-presets">
+            {SCORING_GROUP_PRESETS.map((g) => (
+              <option key={g} value={g} />
+            ))}
+          </datalist>
+        </div>
+        <div className="space-y-2">
+          <Label>Vehicle type</Label>
+          <Input
+            value={draft.vehicleType}
+            disabled={structureLocked}
+            list="vehicle-type-presets"
+            placeholder="e.g. Auto, Motorcycle"
+            onChange={(e) => setDraft({ ...draft, vehicleType: e.target.value })}
+          />
+          <datalist id="vehicle-type-presets">
+            {VEHICLE_TYPE_PRESETS.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+        </div>
+        <div className="space-y-2">
+          <Label>Scoring method</Label>
+          {isOriginalityTemplate ? (
+            <p className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+              Originality / Condition (legacy Marque-style). Scoring type controls are
+              limited; bucket deductions remain available on increment levels.
+            </p>
+          ) : (
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={draft.methodology}
+              disabled={structureLocked}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  methodology: e.target.value as TemplateDraft["methodology"],
+                })
+              }
+            >
+              {METHODOLOGY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {!isOriginalityTemplate ? (
+            <p className="text-xs text-muted-foreground">
+              {METHODOLOGY_OPTIONS.find((o) => o.value === draft.methodology)?.hint}
+            </p>
+          ) : null}
+        </div>
+        <div className="space-y-2">
+          <Label>Total points</Label>
           <Input
             type="number"
             min={1}
@@ -125,12 +260,21 @@ export function ScoreSheetTemplateEditor({
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Badge variant="outline">{draft.methodology.replace(/_/g, " ")}</Badge>
         <span>
-          Running section total:{" "}
+          Running category total:{" "}
           <strong className={totalMismatch ? "text-destructive" : ""}>
             {runningTotal}
           </strong>{" "}
           / {draft.totalPoints}
         </span>
+        <label className="ml-auto flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => onShowArchivedChange(e.target.checked)}
+            className="size-4 rounded border"
+          />
+          Show archived categories/subcategories
+        </label>
       </div>
 
       {warnings.map((w, i) => (
@@ -141,16 +285,31 @@ export function ScoreSheetTemplateEditor({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-medium">Judging Sections</h3>
+          <h3 className="font-medium">Categories</h3>
           {!structureLocked ? (
-            <Button type="button" variant="outline" size="sm" onClick={addSection}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setDraft({
+                  ...draft,
+                  sections: [
+                    ...draft.sections,
+                    defaultSectionDraft(draft.sections.length),
+                  ],
+                })
+              }
+            >
               <Plus className="mr-1 size-4" />
-              Add Section
+              Add category
             </Button>
           ) : null}
         </div>
 
         {draft.sections.map((section, si) => {
+          if (!showArchived && section.isActive === false) return null;
+
           const itemTotal = itemPointsTotal(section);
           const sectionMax = sectionPointsTotal(section);
           const itemMismatch =
@@ -160,7 +319,10 @@ export function ScoreSheetTemplateEditor({
           return (
             <CollapsibleCard
               key={section.clientKey}
-              title={section.name || "Judging Section"}
+              title={
+                (section.name || "Category") +
+                (section.isActive === false ? " (archived)" : "")
+              }
               defaultOpen={si === 0}
               badge={
                 <Badge variant={itemMismatch ? "warning" : "outline"}>
@@ -171,7 +333,7 @@ export function ScoreSheetTemplateEditor({
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Section Name</Label>
+                    <Label>Category name</Label>
                     <Input
                       value={section.name}
                       disabled={structureLocked}
@@ -179,21 +341,23 @@ export function ScoreSheetTemplateEditor({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Max Section Points (optional)</Label>
+                    <Label>Category max score</Label>
                     <Input
+                      type="number"
+                      min={1}
                       value={section.maxSectionPoints}
                       disabled={structureLocked}
                       onChange={(e) =>
                         updateSection(si, { maxSectionPoints: e.target.value })
                       }
-                      placeholder="Auto-sum from criteria"
+                      placeholder="Required positive integer"
                     />
                   </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Weight % (display)</Label>
+                    <Label>Weight % (optional)</Label>
                     <Input
                       value={section.weightPercent}
                       disabled={structureLocked}
@@ -202,7 +366,7 @@ export function ScoreSheetTemplateEditor({
                       }
                     />
                   </div>
-                  <div className="flex items-end gap-2">
+                  <div className="flex flex-wrap items-end gap-2">
                     {!structureLocked && si > 0 ? (
                       <Button
                         type="button"
@@ -234,20 +398,30 @@ export function ScoreSheetTemplateEditor({
                       </Button>
                     ) : null}
                     {!structureLocked ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive"
-                        onClick={() =>
-                          setDraft({
-                            ...draft,
-                            sections: draft.sections.filter((_, i) => i !== si),
-                          })
-                        }
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                      section.isActive === false ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateSection(si, { isActive: true })}
+                        >
+                          Restore category
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          onClick={() => archiveOrRemoveSection(si)}
+                        >
+                          <Trash2 className="size-4" />
+                          {editLockInfo.scoreSheetCount > 0 &&
+                          isPersistedClientKey(section.clientKey)
+                            ? "Archive"
+                            : "Remove"}
+                        </Button>
+                      )
                     ) : null}
                   </div>
                 </div>
@@ -260,7 +434,7 @@ export function ScoreSheetTemplateEditor({
                       updateSection(si, { guidanceOpen: !section.guidanceOpen })
                     }
                   >
-                    Judge Guidance {section.guidanceOpen ? "▾" : "▸"}
+                    Category judging guidelines {section.guidanceOpen ? "▾" : "▸"}
                   </button>
                   {section.guidanceOpen ? (
                     <Textarea
@@ -270,21 +444,20 @@ export function ScoreSheetTemplateEditor({
                       onChange={(e) =>
                         updateSection(si, { judgeGuidance: e.target.value })
                       }
-                      placeholder="Instructions for judges scoring this section"
                     />
                   ) : null}
                 </div>
 
                 {itemMismatch ? (
                   <p className="text-sm text-amber-600">
-                    Criteria total ({itemTotal}) does not match section max (
+                    Subcategory totals ({itemTotal}) do not match category max (
                     {section.maxSectionPoints}).
                   </p>
                 ) : null}
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">Judging Criteria</p>
+                    <p className="text-sm font-medium">Subcategories</p>
                     {!structureLocked ? (
                       <Button
                         type="button"
@@ -293,230 +466,498 @@ export function ScoreSheetTemplateEditor({
                         onClick={() => {
                           const items = [
                             ...section.items,
-                            {
-                              clientKey: newClientKey(),
-                              label: "New Criteria",
-                              sortOrder: section.items.length,
-                              maxPoints: 10,
-                              judgeGuidance: "",
-                              requiresCommentOnDeduction: false,
-                              deductionOptions: [],
-                            },
+                            defaultItemDraft(section.items.length),
                           ];
                           updateSection(si, { items });
                         }}
                       >
                         <Plus className="mr-1 size-3" />
-                        Add Criteria
+                        Add subcategory
                       </Button>
                     ) : null}
                   </div>
 
-                  {section.items.map((item, ii) => (
-                    <div
-                      key={item.clientKey}
-                      className="space-y-3 rounded-md border p-3"
-                    >
-                      <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
-                        <div className="space-y-2">
-                          <Label>Criteria Label</Label>
-                          <Input
-                            value={item.label}
-                            disabled={structureLocked}
-                            onChange={(e) => {
-                              const items = section.items.map((it, j) =>
-                                j === ii ? { ...it, label: e.target.value } : it,
-                              );
-                              updateSection(si, { items });
-                            }}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Max Points</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            value={item.maxPoints}
-                            disabled={structureLocked}
-                            onChange={(e) => {
-                              const items = section.items.map((it, j) =>
-                                j === ii
-                                  ? {
-                                      ...it,
-                                      maxPoints: Math.max(
-                                        0,
-                                        parseInt(e.target.value, 10) || 0,
-                                      ),
-                                    }
-                                  : it,
-                              );
-                              updateSection(si, { items });
-                            }}
-                          />
-                        </div>
-                      </div>
+                  {section.items.map((item, ii) => {
+                    if (!showArchived && item.isActive === false) return null;
 
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={item.requiresCommentOnDeduction}
-                          disabled={structureLocked}
-                          onChange={(e) => {
-                            const items = section.items.map((it, j) =>
-                              j === ii
-                                ? {
-                                    ...it,
-                                    requiresCommentOnDeduction: e.target.checked,
-                                  }
-                                : it,
-                            );
-                            updateSection(si, { items });
-                          }}
-                          className="size-4 rounded border"
-                        />
-                        Comment required when deduction/low score entered
-                      </label>
-
-                      <div>
-                        <button
-                          type="button"
-                          className="text-sm underline"
-                          onClick={() => {
-                            const items = section.items.map((it, j) =>
-                              j === ii
-                                ? { ...it, guidanceOpen: !it.guidanceOpen }
-                                : it,
-                            );
-                            updateSection(si, { items });
-                          }}
-                        >
-                          Judge Guidance {item.guidanceOpen ? "▾" : "▸"}
-                        </button>
-                        {item.guidanceOpen ? (
-                          <Textarea
-                            className="mt-2"
-                            rows={2}
-                            value={item.judgeGuidance}
-                            onChange={(e) => {
-                              const items = section.items.map((it, j) =>
-                                j === ii
-                                  ? { ...it, judgeGuidance: e.target.value }
-                                  : it,
-                              );
-                              updateSection(si, { items });
-                            }}
-                          />
-                        ) : null}
-                      </div>
-
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">Deduction Options</p>
-                        {item.deductionOptions.map((opt, oi) => (
-                          <div
-                            key={opt.clientKey}
-                            className="grid gap-2 sm:grid-cols-[1fr_80px_auto]"
-                          >
+                    return (
+                      <div
+                        key={item.clientKey}
+                        className={`space-y-3 rounded-md border p-3 ${
+                          item.isActive === false ? "opacity-60" : ""
+                        }`}
+                      >
+                        <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
+                          <div className="space-y-2">
+                            <Label>Subcategory name</Label>
                             <Input
-                              value={opt.label}
+                              value={item.label}
                               disabled={structureLocked}
-                              placeholder="Label"
                               onChange={(e) => {
-                                const deductionOptions = item.deductionOptions.map(
-                                  (d, k) =>
-                                    k === oi ? { ...d, label: e.target.value } : d,
-                                );
                                 const items = section.items.map((it, j) =>
-                                  j === ii ? { ...it, deductionOptions } : it,
+                                  j === ii ? { ...it, label: e.target.value } : it,
                                 );
                                 updateSection(si, { items });
                               }}
                             />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Max score</Label>
                             <Input
                               type="number"
-                              min={0}
-                              value={opt.pointsDeducted}
+                              min={1}
+                              value={item.maxPoints}
                               disabled={structureLocked}
                               onChange={(e) => {
-                                const deductionOptions = item.deductionOptions.map(
-                                  (d, k) =>
-                                    k === oi
-                                      ? {
-                                          ...d,
-                                          pointsDeducted: Math.max(
-                                            0,
-                                            parseInt(e.target.value, 10) || 0,
-                                          ),
-                                        }
-                                      : d,
-                                );
                                 const items = section.items.map((it, j) =>
-                                  j === ii ? { ...it, deductionOptions } : it,
+                                  j === ii
+                                    ? {
+                                        ...it,
+                                        maxPoints: Math.max(
+                                          1,
+                                          parseInt(e.target.value, 10) || 1,
+                                        ),
+                                      }
+                                    : it,
                                 );
                                 updateSection(si, { items });
                               }}
                             />
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={item.isIndented}
+                              disabled={structureLocked}
+                              onChange={(e) => {
+                                const items = section.items.map((it, j) =>
+                                  j === ii
+                                    ? { ...it, isIndented: e.target.checked }
+                                    : it,
+                                );
+                                updateSection(si, { items });
+                              }}
+                              className="size-4 rounded border"
+                            />
+                            Indent subcategory
+                          </label>
+                          {!isOriginalityTemplate ? (
+                            <div className="space-y-2">
+                              <Label>Point type</Label>
+                              <select
+                                className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                value={item.pointType ?? ""}
+                                disabled={structureLocked}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  const items = section.items.map((it, j) =>
+                                    j === ii
+                                      ? {
+                                          ...it,
+                                          pointType:
+                                            v === ""
+                                              ? null
+                                              : (v as JudgingSubcategoryPointType),
+                                        }
+                                      : it,
+                                  );
+                                  updateSection(si, { items });
+                                }}
+                              >
+                                <option value="">Inherit scoring method</option>
+                                <option value="ADD">Add</option>
+                                <option value="DEDUCT">Deduct</option>
+                              </select>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label>Scoring type</Label>
+                            <select
+                              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                              value={item.scoringType}
+                              disabled={structureLocked || isOriginalityTemplate}
+                              onChange={(e) => {
+                                const scoringType = e.target
+                                  .value as JudgingSubcategoryScoringType;
+                                const items = section.items.map((it, j) =>
+                                  j === ii
+                                    ? patchItemScoringType(it, scoringType)
+                                    : it,
+                                );
+                                updateSection(si, { items });
+                              }}
+                            >
+                              <option value="FULL">Full (Select)</option>
+                              <option value="LEVELS">Levels</option>
+                              <option value="DISCRETIONARY">Discretionary</option>
+                            </select>
+                          </div>
+                          {item.scoringType !== "DISCRETIONARY" ? (
+                            <label className="flex items-end gap-2 pb-1 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={item.allowMultipleViolations}
+                                disabled={structureLocked}
+                                onChange={(e) => {
+                                  const items = section.items.map((it, j) =>
+                                    j === ii
+                                      ? {
+                                          ...it,
+                                          allowMultipleViolations: e.target.checked,
+                                        }
+                                      : it,
+                                  );
+                                  updateSection(si, { items });
+                                }}
+                                className="size-4 rounded border"
+                              />
+                              Allow multiple violations
+                            </label>
+                          ) : (
+                            <p className="pb-1 text-xs text-muted-foreground">
+                              Multiple violations do not apply to discretionary scoring.
+                            </p>
+                          )}
+                        </div>
+
+                        {!isOriginalityTemplate ? (
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={item.requiresCommentOnDeduction}
+                              disabled={structureLocked}
+                              onChange={(e) => {
+                                const items = section.items.map((it, j) =>
+                                  j === ii
+                                    ? {
+                                        ...it,
+                                        requiresCommentOnDeduction: e.target.checked,
+                                      }
+                                    : it,
+                                );
+                                updateSection(si, { items });
+                              }}
+                              className="size-4 rounded border"
+                            />
+                            Comment required on deduction
+                          </label>
+                        ) : null}
+
+                        <div>
+                          <button
+                            type="button"
+                            className="text-sm underline"
+                            onClick={() => {
+                              const items = section.items.map((it, j) =>
+                                j === ii
+                                  ? { ...it, guidanceOpen: !it.guidanceOpen }
+                                  : it,
+                              );
+                              updateSection(si, { items });
+                            }}
+                          >
+                            Judging guidelines {item.guidanceOpen ? "▾" : "▸"}
+                          </button>
+                          {item.guidanceOpen ? (
+                            <Textarea
+                              className="mt-2"
+                              rows={2}
+                              value={item.judgeGuidance}
+                              onChange={(e) => {
+                                const items = section.items.map((it, j) =>
+                                  j === ii
+                                    ? { ...it, judgeGuidance: e.target.value }
+                                    : it,
+                                );
+                                updateSection(si, { items });
+                              }}
+                              placeholder="Help text shown to judges (info popup in mobile UI)"
+                            />
+                          ) : null}
+                        </div>
+
+                        {item.scoringType !== "DISCRETIONARY" ? (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium">
+                              Increment levels
+                              {item.scoringType === "FULL"
+                                ? " (exactly one — label usually “Select”)"
+                                : null}
+                            </p>
+                            {item.deductionOptions.map((opt, oi) => (
+                              <div
+                                key={opt.clientKey}
+                                className="grid gap-2 sm:grid-cols-[1fr_80px_auto]"
+                              >
+                                <Input
+                                  value={opt.label}
+                                  disabled={structureLocked}
+                                  placeholder="Label"
+                                  onChange={(e) => {
+                                    const deductionOptions =
+                                      item.deductionOptions.map((d, k) =>
+                                        k === oi
+                                          ? { ...d, label: e.target.value }
+                                          : d,
+                                      );
+                                    const items = section.items.map((it, j) =>
+                                      j === ii ? { ...it, deductionOptions } : it,
+                                    );
+                                    updateSection(si, { items });
+                                  }}
+                                />
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={opt.pointsDeducted}
+                                  disabled={structureLocked}
+                                  onChange={(e) => {
+                                    const deductionOptions =
+                                      item.deductionOptions.map((d, k) =>
+                                        k === oi
+                                          ? {
+                                              ...d,
+                                              pointsDeducted: Math.max(
+                                                1,
+                                                parseInt(e.target.value, 10) || 1,
+                                              ),
+                                            }
+                                          : d,
+                                      );
+                                    const items = section.items.map((it, j) =>
+                                      j === ii ? { ...it, deductionOptions } : it,
+                                    );
+                                    updateSection(si, { items });
+                                  }}
+                                />
+                                {!structureLocked &&
+                                (item.scoringType !== "FULL" ||
+                                  item.deductionOptions.length > 1) ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      const deductionOptions =
+                                        item.deductionOptions.filter(
+                                          (_, k) => k !== oi,
+                                        );
+                                      const items = section.items.map((it, j) =>
+                                        j === ii ? { ...it, deductionOptions } : it,
+                                      );
+                                      updateSection(si, { items });
+                                    }}
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ))}
+                            {!structureLocked &&
+                            (item.scoringType === "LEVELS" ||
+                              (item.scoringType === "FULL" &&
+                                item.deductionOptions.length === 0)) ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const deductionOptions = [
+                                    ...item.deductionOptions,
+                                    {
+                                      clientKey: newClientKey(),
+                                      label:
+                                        item.scoringType === "FULL" ? "Select" : "",
+                                      pointsDeducted: 1,
+                                      sortOrder: item.deductionOptions.length,
+                                      deductionBucket: null,
+                                    },
+                                  ];
+                                  const patched = patchItemScoringType(
+                                    { ...item, deductionOptions },
+                                    item.scoringType,
+                                  );
+                                  const items = section.items.map((it, j) =>
+                                    j === ii ? patched : it,
+                                  );
+                                  updateSection(si, { items });
+                                }}
+                              >
+                                Add increment level
+                              </Button>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Discretionary scoring uses a numeric input (0 through max
+                            score). No increment levels are required.
+                          </p>
+                        )}
+
+                        {isOriginalityTemplate ? (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium">
+                              Increment levels (O/C buckets optional)
+                            </p>
+                            {item.deductionOptions.map((opt, oi) => (
+                              <div
+                                key={opt.clientKey}
+                                className="grid gap-2 sm:grid-cols-[1fr_80px_120px_auto]"
+                              >
+                                <Input
+                                  value={opt.label}
+                                  disabled={structureLocked}
+                                  onChange={(e) => {
+                                    const deductionOptions =
+                                      item.deductionOptions.map((d, k) =>
+                                        k === oi
+                                          ? { ...d, label: e.target.value }
+                                          : d,
+                                      );
+                                    const items = section.items.map((it, j) =>
+                                      j === ii ? { ...it, deductionOptions } : it,
+                                    );
+                                    updateSection(si, { items });
+                                  }}
+                                />
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={opt.pointsDeducted}
+                                  disabled={structureLocked}
+                                  onChange={(e) => {
+                                    const deductionOptions =
+                                      item.deductionOptions.map((d, k) =>
+                                        k === oi
+                                          ? {
+                                              ...d,
+                                              pointsDeducted: Math.max(
+                                                1,
+                                                parseInt(e.target.value, 10) || 1,
+                                              ),
+                                            }
+                                          : d,
+                                      );
+                                    const items = section.items.map((it, j) =>
+                                      j === ii ? { ...it, deductionOptions } : it,
+                                    );
+                                    updateSection(si, { items });
+                                  }}
+                                />
+                                <select
+                                  className="h-9 rounded-md border px-2 text-sm"
+                                  value={opt.deductionBucket ?? ""}
+                                  disabled={structureLocked}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    const deductionOptions =
+                                      item.deductionOptions.map((d, k) =>
+                                        k === oi
+                                          ? {
+                                              ...d,
+                                              deductionBucket:
+                                                v === ""
+                                                  ? null
+                                                  : (v as "ORIGINALITY" | "CONDITION"),
+                                            }
+                                          : d,
+                                      );
+                                    const items = section.items.map((it, j) =>
+                                      j === ii ? { ...it, deductionOptions } : it,
+                                    );
+                                    updateSection(si, { items });
+                                  }}
+                                >
+                                  <option value="">—</option>
+                                  <option value="ORIGINALITY">Originality</option>
+                                  <option value="CONDITION">Condition</option>
+                                </select>
+                                {!structureLocked ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      const deductionOptions =
+                                        item.deductionOptions.filter((_, k) => k !== oi);
+                                      const items = section.items.map((it, j) =>
+                                        j === ii ? { ...it, deductionOptions } : it,
+                                      );
+                                      updateSection(si, { items });
+                                    }}
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ))}
                             {!structureLocked ? (
                               <Button
                                 type="button"
-                                variant="ghost"
-                                size="icon"
+                                variant="outline"
+                                size="sm"
                                 onClick={() => {
-                                  const deductionOptions =
-                                    item.deductionOptions.filter((_, k) => k !== oi);
+                                  const deductionOptions = [
+                                    ...item.deductionOptions,
+                                    {
+                                      clientKey: newClientKey(),
+                                      label: "",
+                                      pointsDeducted: 1,
+                                      sortOrder: item.deductionOptions.length,
+                                      deductionBucket: null,
+                                    },
+                                  ];
                                   const items = section.items.map((it, j) =>
                                     j === ii ? { ...it, deductionOptions } : it,
                                   );
                                   updateSection(si, { items });
                                 }}
                               >
-                                <Trash2 className="size-4" />
+                                Add increment level
                               </Button>
                             ) : null}
                           </div>
-                        ))}
+                        ) : null}
+
                         {!structureLocked ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const deductionOptions = [
-                                ...item.deductionOptions,
-                                {
-                                  clientKey: newClientKey(),
-                                  label: "",
-                                  pointsDeducted: 1,
-                                  sortOrder: item.deductionOptions.length,
-                                  deductionBucket: null,
-                                },
-                              ];
-                              const items = section.items.map((it, j) =>
-                                j === ii ? { ...it, deductionOptions } : it,
-                              );
-                              updateSection(si, { items });
-                            }}
-                          >
-                            Add Deduction
-                          </Button>
+                          item.isActive === false ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const items = section.items.map((it, j) =>
+                                  j === ii ? { ...it, isActive: true } : it,
+                                );
+                                updateSection(si, { items });
+                              }}
+                            >
+                              Restore subcategory
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive"
+                              onClick={() => archiveOrRemoveItem(si, ii)}
+                            >
+                              {editLockInfo.scoreSheetCount > 0 &&
+                              isPersistedClientKey(item.clientKey)
+                                ? "Archive subcategory"
+                                : "Remove subcategory"}
+                            </Button>
+                          )
                         ) : null}
                       </div>
-
-                      {!structureLocked ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive"
-                          onClick={() => {
-                            const items = section.items.filter((_, j) => j !== ii);
-                            updateSection(si, { items });
-                          }}
-                        >
-                          Remove Criteria
-                        </Button>
-                      ) : null}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </CollapsibleCard>
@@ -527,10 +968,10 @@ export function ScoreSheetTemplateEditor({
       <div className="flex flex-wrap gap-2">
         <Button type="button" onClick={onSave} disabled={saving}>
           {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-          Save Template
+          Save template
         </Button>
         <Button type="button" variant="outline" onClick={onTogglePreview}>
-          {showPreview ? "Hide Preview" : "Preview Judge Form"}
+          {showPreview ? "Hide preview" : "Preview judge form"}
         </Button>
       </div>
 

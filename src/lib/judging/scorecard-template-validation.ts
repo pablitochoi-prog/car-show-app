@@ -202,3 +202,51 @@ export function validateScorecardTemplateStructure(
 export function isScorecardTemplateValid(input: ScorecardTemplateInput): boolean {
   return validateScorecardTemplateStructure(input).length === 0;
 }
+
+/** Organizer-friendly message for a scorecard validation error. */
+export function formatScorecardValidationError(
+  error: ScorecardValidationError,
+): string {
+  const loc = [
+    error.categoryIndex != null ? `Category ${error.categoryIndex + 1}` : null,
+    error.subcategoryIndex != null
+      ? `Subcategory ${error.subcategoryIndex + 1}`
+      : null,
+    error.incrementIndex != null
+      ? `Increment ${error.incrementIndex + 1}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const prefix = loc ? `${loc}: ` : "";
+
+  switch (error.code) {
+    case "CATEGORY_NAME_REQUIRED":
+      return `${prefix}Category name is required.`;
+    case "CATEGORY_MAX_INVALID":
+      return `${prefix}Category max score is required and must be a positive integer.`;
+    case "SUBCATEGORY_NAME_REQUIRED":
+      return `${prefix}Subcategory name is required.`;
+    case "SUBCATEGORY_MAX_INVALID":
+      return `${prefix}Subcategory max score is required and must be a positive integer.`;
+    case "SUBCATEGORY_MAX_EXCEEDS_CATEGORY":
+      return `${prefix}Subcategory max score cannot exceed the category max score.`;
+    case "FULL_REQUIRES_ONE_INCREMENT":
+      return `${prefix}Full scoring must have exactly one increment level.`;
+    case "FULL_REQUIRES_EXACTLY_ONE_INCREMENT":
+      return `${prefix}Full scoring must have exactly one increment level.`;
+    case "LEVELS_REQUIRES_INCREMENT":
+      return `${prefix}Levels scoring requires at least one increment level.`;
+    case "DISCRETIONARY_NO_INCREMENTS":
+      return `${prefix}Discretionary scoring cannot define increment levels.`;
+    case "DISCRETIONARY_MULTIPLE_VIOLATIONS":
+      return `${prefix}Discretionary scoring cannot use multiple violations.`;
+    case "INCREMENT_WEIGHT_INVALID":
+      return `${prefix}Increment level weight must be a positive integer.`;
+    case "INCREMENT_WEIGHT_EXCEEDS_SUBCATEGORY":
+      return `${prefix}Increment level weight cannot exceed the subcategory max score.`;
+    default:
+      return `${prefix}${error.message}`;
+  }
+}

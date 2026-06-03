@@ -56,11 +56,15 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { name, description, totalPoints } = (body ?? {}) as {
-    name?: string;
-    description?: string | null;
-    totalPoints?: number;
-  };
+  const { name, description, totalPoints, scoringGroup, vehicleType, methodology } =
+    (body ?? {}) as {
+      name?: string;
+      description?: string | null;
+      totalPoints?: number;
+      scoringGroup?: string | null;
+      vehicleType?: string | null;
+      methodology?: "DEDUCTION" | "ADDITIVE" | "ORIGINALITY_CONDITION";
+    };
 
   try {
     const template = await updateEventJudgingTemplateMetadata({
@@ -69,6 +73,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       name,
       description,
       totalPoints,
+      scoringGroup,
+      vehicleType,
+      methodology,
     });
     const loaded = await loadEventJudgingTemplate(eventId, template.id);
     return NextResponse.json(loaded);

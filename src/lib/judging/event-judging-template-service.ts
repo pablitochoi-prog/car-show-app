@@ -1,3 +1,4 @@
+import type { JudgingMethodology } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { resolveEventTemplateEditLock } from "@/lib/judging/event-judging-edit-lock";
 import type {
@@ -5,6 +6,8 @@ import type {
   TemplateValidationWarning,
 } from "@/lib/judging/event-judging-template-validation";
 import { validateEventJudgingTemplateStructure } from "@/lib/judging/event-judging-template-validation";
+import { formatScorecardValidationError } from "@/lib/judging/scorecard-template-validation";
+import { validateStructurePayload } from "@/lib/judging/scorecard-template-mapper";
 
 export const eventJudgingTemplateInclude = {
   sourceTemplate: { select: { id: true, slug: true, name: true } },
@@ -30,28 +33,36 @@ export async function loadEventJudgingTemplate(eventId: string, templateId: stri
   if (!template) return null;
 
   const editLockInfo = await resolveEventTemplateEditLock(templateId);
-  const warnings = validateEventJudgingTemplateStructure({
-    totalPoints: template.totalPoints,
-    sections: template.sections.map((s) => ({
-      name: s.name,
-      sortOrder: s.sortOrder,
-      weightPercent: s.weightPercent,
-      maxSectionPoints: s.maxSectionPoints,
-      judgeGuidance: s.judgeGuidance,
-      items: s.items.map((i) => ({
-        label: i.label,
-        sortOrder: i.sortOrder,
-        maxPoints: i.maxPoints,
-        judgeGuidance: i.judgeGuidance,
-        requiresCommentOnDeduction: i.requiresCommentOnDeduction,
-        deductionOptions: i.deductionOptions.map((d) => ({
-          label: d.label,
-          pointsDeducted: d.pointsDeducted,
-          sortOrder: d.sortOrder,
-          deductionBucket: d.deductionBucket,
-        })),
+  const sectionInputs = template.sections.map((s) => ({
+    name: s.name,
+    sortOrder: s.sortOrder,
+    weightPercent: s.weightPercent,
+    maxSectionPoints: s.maxSectionPoints,
+    judgeGuidance: s.judgeGuidance,
+    isActive: s.isActive,
+    items: s.items.map((i) => ({
+      label: i.label,
+      sortOrder: i.sortOrder,
+      maxPoints: i.maxPoints,
+      isIndented: i.isIndented,
+      pointType: i.pointType,
+      scoringType: i.scoringType,
+      allowMultipleViolations: i.allowMultipleViolations,
+      judgeGuidance: i.judgeGuidance,
+      requiresCommentOnDeduction: i.requiresCommentOnDeduction,
+      isActive: i.isActive,
+      deductionOptions: i.deductionOptions.map((d) => ({
+        label: d.label,
+        pointsDeducted: d.pointsDeducted,
+        sortOrder: d.sortOrder,
+        deductionBucket: d.deductionBucket,
       })),
     })),
+  }));
+
+  const warnings = validateEventJudgingTemplateStructure({
+    totalPoints: template.totalPoints,
+    sections: sectionInputs,
   });
 
   return { template, editLockInfo, warnings };
@@ -63,16 +74,43 @@ export async function updateEventJudgingTemplateMetadata(input: {
   name?: string;
   description?: string | null;
   totalPoints?: number;
+  scoringGroup?: string | null;
+  vehicleType?: string | null;
+  methodology?: JudgingMethodology;
 }) {
   const existing = await prisma.eventJudgingTemplate.findFirst({
     where: { id: input.templateId, eventId: input.eventId },
-    select: { id: true },
+    select: { id: true, methodology: true },
   });
   if (!existing) throw new Error("Score sheet template not found.");
 
   const lock = await resolveEventTemplateEditLock(input.templateId);
   if (input.totalPoints != null && !lock.canEditStructure) {
     throw new Error("Total points cannot be changed after score sheets are submitted.");
+  }
+  if (
+    (input.methodology != null ||
+      input.scoringGroup !== undefined ||
+      input.vehicleType !== undefined) &&
+    !lock.canEditStructure
+  ) {
+    throw new Error(
+      "Template header fields cannot be changed after score sheets are submitted.",
+    );
+  }
+  if (
+    input.methodology != null &&
+    input.methodology !== "DEDUCTION" &&
+    input.methodology !== "ADDITIVE" &&
+    input.methodology !== "ORIGINALITY_CONDITION"
+  ) {
+    throw new Error("Invalid scoring method.");
+  }
+  if (
+    input.methodology === "ORIGINALITY_CONDITION" &&
+    existing.methodology !== "ORIGINALITY_CONDITION"
+  ) {
+    throw new Error("Cannot switch an event template to originality/condition scoring.");
   }
 
   return prisma.eventJudgingTemplate.update({
@@ -81,6 +119,13 @@ export async function updateEventJudgingTemplateMetadata(input: {
       ...(input.name != null ? { name: input.name.trim() } : {}),
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.totalPoints != null ? { totalPoints: input.totalPoints } : {}),
+      ...(input.scoringGroup !== undefined
+        ? { scoringGroup: input.scoringGroup?.trim() || null }
+        : {}),
+      ...(input.vehicleType !== undefined
+        ? { vehicleType: input.vehicleType?.trim() || null }
+        : {}),
+      ...(input.methodology != null ? { methodology: input.methodology } : {}),
     },
     include: eventJudgingTemplateInclude,
   });
@@ -124,15 +169,27 @@ async function replaceTemplateStructure(
           weightPercent: section.weightPercent ?? null,
           maxSectionPoints: section.maxSectionPoints ?? null,
           judgeGuidance: section.judgeGuidance ?? null,
+          isActive: section.isActive !== false,
           items: {
             create: section.items.map((item) => ({
               label: item.label.trim(),
               sortOrder: item.sortOrder,
               maxPoints: item.maxPoints,
+              isIndented: item.isIndented ?? false,
+              pointType: item.pointType ?? null,
+              scoringType: item.scoringType ?? "LEVELS",
+              allowMultipleViolations:
+                item.scoringType === "DISCRETIONARY"
+                  ? false
+                  : (item.allowMultipleViolations ?? false),
               judgeGuidance: item.judgeGuidance ?? null,
               requiresCommentOnDeduction: item.requiresCommentOnDeduction ?? false,
+              isActive: item.isActive !== false,
               deductionOptions: {
-                create: item.deductionOptions.map((opt) => ({
+                create: (item.scoringType === "DISCRETIONARY"
+                  ? []
+                  : item.deductionOptions
+                ).map((opt) => ({
                   label: opt.label.trim(),
                   pointsDeducted: opt.pointsDeducted,
                   sortOrder: opt.sortOrder,
@@ -151,11 +208,14 @@ export async function updateEventJudgingTemplateStructure(input: {
   eventId: string;
   templateId: string;
   totalPoints?: number;
+  scoringGroup?: string | null;
+  vehicleType?: string | null;
+  methodology?: JudgingMethodology;
   sections: TemplateSectionInput[];
 }): Promise<{ warnings: TemplateValidationWarning[] }> {
   const existing = await prisma.eventJudgingTemplate.findFirst({
     where: { id: input.templateId, eventId: input.eventId },
-    select: { id: true, totalPoints: true },
+    select: { id: true, totalPoints: true, methodology: true },
   });
   if (!existing) throw new Error("Score sheet template not found.");
 
@@ -167,17 +227,35 @@ export async function updateEventJudgingTemplateStructure(input: {
   }
 
   const totalPoints = input.totalPoints ?? existing.totalPoints;
+  const methodology = input.methodology ?? existing.methodology;
+
+  const scorecardErrors = validateStructurePayload(
+    methodology,
+    totalPoints,
+    input.sections,
+  );
+  if (scorecardErrors.length > 0) {
+    throw new Error(formatScorecardValidationError(scorecardErrors[0]!));
+  }
+
   const warnings = validateEventJudgingTemplateStructure({
     totalPoints,
     sections: input.sections,
   });
 
-  if (input.totalPoints != null) {
-    await prisma.eventJudgingTemplate.update({
-      where: { id: input.templateId },
-      data: { totalPoints: input.totalPoints },
-    });
-  }
+  await prisma.eventJudgingTemplate.update({
+    where: { id: input.templateId },
+    data: {
+      ...(input.totalPoints != null ? { totalPoints: input.totalPoints } : {}),
+      ...(input.scoringGroup !== undefined
+        ? { scoringGroup: input.scoringGroup?.trim() || null }
+        : {}),
+      ...(input.vehicleType !== undefined
+        ? { vehicleType: input.vehicleType?.trim() || null }
+        : {}),
+      ...(input.methodology != null ? { methodology: input.methodology } : {}),
+    },
+  });
 
   await replaceTemplateStructure(input.templateId, input.sections);
   return { warnings };

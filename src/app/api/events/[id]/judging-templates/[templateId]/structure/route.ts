@@ -32,10 +32,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { totalPoints, sections } = (body ?? {}) as {
-    totalPoints?: number;
-    sections?: TemplateSectionInput[];
-  };
+  const { totalPoints, sections, scoringGroup, vehicleType, methodology } =
+    (body ?? {}) as {
+      totalPoints?: number;
+      sections?: TemplateSectionInput[];
+      scoringGroup?: string | null;
+      vehicleType?: string | null;
+      methodology?: "DEDUCTION" | "ADDITIVE" | "ORIGINALITY_CONDITION";
+    };
 
   if (!Array.isArray(sections)) {
     return NextResponse.json(
@@ -49,6 +53,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
       eventId,
       templateId,
       totalPoints,
+      scoringGroup,
+      vehicleType,
+      methodology,
       sections,
     });
     const loaded = await loadEventJudgingTemplate(eventId, templateId);

@@ -113,6 +113,8 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
     await updateEventJudgingTemplateStructure({
       eventId,
       templateId: eventTemplateId,
+      scoringGroup: "AACA",
+      vehicleType: "Auto",
       sections: [
         {
           name: "Updated Section",
@@ -123,6 +125,7 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
               label: "Updated Criteria",
               sortOrder: 0,
               maxPoints: item.maxPoints,
+              scoringType: "LEVELS",
               requiresCommentOnDeduction: true,
               deductionOptions: [
                 {
@@ -138,6 +141,8 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
     });
 
     const reloaded = await loadEventJudgingTemplate(eventId, eventTemplateId);
+    expect(reloaded!.template.scoringGroup).toBe("AACA");
+    expect(reloaded!.template.vehicleType).toBe("Auto");
     expect(reloaded!.template.sections[0].name).toBe("Updated Section");
     expect(reloaded!.template.sections[0].items[0].label).toBe("Updated Criteria");
     expect(

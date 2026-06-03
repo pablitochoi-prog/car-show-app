@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScoreSheetTemplateEditor } from "@/components/organizer/awards-judging/score-sheet-template-editor";
 import { EventJudgingClassPanel } from "@/components/organizer/awards-judging/event-judging-class-panel";
+import { formatTemplateDraftValidationErrors } from "@/lib/judging/scorecard-template-mapper";
 import {
   toStructurePayload,
   type EditLockInfo,
@@ -31,7 +32,9 @@ function apiTemplateToDraft(
   template: {
     name: string;
     description: string | null;
-    methodology: string;
+    scoringGroup?: string | null;
+    vehicleType?: string | null;
+    methodology: TemplateDraft["methodology"];
     totalPoints: number;
     sections: {
       id: string;
@@ -40,13 +43,19 @@ function apiTemplateToDraft(
       weightPercent: number | null;
       maxSectionPoints: number | null;
       judgeGuidance: string | null;
+      isActive: boolean;
       items: {
         id: string;
         label: string;
         sortOrder: number;
         maxPoints: number;
+        isIndented: boolean;
+        pointType: "ADD" | "DEDUCT" | null;
+        scoringType: "FULL" | "LEVELS" | "DISCRETIONARY";
+        allowMultipleViolations: boolean;
         judgeGuidance: string | null;
         requiresCommentOnDeduction: boolean;
+        isActive: boolean;
         deductionOptions: {
           id: string;
           label: string;
@@ -61,6 +70,8 @@ function apiTemplateToDraft(
   return {
     name: template.name,
     description: template.description ?? "",
+    scoringGroup: template.scoringGroup ?? "",
+    vehicleType: template.vehicleType ?? "",
     totalPoints: template.totalPoints,
     methodology: template.methodology,
     sections: template.sections.map((section) => ({
@@ -72,13 +83,19 @@ function apiTemplateToDraft(
       maxSectionPoints:
         section.maxSectionPoints != null ? String(section.maxSectionPoints) : "",
       judgeGuidance: section.judgeGuidance ?? "",
+      isActive: section.isActive,
       items: section.items.map((item) => ({
         clientKey: item.id,
         label: item.label,
         sortOrder: item.sortOrder,
         maxPoints: item.maxPoints,
+        isIndented: item.isIndented,
+        pointType: item.pointType,
+        scoringType: item.scoringType,
+        allowMultipleViolations: item.allowMultipleViolations,
         judgeGuidance: item.judgeGuidance ?? "",
         requiresCommentOnDeduction: item.requiresCommentOnDeduction,
+        isActive: item.isActive,
         deductionOptions: item.deductionOptions.map((opt) => ({
           clientKey: opt.id,
           label: opt.label,
@@ -111,6 +128,8 @@ export function ScoreSheetJudgingAdmin({
   const [error, setError] = useState<string | null>(null);
   const [showClonePicker, setShowClonePicker] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [blockingErrors, setBlockingErrors] = useState<string[]>([]);
 
   const loadLists = useCallback(async () => {
     const [tplRes, srcRes, classRes] = await Promise.all([
@@ -137,8 +156,12 @@ export function ScoreSheetJudgingAdmin({
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to load template.");
         setDraft(apiTemplateToDraft(data.template));
-        setEditLockInfo(data.editLockInfo);
+        setEditLockInfo({
+          ...data.editLockInfo,
+          scoreSheetCount: data.template._count?.scoreSheets ?? 0,
+        });
         setWarnings(data.warnings ?? []);
+        setBlockingErrors([]);
         setSelectedTemplateId(templateId);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Load failed.");
@@ -183,9 +206,19 @@ export function ScoreSheetJudgingAdmin({
 
   async function handleSave() {
     if (!selectedTemplateId || !draft || !editLockInfo) return;
+
+    const clientErrors = formatTemplateDraftValidationErrors(draft);
+    if (editLockInfo.canEditStructure && clientErrors.length > 0) {
+      setBlockingErrors(clientErrors);
+      setError("Fix validation errors before saving.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
+    setBlockingErrors([]);
     try {
+      const structurePayload = toStructurePayload(draft);
       const metaRes = await fetch(
         `/api/events/${eventId}/judging-templates/${selectedTemplateId}`,
         {
@@ -195,7 +228,12 @@ export function ScoreSheetJudgingAdmin({
             name: draft.name.trim(),
             description: draft.description.trim() || null,
             ...(editLockInfo.canEditStructure
-              ? { totalPoints: draft.totalPoints }
+              ? {
+                  totalPoints: draft.totalPoints,
+                  scoringGroup: structurePayload.scoringGroup,
+                  vehicleType: structurePayload.vehicleType,
+                  methodology: structurePayload.methodology,
+                }
               : {}),
           }),
         },
@@ -210,7 +248,7 @@ export function ScoreSheetJudgingAdmin({
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(toStructurePayload(draft)),
+            body: JSON.stringify(structurePayload),
           },
         );
         structData = await structRes.json();
@@ -278,8 +316,10 @@ export function ScoreSheetJudgingAdmin({
             Score Sheet Templates
           </CardTitle>
           <CardDescription>
-            Clone a global template, customize sections and criteria, then map judging
-            classes below.
+            Select a predefined template to create an editable copy for this event.
+            Changes here do not modify the global template or other events. Customize
+            categories, subcategories, and increment levels, then map judging classes
+            below.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -314,7 +354,12 @@ export function ScoreSheetJudgingAdmin({
 
           {showClonePicker ? (
             <div className="space-y-2 rounded-lg border p-4">
-              <p className="text-sm font-medium">Select a global template</p>
+              <p className="text-sm text-muted-foreground">
+                Selecting a template creates an editable copy for this event. Changes
+                you make here will not modify the global/default template or any other
+                event.
+              </p>
+              <p className="text-sm font-medium">Select a predefined template</p>
               {sourceTemplates.map((st) => (
                 <button
                   key={st.id}
@@ -370,10 +415,13 @@ export function ScoreSheetJudgingAdmin({
               setDraft={setDraft}
               editLockInfo={editLockInfo}
               warnings={warnings}
+              blockingErrors={blockingErrors}
               saving={saving}
               onSave={() => void handleSave()}
               showPreview={showPreview}
               onTogglePreview={() => setShowPreview((v) => !v)}
+              showArchived={showArchived}
+              onShowArchivedChange={setShowArchived}
             />
           </CardContent>
         </Card>
