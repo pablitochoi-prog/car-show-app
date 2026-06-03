@@ -1388,7 +1388,7 @@ Three **separate** award workflows (additive, no breaking changes):
 
 ### Phase 4A — Score sheet results + CSV
 
-**Status:** ✅ **COMMITTED** `1825c3c` — final re-QA PASS (2026-06-02). Push/deploy when approved. Per-judge organizer sheet view: follow-up (4A.1).
+**Status:** ✅ **PRODUCTION VERIFIED** — commit `521da87` on https://events.carshowscout.com (2026-06-02). Per-judge detail: **Phase 4A.1** (planned below).
 
 #### Prerequisite — Vercel production deploy `cb6c9ce` (migration hardening)
 
@@ -1571,7 +1571,7 @@ Reuse patterns from `phase-1c-integration.test.ts` (“flags tied results correc
 - [x] **View Results** on score sheet setup (`score-sheet-judging-admin.tsx`)
 - [x] `src/lib/judging/score-sheet-results.test.ts` (7 unit tests)
 - [x] **UX nav fix (2026-06-02):** hub tile + Edit Event card → Results; template name links to score sheet setup on results page
-- [x] Manual QA — **PARTIAL PASS** (2026-06-02; re-QA nav/template after UX fix)
+- [x] Manual QA + production smoke — **PASS** (2026-06-02; `521da87`)
 
 **Review (Phase 4A code):** Read-only aggregation from `JudgeScoreSheet` + snapshot sections. Official score = average of `finalScore` for `SUBMITTED`/`FINALIZED` only. Dense rank + tie flag mirrors ballot. Owner names via `resolveRegistrationContact` (organizer API only). Section averages in expandable row; not in CSV MVP. Admin per-judge breakdown deferred.
 
@@ -1632,11 +1632,500 @@ Reuse patterns from `phase-1c-integration.test.ts` (“flags tied results correc
 **Ties:** covered by unit tests (`applyDenseRanking`); manual tie test optional.  
 **Section expand:** PASS if visible and stable; N/A if no submitted section data.
 
+#### Production smoke test — Phase 4A (`521da87`)
+
+**Status:** ✅ **PASS**
+
+**Base URL:** https://events.carshowscout.com
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Awards & Judging hub loads | ✅ PASS |
+| 2 | Score Sheet Judging tile → **View Results** | ✅ PASS |
+| 3 | Edit Event → **View Score Sheet Results** | ✅ PASS |
+| 4 | Score Sheet Results page loads | ✅ PASS |
+| 5 | CSV export downloads | ✅ PASS |
+| 6 | Judge Ballot Awards still works | ✅ PASS |
+| 7 | Public Voting tile on hub | ✅ PASS |
+| 8 | `/judge` still loads | ✅ PASS |
+
+**Errors observed:** No missing-table Prisma, P2024, PKCE verifier, or repeated Supabase getSession warnings. No other visible errors.
+
+**Notes:** Phase 4A Score Sheet Results + CSV export live in production. No migration or seed run for this deploy. **Follow-up:** organizer per-judge score sheet records (4A.1) — averages only in 4A.
+
+**Vercel deploy:** https://vercel.com/pablitochoi-progs-projects/car-show-app/B1FeUEHaWySPhmjM9e7KbCqhDLCh
+
+---
+
+### Phase 4A.1 — Organizer read-only judge score sheet detail
+
+**Status:** ✅ **IMPLEMENTED** — **manual QA in progress** (organizer). **Paused:** do not commit or deploy until QA sign-off.
+
+#### Goal
+
+From **Score Sheet Results**, organizers/event managers with `canManageEvent` can drill into a vehicle and view **each submitted/finalized judge score sheet** (full snapshot: sections, items, deductions, comments, totals). Read-only. No public routes. No change to scoring math or judge edit flows.
+
+**Out of scope:** Judge Ballot Awards, Public/SMS voting, registration, dash cards, buyer inquiry, auth/PKCE/pool, migrations, judge mobile PATCH/submit, Phase 4A aggregate/CSV behavior (except optional additive export).
+
+---
+
+#### Current state (inspection)
+
+| Area | Today |
+|------|--------|
+| **Data** | `JudgeScoreSheet` + `JudgeScoreSheetSection` / `Item` / `Deduction*` — snapshot at sheet start; `finalScore`, `submittedAt`, `generalNotes`, `originalityDeductions`, `conditionDeductions` on sheet row |
+| **Scoring display** | `calculateScoreFromSnapshot()` → `finalScore`, `sectionScores[]` (same as judge UI) |
+| **Judge UI** | `judge-score-sheet-screen.tsx` — loads `GET /api/judge/.../score-sheets/[sheetId]`; editable when `DRAFT`, read-only when submitted |
+| **Judge loader** | `getJudgeScoreSheetDetail(judgeUserId, ...)` — **scoped to that judge only**; cannot reuse for organizer |
+| **Organizer results** | `score-sheet-results.ts` + `score-sheet-results-admin.tsx` — aggregates only; no per-judge drill-down |
+| **Auth pattern** | Phase 4A APIs use `canManageEvent` — same gate for 4A.1 |
+
+**Gap:** Organizers see average/high/low but cannot open Judge A vs Judge B sheets for AZV-003.
+
+---
+
+#### Data model review
+
+- **No migration** — read existing rows.
+- **Query key:** `eventId` + `eventJudgingClassId` + `vehicleEntryCode`.
+- **Default list:** `status IN (SUBMITTED, FINALIZED)` — align with Phase 4A official scores.
+- **Drafts:** Hidden by default; optional organizer toggle `includeDrafts=1` (clearly labeled, not included in averages on detail header).
+- **Judge identity:** Join `User` on `judgeUserId` — `name`, `email` for organizer (apply `maskContactIfBanned` if user banned, same as registration contact patterns).
+- **Do not expose** judge sheets on public routes or judge APIs to other judges.
+
+---
+
+#### Proposed workflow
+
+1. Organizer on `/organizer/events/{eventId}/awards-judging/score-sheets/results?judgingClassId={classId}` (preserve class in query when navigating).
+2. Clicks **View score sheets** on a ranked row (or entry code link).
+3. Navigates to vehicle detail (recommended **dedicated page** for print-friendly layout):
+
+   `/organizer/events/{eventId}/awards-judging/score-sheets/results/vehicle/{vehicleEntryCode}?judgingClassId={classId}`
+
+4. Page shows vehicle summary (from results row metadata) + **one card per judge sheet** (submitted/finalized first).
+5. Each card: judge name/email, status, submitted time, final score, section scores, item breakdown, bucket deductions, general notes.
+6. **Print** button → `window.print()` + minimal `print:` CSS (hide nav, full-width cards).
+7. **Back to results** preserves `judgingClassId` query param.
+
+**Alternative (lower priority):** Inline expand on results table — worse for print; prefer dedicated page for MVP.
+
+---
+
+#### API / service layer
+
+**New lib:** `src/lib/judging/organizer-score-sheet-vehicle-detail.ts`
+
+| Function | Purpose |
+|----------|---------|
+| `loadOrganizerVehicleScoreSheets(eventId, judgingClassId, vehicleEntryCode, options?)` | List sheets + full snapshot include (same tree as `getJudgeScoreSheetDetail`) |
+| `serializeScoreSheetDetailForReadOnly(sheet)` | Shared JSON shape for organizer (and future reuse) |
+
+**Per sheet in response:**
+
+```ts
+{
+  sheetId: string;
+  judge: { userId: string; name: string; email: string };
+  status: JudgeScoreSheetStatus;
+  submittedAt: string | null;  // ISO + display label via formatSubmittedAt
+  finalScore: number | null;   // persisted + matches calculated
+  originalityDeductions: number;
+  conditionDeductions: number;
+  generalNotes: string | null;
+  methodology: string;
+  totalPoints: number;
+  calculated: { finalScore; sectionScores; originalityDeductions; conditionDeductions };
+  sections: [ /* mirror judge SheetDetail sections with deductions resolved to labels */ ];
+}
+```
+
+**Implementation notes:**
+
+- Reuse Prisma `include` from `getJudgeScoreSheetDetail` (sections → items → deductions + options).
+- Run `calculateScoreFromSnapshot(sheet)` server-side for section scores footer (read-only display, not recalculating stored `finalScore`).
+- Validate `eventJudgingClassId` belongs to `eventId` and sheet rows match class + entry code.
+- Vehicle header: reuse metadata from `aggregateScoreSheetResults` row or light `registrationVehicle` lookup (nickname, Y/M/M, class, owner).
+
+**New route:**
+
+| Route | Auth | Query |
+|-------|------|-------|
+| `GET /api/events/[id]/score-sheets/results/vehicle-detail` | `canManageEvent` | `judgingClassId` (required), `vehicleEntryCode` (required), `includeDrafts` optional `0\|1` |
+
+Returns `{ vehicle, judgingClass, officialSummary, sheets: [...] }`.
+
+**Do not** add organizer PATCH/DELETE. **Do not** call judge-only `getJudgeScoreSheetDetail`.
+
+---
+
+#### UI routes / components
+
+| Item | Path / file |
+|------|-------------|
+| **Page** | `src/app/organizer/events/[id]/awards-judging/score-sheets/results/vehicle/[vehicleEntryCode]/page.tsx` |
+| **Auth** | `getCurrentUser`, `canManageEvent`, `requireStaffStepUpPage` (match Phase 4A results) |
+| **Client** | `src/components/organizer/awards-judging/organizer-score-sheet-vehicle-detail.tsx` |
+| **Read-only body** | `src/components/organizer/awards-judging/organizer-score-sheet-read-only.tsx` — presentational; mirrors judge screen layout without inputs (extract patterns from `judge-score-sheet-screen.tsx`, no shared file required for MVP if duplication stays &lt;150 lines) |
+
+**Results table change (`score-sheet-results-admin.tsx`):**
+
+- Add column or row action: **View score sheets** → vehicle detail URL with `judgingClassId` + encoded `vehicleEntryCode`.
+- Pass `eventId` + `selectedClassId` into `ResultRow`.
+
+**Optional:** Link from unranked draft-only section with badge “draft sheets” only when `includeDrafts` toggle enabled on detail page.
+
+---
+
+#### Print-friendly view
+
+- Page wrapper class `print:bg-white`; `EventOrganizerNav` + buttons `print:hidden`.
+- Single-column cards stack for print.
+- No new PDF library — browser print only.
+
+---
+
+#### CSV expansion (optional — defer if not low-risk)
+
+**Recommendation:** **Defer to 4A.1b** unless trivial.
+
+If included later:
+
+- `GET .../score-sheets/results/vehicle-detail/export?...` or extend class CSV with optional `detail=per_judge` mode.
+- One row per judge per vehicle: entry code, judging class, judge name, final score, status, submitted_at, section scores as delimited string.
+- **Risk:** Wide columns, PII (judge email); keep behind same `canManageEvent` gate.
+
+---
+
+#### Access control
+
+| Actor | Access |
+|-------|--------|
+| Event organizer / staff with `canManageEvent` | Yes |
+| Platform admin | Yes (via `canManageEvent` + platform role) |
+| Judge (other judges’ sheets) | **No** — existing judge API unchanged |
+| Public / registrant | **No** |
+| Non-staff user | 403 |
+
+No new public pages. No changes to `/judge` routes.
+
+---
+
+#### Tie-handling / scoring
+
+- **No change** to `score-sheet-results.ts` ranking or averages.
+- Detail page shows **per-judge** `finalScore` as stored; may differ from row average (by design).
+
+---
+
+#### Tests to add
+
+| Test | Type |
+|------|------|
+| `organizer-score-sheet-vehicle-detail.test.ts` | Unit: filters SUBMITTED/FINALIZED; excludes drafts by default; includes judge fields |
+| API route test (mock auth) | 401/403, missing params, 404 wrong class |
+| Integration (optional) | Load EVT-1003 AZV-003 with known submitted sheet — judge count matches results row |
+
+---
+
+#### Implementation (complete)
+
+- [x] `organizer-score-sheet-vehicle-detail.ts` + serializer
+- [x] `GET /api/events/[id]/score-sheets/results/vehicle-detail`
+- [x] Vehicle page + `organizer-score-sheet-vehicle-detail.tsx` + `organizer-score-sheet-read-only.tsx`
+- [x] **View score sheets** on results rows (`score-sheet-results-admin.tsx`)
+- [x] Print + back link + `includeDrafts` toggle
+- [x] `organizer-score-sheet-vehicle-detail.test.ts` (5 unit tests)
+- [ ] Manual QA (organizer — in progress; report results to update checklist below)
+- [ ] Commit / deploy (blocked until QA sign-off)
+
+**Review:** Uses `aggregateScoreSheetResults` for vehicle header/official average (no scoring logic change). Depends on `format-submitted-at.ts` (include in 4A.1 commit). CSV per-judge deferred to 4A.1b. **No code changes during QA** unless a failure is reported.
+
+---
+
+#### Manual QA checklist (Phase 4A.1) — organizer
+
+**Route (results):** `/organizer/events/{id}/awards-judging/score-sheets/results`  
+**Route (detail):** `/organizer/events/{id}/awards-judging/score-sheets/results/vehicle/{entryCode}?judgingClassId={classId}`
+
+Report each item as PASS / FAIL / SKIP; checklist updated on report. **QA date:** _pending_
+
+**1. Results row → vehicle detail**
+
+- [ ] Results page still loads
+- [ ] Each ranked row has **View score sheets**
+- [ ] Click opens vehicle detail URL with correct `entryCode` and `judgingClassId`
+
+**2. Vehicle detail header**
+
+- [ ] Event name
+- [ ] Judging class
+- [ ] Template name
+- [ ] Entry code
+- [ ] Vehicle nickname
+- [ ] Year / make / model
+- [ ] Vehicle class
+- [ ] Owner name (organizer/admin)
+- [ ] Official average score
+- [ ] Judge count
+
+**3. Submitted/finalized judge sheets**
+
+- [ ] Sheets appear as read-only cards (SUBMITTED/FINALIZED)
+- [ ] Judge name and email (organizer/admin)
+- [ ] Status
+- [ ] Submitted date/time
+- [ ] Final score
+- [ ] No edit controls
+
+**4. Score sheet detail content**
+
+- [ ] Section scores
+- [ ] Item deductions / awarded points
+- [ ] Judge comments on deductions/items
+- [ ] Originality/condition deductions safe when applicable
+- [ ] General notes when present
+
+**5. Draft handling**
+
+- [ ] Draft sheets hidden by default
+- [ ] **Show draft sheets** or `includeDrafts=1` reveals drafts (if any)
+- [ ] Drafts clearly labeled; not mixed into official results
+
+**6. Navigation**
+
+- [ ] **Back to results** works
+- [ ] Back preserves `judgingClassId`
+- [ ] Template link → score sheet setup page
+
+**7. Print**
+
+- [ ] Print button triggers browser print
+- [ ] Nav/actions hidden or minimized in print view
+
+**8. Regression**
+
+- [ ] Score Sheet Results page still works
+- [ ] CSV export still works
+- [ ] Judge Ballot Awards still works
+- [ ] Public Voting tile on hub
+- [ ] `/judge` still loads
+- [ ] No Prisma P2024
+- [ ] No missing-table errors
+- [ ] No repeated Supabase getSession warning
+
+**QA summary:** _pending_  
+**Errors observed:** _none reported yet_  
+**Sign-off for commit:** _pending_
+
+---
+
+### Phase 5 — Templated scorecard judging (AACA / PCA / NCRS / MCA model)
+
+**Status:** **5A–5C committed** — **5D–5E not started.**  
+**Note:** Phase 4A.1 still uncommitted in working tree; 5A files kept isolated from 4A.1/unrelated edits.  
+**Reference:** `tasks/judging-template-architecture-plan.md` (original three-workflow architecture).
+
+#### Executive summary
+
+Car Show Scout **already implements** the core “global template → event copy → judge snapshots” pattern. Production has PCA/AACA/Marque/Modified **global** templates, organizer **clone + customize** (`EventJudgingTemplate`), **judging classes**, mobile **score sheet** judging, and **separate** Judge Ballot Awards.
+
+This phase **extends** that stack to match classic scorecard semantics (categories / subcategories / increment levels, Full/Levels/Discretionary, multiple violations, category-based judge assignment, clearer judge statuses). It is **not** a greenfield rewrite.
+
+#### Terminology mapping (existing → requested)
+
+| Requested | Current model / UI | Notes |
+|-----------|-------------------|--------|
+| Scoring Group (AACA, PCA…) | `JudgingTemplate.name` / slug | Add optional `scoringGroup` field if needed for display/filter |
+| Vehicle Type (Auto, Trike…) | _Missing_ | Add optional `vehicleType` on global + event template header |
+| Scoring Method D / A | `JudgingMethodology.DEDUCTION` / `.ADDITIVE` | Keep enum; map D→DEDUCTION, A→ADDITIVE; retain `ORIGINALITY_CONDITION` for Marque seed |
+| Category | `*Section` (`EventJudgingSection`) | Rename labels in organizer/judge UI only unless DB rename desired later |
+| Subcategory | `*Item` (`EventJudgingItem`) | Add metadata fields below |
+| Increment level | `*DeductionOption` | Extend for Levels/Full; optional for Discretionary |
+| Full / Levels / Discretionary | _Implicit_ (multi deduction buttons) | New `JudgingSubcategoryScoringType` enum + validation |
+| Add / Deduct point type | Template-level methodology today | Add per-item `pointType` where product requires mixed add/deduct within one template |
+| Multiple violations | _Missing_ | New `violationCount` on sheet deductions + cap logic |
+| Not Judged / Saved for Later / Submitted | No sheet / `DRAFT` / `SUBMITTED`(+`FINALIZED`) | UI labels + list sort; keep DB enum for compat |
+| Category judge assignment | Event-level `JUDGE` staff only | **Largest new feature** — see Phase 5D |
+| Event owns copy | `EventJudgingTemplate` + `sourceTemplateId` | ✅ Already enforced; global not editable from organizer UI |
+
+#### What already works (reuse — do not rebuild)
+
+| Capability | Location |
+|------------|----------|
+| Global master templates + seed | `prisma/seed-judging-templates.ts`, `JudgingTemplate*` |
+| Clone global → event (full tree) | `clone-judging-template-to-event.ts`, `POST .../judging-templates/clone` |
+| Event template CRUD (sections/items/options) | `event-judging-template-service.ts`, structure API, organizer builder |
+| Edit lock when sheets exist | `event-judging-edit-lock.ts` |
+| Server validation (totals, empty sections) | `event-judging-template-validation.ts` |
+| Judging class → template + vehicle classes | `EventJudgingClass`, `event-judging-class-panel.tsx` |
+| Score calculation + caps (section max) | `calculate-score.ts`, `calculate-score-from-snapshot.ts` |
+| Judge snapshot on start | `snapshot-score-sheet.ts` |
+| Mobile judge sheet (draft/save/submit) | `judge-score-sheet-screen.tsx`, `judge-score-sheet-mutations.ts` |
+| Ballot voting (separate) | `judge-ballot-*` — **do not modify** except shared staff list |
+| Organizer results (4A) | `score-sheet-results.ts` — scoring math unchanged in 5A–5C |
+
+#### Gaps vs business requirements
+
+1. **Template header:** scoring group, vehicle type (optional metadata).
+2. **Subcategory config:** indent flag, point type (add/deduct), scoring type (full/levels/discretionary), multiple violations flag, guidelines popup.
+3. **Increment levels:** explicit validation (Full=1, Levels≥1, Discretionary=0); weight vs max score rules.
+4. **Scoring engine:** violation count × increment weight capped at subcategory max; discretionary 0..max integer; category floor/ceiling (partially exists).
+5. **Organizer UI:** expose new fields; reorder (DnD or up/down — match existing pattern); soft-delete/archive if sheets reference rows.
+6. **Category-based judge assignment:** bulk assign judges to vehicles × categories (sections); read-only unassigned categories on judge mobile.
+7. **Judge UX:** category nav buttons, vehicle header fields (trim/VIN/thumbnail/story), status sort (Not Judged → Saved → Submitted), return to list after save/submit.
+8. **Tests:** copy isolation, CRUD validation, scoring caps, assignment, mobile controls, status behavior.
+
+#### Recommended approach (extend, don’t fork)
+
+**Prefer additive Prisma fields + UI/scoring extensions** on existing tables over new parallel “category” tables. Rationale: production snapshots, 4A results, and integration tests already bind to `JudgeScoreSheetSection` / `Item` / `Deduction`.
+
+Proposed schema additions (single migration `20260604120000_scorecard_template_metadata` — names TBD):
+
+```prisma
+enum JudgingSubcategoryScoringType { FULL LEVELS DISCRETIONARY }
+enum JudgingSubcategoryPointType { ADD DEDUCT }
+
+// JudgingTemplate + EventJudgingTemplate
+scoringGroup   String?   // e.g. AACA
+vehicleType    String?   // e.g. Auto
+
+// *Section (category)
+isActive       Boolean @default(true)
+
+// *Item (subcategory)
+isIndented           Boolean @default(false)
+pointType            JudgingSubcategoryPointType?  // null = inherit template methodology
+scoringType          JudgingSubcategoryScoringType @default(LEVELS)
+allowMultipleViolations Boolean @default(false)
+isActive             Boolean @default(true)
+
+// *DeductionOption (increment level)
+// pointsDeducted → incrementWeight (alias in UI only unless rename column)
+
+// JudgeScoreSheetDeduction (judge entry)
+violationCount Int @default(1)
+discretionaryPoints Int?  // when scoringType DISCRETIONARY
+```
+
+Snapshot copy in `snapshot-score-sheet.ts` must copy new fields. `calculate-score.ts` gains branches for scoring type + violation math.
+
+**Global templates:** extend seed data only; organizer APIs remain **event-template-only** for writes (already true).
+
+#### Implementation phases (approval per phase)
+
+| Phase | Scope | Deliverables |
+|-------|--------|----------------|
+| **5A — Schema + validation + scoring** | Migration, enums, extend clone/snapshot, `calculate-score` + unit tests (Full/Levels/Discretionary, violations, caps) | Lib + tests; no judge UI yet |
+| **5B — Organizer template builder** | Header fields, category/subcategory/increment CRUD UI, client+server validation, soft-delete rules | `event-judging-template-*`, organizer components |
+| **5C — Seed + predefined picker** | Enrich PCA/AACA/NCRS/MCA seeds with scoring types; “Start from template” copies unchanged tree | `seed-judging-templates.ts`, clone flow QA |
+| **5D — Category judge assignment** | Models: `EventJudgingSectionJudgeAssignment` (event, sectionId, judgeUserId, vehicleEntryCode?) + organizer bulk UI from registrations; enforce on judge APIs | New APIs + organizer assign flow |
+| **5E — Mobile judge UX** | Category tabs, read-only sections, Full/Levels/Discretionary controls, violation count, vehicle header, status labels/sort, save/submit → back to list | `judge-score-sheet-*` components |
+| **5F — Regression + docs** | Ballot/public/4A/4A.1 smoke; manual QA checklist; update architecture doc | todo.md QA section |
+
+**Out of scope for Phase 5 (unless explicitly added):** Per-judge CSV (4A.1b), ballot changes, public voting, legacy `VehicleJudgeScore` removal, renaming DB tables to Category/Subcategory.
+
+#### Validation rules (implement in 5A/5B)
+
+- Category (`section`) `maxSectionPoints` required, positive integer.
+- Subcategory (`item`) `maxPoints` required, positive; warn if sum of items > section max (existing warnings).
+- `FULL` → exactly one increment option; `LEVELS` → ≥1; `DISCRETIONARY` → 0 options, `allowMultipleViolations` forced false.
+- Increment weight positive, ≤ subcategory max.
+- Deleting/archiving: block or soft-delete when `JudgeScoreSheet*` references exist (use `isActive` + edit lock).
+
+#### Judge assignment workflow (5D)
+
+Mirror ballot pattern (`JudgeBallotCategoryJudgeAssignment`) at **section (category)** granularity:
+
+1. Organizer filters registrations by vehicle class.
+2. Multi-select vehicles → Assign Judges.
+3. Pick judge from event `JUDGE` staff.
+4. Toggle category buttons (Exterior, Interior, … from event template sections).
+5. Persist assignments; support reassignment.
+6. Judge mobile: `assertJudgeCanEditSection(judgeId, sheetId, sectionId)`; other sections render read-only on same vehicle view.
+
+**Alternative (defer):** Per-section separate `JudgeScoreSheet` rows — heavier; not recommended for MVP.
+
+#### Status mapping (5E — UI + list API)
+
+| Display | Condition |
+|---------|-----------|
+| Not Judged | No sheet for vehicle+class, or sheet exists but zero progress on assigned sections |
+| Saved for Later | `DRAFT` with at least one assigned section touched |
+| Submitted | `SUBMITTED` or `FINALIZED` |
+
+Preserve submit → read-only behavior from Phase 2E.
+
+#### Test plan (automated)
+
+| Area | Tests |
+|------|--------|
+| Clone isolation | Global template edit does not change existing `EventJudgingTemplate` (extend `event-judging-template-builder.test.ts`) |
+| CRUD validation | Full/Levels/Discretionary rules (`event-judging-template-validation.test.ts`) |
+| Violation math | New `scorecard-violation-scoring.test.ts` |
+| Category caps | Extend `calculate-score.test.ts` |
+| Assignment | New `event-judging-section-assignment.test.ts` |
+| Judge mobile | Extend `judge-score-sheet-judge-flow.test.ts` + draft validation |
+| Ballot regression | Existing `judge-ballot-*` suite unchanged |
+
+#### Manual QA (after 5F)
+
+- [ ] Clone PCA/AACA → event copy; edit event copy; confirm global unchanged
+- [ ] Full/Levels/Discretionary subcategories render correct judge controls
+- [ ] Multiple violations cap at subcategory max
+- [ ] Category assignment: assigned editable, unassigned read-only
+- [ ] Save for Later / Submit + list sort
+- [ ] Judge Ballot + Public Voting + Phase 4A results unchanged
+- [ ] `/judge` hub and QR scan flow
+
+#### Files likely touched (by phase)
+
+- `prisma/schema.prisma` + migration
+- `prisma/seed-judging-templates.ts`
+- `src/lib/judging/clone-judging-template-to-event.ts`, `snapshot-score-sheet.ts`, `calculate-score.ts`, `calculate-score-from-snapshot.ts`
+- `src/lib/judging/event-judging-template-validation.ts`, `event-judging-template-service.ts`
+- `src/app/api/events/[id]/judging-templates/**`
+- `src/components/organizer/awards-judging/*` (template builder, new assign-judges UI)
+- `src/lib/judging/judge-score-sheet-judge-data.ts`, `judge-score-sheet-mutations.ts`
+- `src/components/judge/judge-score-sheet-*.tsx`
+- New: assignment service + API routes under `src/app/api/events/[id]/judging-assignments/` (TBD)
+
+#### Approval gate
+
+- [x] Terminology: Section=Category, Item=Subcategory, DeductionOption=Increment Level (UI labels in 5B)
+- [x] Event copy only for scoring; global = starter template
+- [x] One sheet per judge/vehicle; section-level edit rights (5D)
+- [x] `ORIGINALITY_CONDITION` preserved via `calculateScorecardSheetScore` legacy bridge
+- [ ] Phase 4A.1 QA + commit completed separately
+
+#### Phase 5A — complete (foundation)
+
+- [x] Migration `20260604120000_scorecard_template_metadata`
+- [x] `scorecard-template-validation.ts` + tests (8 cases)
+- [x] `scorecard-scoring.ts` + tests (caps, D/A, Full/Levels/Discretionary, violations, O/C bridge)
+- [x] Clone + snapshot copy new metadata fields
+- [x] Organizer template builder UI (5B)
+- [ ] Judge mobile UI (5E)
+- [ ] Category judge assignment (5D)
+- [x] Seed scoring types on global templates (5C)
+
+**5A files:** `prisma/schema.prisma`, `prisma/migrations/20260604120000_*`, `scorecard-template-validation.ts`, `scorecard-scoring.ts`, `clone-judging-template-to-event.ts`, `snapshot-score-sheet.ts`, `*.test.ts`
+
+**Deploy:** run `npm run db:migrate:deploy` before app that depends on new columns.
+
+**5B (complete):** Organizer builder at `/organizer/events/{id}/awards-judging/score-sheets` — header fields, category/subcategory/increment editors, scorecard validation blocks save, archive when score sheets exist, clone helper text.
+
+**5C (complete):** `src/lib/judging/seed-templates/*` + `prisma/seed-judging-templates.ts` — PCA Zone 8, NCRS/MCA 1968-72 exterior, AACA automobile starter; Marque/Modified retained. Run `npm run db:seed-judging-templates` per environment (does not alter event copies).
+
+**Next:** Phase 5D assignment; Phase 5E judge mobile + `calculateScorecardSheetScore` wiring.
+
+#### Approval gate (historical)
+
 ---
 
 ### Phase 4B — Judge ballot results (ranked, tie indicator, admin vote spread)
 
-### Phase 5 — Polish (DnD, event clone, deprecate legacy 1–100)
+### Phase 6 — Polish (DnD, event clone, deprecate legacy 1–100)
 
 ## Review (Phase 1A + 1B)
 
