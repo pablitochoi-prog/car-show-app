@@ -53,6 +53,8 @@ const TILES = [
       "Structured judge score sheets by vehicle class using event-specific judging templates.",
     href: (eventId: string) =>
       `/organizer/events/${eventId}/awards-judging/score-sheets`,
+    resultsHref: (eventId: string) =>
+      `/organizer/events/${eventId}/awards-judging/score-sheets/results`,
     icon: ClipboardCheck,
   },
 ] as const;
@@ -130,13 +132,24 @@ export function AwardsJudgingHub({
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1" />
-              <CardFooter>
+              <CardFooter className="flex flex-col gap-2">
                 <Link
                   href={tile.href(eventId)}
                   className={cn(buttonVariants(), "w-full justify-center")}
                 >
                   Configure
                 </Link>
+                {"resultsHref" in tile && tile.resultsHref ? (
+                  <Link
+                    href={tile.resultsHref(eventId)}
+                    className={cn(
+                      buttonVariants({ variant: "outline" }),
+                      "w-full justify-center",
+                    )}
+                  >
+                    View Results
+                  </Link>
+                ) : null}
               </CardFooter>
             </Card>
           );

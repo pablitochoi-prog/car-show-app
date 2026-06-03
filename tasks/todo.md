@@ -1388,6 +1388,252 @@ Three **separate** award workflows (additive, no breaking changes):
 
 ### Phase 4A — Score sheet results + CSV
 
+**Status:** ✅ **COMMITTED** `1825c3c` — final re-QA PASS (2026-06-02). Push/deploy when approved. Per-judge organizer sheet view: follow-up (4A.1).
+
+#### Prerequisite — Vercel production deploy `cb6c9ce` (migration hardening)
+
+| Check | Result |
+|-------|--------|
+| GitHub commit status | ✅ **success** — *Deployment has completed* |
+| Environment | Production |
+| Scope | Migration history only (`20260603120000_harden_event_judging_class_eligible_category_fks`); **no app behavior change** expected |
+| Vercel URL | https://vercel.com/pablitochoi-progs-projects/car-show-app/BtevLCCEK9uuuYVDPuGC5KU6o8vD |
+
+Subsequent deploy `2529ef3` added dashboard **My Judging** tile only (separate from `cb6c9ce`).
+
+---
+
+#### Phase 4A goal
+
+Organizer-facing **Score Sheet Judging → Results**: ranked vehicles by official score, grouped by `EventJudgingClass`, with status summaries, optional section breakdown, tie flags, and CSV export. **Organizer/staff only** — no public results page. **No judge names** on organizer view; per-judge detail **site admin only**.
+
+**Out of scope (do not touch unless unavoidable):** Judge Ballot Awards, Public/SMS voting, registration, dash cards, buyer inquiry, auth/PKCE/pool, migrations/seeds, judge mobile UX.
+
+---
+
+#### Current state (code inspection)
+
+**Data model (`prisma/schema.prisma`):**
+
+| Model | Role |
+|-------|------|
+| `EventJudgingClass` | Named judging class → one `EventJudgingTemplate`, many eligible `EventCategory` rows via `EventJudgingClassEligibleCategory` |
+| `JudgeScoreSheet` | Per **event + vehicle entry code + judge** (`@@unique([eventId, vehicleEntryCode, judgeUserId])`); `eventJudgingClassId`; `status` `DRAFT` \| `SUBMITTED` \| `FINALIZED`; persisted `finalScore`, `originalityDeductions`, `conditionDeductions` |
+| `JudgeScoreSheetSection` / `Item` / `Deduction*` | Snapshot of template at sheet creation; source for live/aggregated section scores |
+
+**Submit behavior today (`judge-score-sheet-mutations.ts`):** Submit sets `status: SUBMITTED`, `submittedAt`, `finalizedAt`, and writes `finalScore` from `calculateScoreFromSnapshot`. **`FINALIZED` is in the enum but not set by submit** — counts should still report all three statuses for forward compatibility.
+
+**Scoring (`calculate-score.ts` / `calculate-score-from-snapshot.ts`):** Returns `finalScore`, `sectionScores[]` (aligned to section order), bucket deductions. Section scores are **not persisted** on the sheet row — recompute from snapshot when displaying/exporting.
+
+**Organizer routes today:**
+
+| Route | Purpose |
+|-------|---------|
+| `/organizer/events/[id]/awards-judging` | Hub (3 tiles) |
+| `/organizer/events/[id]/awards-judging/score-sheets` | Template builder + judging classes (`ScoreSheetJudgingAdmin`) |
+| `/organizer/events/[id]/awards-judging/ballot` | Ballot setup + **inline Results** per category |
+
+**Ballot results pattern (reuse):**
+
+- Lib: `src/lib/judging/judge-ballot-results.ts` — group by vehicle, rank DESC, `isTied`, vehicle meta via `vehicleEntryIndex` + `RegistrationVehicle` / guest JSON
+- API: `GET /api/events/[id]/judge-ballot/results?categoryId=` — `canManageEvent`; strips `voteSpreadByJudge` unless `includeVoteSpread=1` (admin-only spread)
+- UI: `judge-ballot-admin.tsx` → `ResultsTable` (rank, entry code, vehicle, class, totals, tie badge)
+
+**Gap:** No score-sheet results lib, API, organizer Results route, or CSV export.
+
+---
+
+#### Data model review (Phase 4A)
+
+- **No schema migration required** for MVP if aggregation reads existing `JudgeScoreSheet` + snapshot sections.
+- **Grouping key:** `eventJudgingClassId` on each sheet (set in `startOrResumeJudgeScoreSheet` / `snapshot-score-sheet.ts`).
+- **Official score (multi-judge):** For each `vehicleEntryCode` within a class, among sheets with `status IN (SUBMITTED, FINALIZED)` and non-null `finalScore`:
+  - `officialScore = average(finalScore)` (round display to 1 decimal; store full precision in CSV).
+  - `judgeCount` = distinct `judgeUserId` with submitted/finalized sheets.
+  - `highScore` / `lowScore` / `scoreSpread` = max/min/(max−min) of per-judge `finalScore` when `judgeCount > 1`; omit or `—` when single judge.
+- **Status counts (per vehicle in class):** Count sheets by status for that vehicle (all judges): `draftCount`, `submittedCount`, `finalizedCount`.
+- **Ranking:** Sort vehicles by `officialScore` **DESC** (higher is better). Vehicles with **no** submitted/finalized sheets appear in an **unranked** subsection (draft-only), not mixed into ranked list.
+- **Section-level scores:** For each section (match by `sortOrder` + `name` on snapshot), compute per-judge section score via `calculateScoreFromSnapshot` → `sectionScores[i]`; display **average per section** on organizer row (optional expand/collapse). Align section columns to template order for the class.
+- **Owner name:** Resolve via `resolveRegistrationContact` / registration row (same pattern as `registrations/export/route.ts`) — show **only when** `canManageEvent` or `isSiteAdmin`; never on public routes.
+- **Admin-only judge detail:** Optional `judgeBreakdown: { judgeUserId, judgeName, finalScore, status }[]` when `isSiteAdmin` and `?includeJudgeBreakdown=1` (mirror ballot `includeVoteSpread`).
+
+---
+
+#### Tie-handling recommendation
+
+Mirror ballot dense-rank on **`officialScore`** (not per-judge scores):
+
+1. Sort vehicles by `officialScore` DESC (unranked draft-only excluded).
+2. Assign `rank` when score changes (1, 2, 2, 4…).
+3. `isTied = true` if previous or next row has the same `officialScore` (same logic as `judge-ballot-results.ts`).
+4. **UI:** Amber “(tie)” next to rank (reuse ballot styling).
+5. **CSV:** `is_tied` column `yes`/`no`; do not auto-split ties — organizer resolves manually.
+
+**Edge cases:** Single judge → no tie at vehicle level unless duplicate vehicles (impossible per unique constraint). DRAFT sheets do not affect rank.
+
+---
+
+#### API routes needed
+
+| Route | Method | Auth | Notes |
+|-------|--------|------|-------|
+| `/api/events/[id]/score-sheets/results` | GET | `canManageEvent` (organizer/staff) | Query: `judgingClassId` (required). Returns class metadata + ranked rows + unranked draft-only + class-level status summary |
+| `/api/events/[id]/score-sheets/results/export` | GET | `canManageEvent` | Same query; `text/csv` attachment (pattern: `registrations/export/route.ts` `csvEscape`) |
+| (optional, same handler) | | `isSiteAdmin` + `includeJudgeBreakdown=1` | Per-judge scores/names in JSON only — **excluded from CSV** for MVP |
+
+**Response shape (sketch):**
+
+```ts
+{
+  judgingClass: { id, name, templateName, totalPoints, methodology },
+  summary: { draftCount, submittedCount, finalizedCount, vehicleCount, judgeCount },
+  ranked: ScoreSheetResultRow[],
+  unrankedDraftOnly: ScoreSheetResultRow[],
+}
+```
+
+**New lib (proposed):** `src/lib/judging/score-sheet-results.ts` — `aggregateScoreSheetResults(eventId, judgingClassId, options?)`.
+
+**Refactor (optional, small):** Extract shared vehicle metadata resolver from `judge-ballot-results.ts` → `vehicle-entry-results-meta.ts` to avoid duplication (only if diff stays small).
+
+---
+
+#### UI routes / components
+
+| Item | Path / file |
+|------|-------------|
+| **Page** | `/organizer/events/[id]/awards-judging/score-sheets/results` |
+| **Server wrapper** | `src/app/organizer/events/[id]/awards-judging/score-sheets/results/page.tsx` — auth: `getCurrentUser`, `canManageEvent`, `requireStaffStepUpPage` (match score-sheets setup) |
+| **Client UI** | `src/components/organizer/awards-judging/score-sheet-results-admin.tsx` |
+| **Entry points** | (1) Link from `ScoreSheetJudgingAdmin` header: **Setup** \| **Results** (2) Optional link from hub score-sheet tile footer later |
+
+**UI behavior:**
+
+- Judging class selector (dropdown of active `EventJudgingClass` for event).
+- Per class: summary chips (draft / submitted / finalized counts).
+- **Ranked table** columns: Rank, Entry code, Vehicle (nickname + Y/M/M), Vehicle class, Owner (organizer+), Official score, Judges, High, Low, Spread, Status breakdown, Tie flag.
+- Expandable row or sub-row for **section averages** (if any submitted sheets).
+- **Export CSV** button (downloads for selected class).
+- Empty states: no judging classes, no sheets, class with only drafts.
+- **No** public URL; **no** changes to `/judge` judge UI.
+
+---
+
+#### CSV columns (export)
+
+One row per ranked vehicle (MVP); optional second section or extra rows for unranked draft-only with blank rank.
+
+| Column | Description |
+|--------|-------------|
+| `event_show_number` | From event |
+| `judging_class_name` | `EventJudgingClass.name` |
+| `rank` | Integer or empty if unranked |
+| `is_tied` | `yes` / `no` |
+| `vehicle_entry_code` | |
+| `vehicle_nickname` | |
+| `vehicle_year` | |
+| `vehicle_make` | |
+| `vehicle_model` | |
+| `vehicle_class` | Registration category label |
+| `owner_name` | First + last (organizer export only) |
+| `official_score` | Average final score |
+| `judge_count` | Submitted/finalized judges |
+| `high_score` | |
+| `low_score` | |
+| `score_spread` | |
+| `draft_count` | |
+| `submitted_count` | |
+| `finalized_count` | |
+| `section_scores` | Optional: JSON or `SectionName=score;...` string for section averages |
+
+**Exclude from CSV:** `judge_name`, `judge_user_id`, per-judge breakdown (admin JSON only).
+
+---
+
+#### Tests to add
+
+| Test | Type | Coverage |
+|------|------|----------|
+| `score-sheet-results.test.ts` | Unit | Average official score, high/low/spread, tie flags, draft-only unranked, single vs multi-judge |
+| `score-sheet-results.integration.test.ts` | DB (optional in `test:judging-integration`) | Event with class, 2 judges, same vehicle different scores → average + tie |
+| API route smoke | Unit/mock | 401/403, missing `judgingClassId`, happy path JSON shape |
+
+Reuse patterns from `phase-1c-integration.test.ts` (“flags tied results correctly”) and ballot results tests.
+
+---
+
+#### Implementation (complete)
+
+- [x] `src/lib/judging/score-sheet-results.ts` — aggregation, ranking, CSV builder
+- [x] `GET /api/events/[id]/score-sheets/results`
+- [x] `GET /api/events/[id]/score-sheets/results/export`
+- [x] `/organizer/events/[id]/awards-judging/score-sheets/results` page + `score-sheet-results-admin.tsx`
+- [x] **View Results** on score sheet setup (`score-sheet-judging-admin.tsx`)
+- [x] `src/lib/judging/score-sheet-results.test.ts` (7 unit tests)
+- [x] **UX nav fix (2026-06-02):** hub tile + Edit Event card → Results; template name links to score sheet setup on results page
+- [x] Manual QA — **PARTIAL PASS** (2026-06-02; re-QA nav/template after UX fix)
+
+**Review (Phase 4A code):** Read-only aggregation from `JudgeScoreSheet` + snapshot sections. Official score = average of `finalScore` for `SUBMITTED`/`FINALIZED` only. Dense rank + tie flag mirrors ballot. Owner names via `resolveRegistrationContact` (organizer API only). Section averages in expandable row; not in CSV MVP. Admin per-judge breakdown deferred.
+
+**Limitations / follow-up:**
+
+- `FINALIZED` status not set by judge submit today — count column usually 0 until a future finalize workflow.
+- CSV uses `event_name` (not show number); section averages omitted from CSV.
+- Guest vehicles in eligible categories not in `registrationVehicle` query may be excluded from eligible list (same as judge assignment vehicle loader).
+- Site-admin per-judge breakdown (`includeJudgeBreakdown`) not implemented in MVP.
+
+---
+
+#### Manual QA checklist (Phase 4A) — organizer testing
+
+**Direct URL (always works if logged in as organizer):**  
+`/organizer/events/{eventId}/awards-judging/score-sheets/results`
+
+**In-app paths to Results (after UX fix 2026-06-02):**
+
+1. **Edit Event** → Awards & Judging setup card → **View Score Sheet Results**
+2. **Awards & Judging** hub → Score Sheet Judging tile → **View Results**
+3. Score sheet **setup** page → **View Results** (unchanged)
+4. Direct URL: `/organizer/events/{eventId}/awards-judging/score-sheets/results`
+
+| # | Area | Status | Notes |
+|---|------|--------|-------|
+| 1 | Results page loads | ✅ PASS | Re-verify after UX fix |
+| 2 | Grouping by judging class | ✅ PASS (pending re-QA) | Class filter OK; template name now **linked** to `/awards-judging/score-sheets` (was PARTIAL — text only) |
+| 3 | Submitted in ranked results | ✅ PASS | AZV-003 in ranked results; average/final score correct |
+| 4 | Drafts excluded from ranking | ✅ PASS | AZV-001 draft-only not in ranked list; unranked/draft section OK |
+| 5 | Ranking & ties | ⏸️ NOT TESTED | Rank displays ✅; dense rank + tie indicator not exercised |
+| 6 | Score statistics | ✅ PASS | Avg, judge count, high/low/spread OK; single-judge spread sensible |
+| 7 | Section-level detail | ⏸️ NOT REPORTED | Expandable section averages — no PASS/FAIL in QA run |
+| 8 | CSV export | ✅ PASS | Export works; opens cleanly; all listed columns present; no judge names in CSV |
+| 9 | Access control | ✅ PASS | Organizer/admin OK; non-organizer blocked on results + CSV |
+| 10 | Regression | ⏸️ NOT REPORTED | Ballot, public voting tile, `/judge`, P2024/missing-table/getSession — not confirmed this run |
+
+**Overall manual QA (2026-06-02):** **PARTIAL PASS** — core results + CSV + access control; ties/section/regression incomplete.
+
+**UX fix (2026-06-02) — files only (not committed):**
+
+| File | Change |
+|------|--------|
+| `awards-judging-hub.tsx` | Score Sheet tile: **View Results** (outline) → `/score-sheets/results` |
+| `event-setup-list-cards.tsx` | **View Score Sheet Results** on Edit Event Awards & Judging card |
+| `score-sheet-results-admin.tsx` | **Template:** `{name}` links to `/awards-judging/score-sheets` |
+
+**Build/tests after UX fix:** `npm run build` ✅ · `score-sheet-results.test.ts` 7/7 ✅ (judging lib unchanged — integration not re-run)
+
+#### Manual QA re-check (after UX fix) — organizer — ✅ PASS (2026-06-02)
+
+- [x] Hub → Score Sheet Judging → **View Results** reaches results page
+- [x] Edit Event → **View Score Sheet Results** reaches results page
+- [x] Results summary: **Template:** linked name → score sheet setup
+- [x] Results page, CSV, ballot, public voting, `/judge` still OK (regression)
+- [x] No P2024 / missing-table / repeated getSession warnings
+
+**Ties:** covered by unit tests (`applyDenseRanking`); manual tie test optional.  
+**Section expand:** PASS if visible and stable; N/A if no submitted section data.
+
+---
+
 ### Phase 4B — Judge ballot results (ranked, tie indicator, admin vote spread)
 
 ### Phase 5 — Polish (DnD, event clone, deprecate legacy 1–100)
@@ -1810,9 +2056,129 @@ Use one origin only (e.g. `http://localhost:3000`). Supabase Dashboard → Authe
 
 ## Release readiness — Judging & Awards (Phase 2E sign-off)
 
-**Date:** 2026-06-01 · **Status:** Ready for commit review (do not deploy until migrations + approval)
+**Date:** 2026-06-01 · **Status:** ✅ **Production release verified** — deploy `e5494a0`, migration + seed complete, authenticated smoke test PASS
 
-### 1. Code status
+### Production deploy log (2026-06-01)
+
+| Step | Result |
+|------|--------|
+| Git push `main` @ `e5494a0` | ✅ |
+| Vercel build | ✅ Success |
+| Supabase project | `cnxvrfeyqhurebpibuvu` (confirmed) |
+| `db:migrate:deploy` | ✅ Resolved — see migration recovery note below |
+| `db:seed-judging-templates` | ✅ 4 global templates seeded (first-time prod) |
+| Re-seed policy | **Do not re-run** unless intentionally resetting global template definitions |
+
+#### Migration recovery — `20260602120000_event_judging_class_expand`
+
+Initial `migrate deploy` failed with PostgreSQL **42710** (FK `event_judging_class_eligible_categories_eventCategoryId_fkey` already exists). Schema inspection confirmed all judging tables, Phase 2D columns, and junction constraints were already present. Recovery:
+
+```bash
+prisma migrate resolve --applied "20260602120000_event_judging_class_expand"
+```
+
+Final status: **Database schema is up to date** (44 migrations).
+
+#### Follow-up — harden migration for fresh installs
+
+**Issue:** `20260602120000_event_judging_class_expand` uses `ADD CONSTRAINT` without idempotent guards. Partial apply or re-run on a DB that already has the junction table causes duplicate-constraint failure (production recovered via `migrate resolve` above).
+
+**PR opened (technical cleanup — no product change):**
+
+| Field | Value |
+|-------|-------|
+| Branch | `chore/harden-event-judging-class-migration` |
+| PR | https://github.com/pablitochoi-prog/car-show-app/pull/1 |
+| Commit | `aa67c28` |
+| Migration | `20260603120000_harden_event_judging_class_eligible_category_fks` |
+
+**Purpose:** Hardens `event_judging_class_eligible_categories` FK/index migration behavior for future fresh installs or partially applied environments. Does **not** edit the already-released `20260602120000_event_judging_class_expand` migration.
+
+**Scope:**
+
+- **Product behavior:** No change (Awards & Judging, ballot, score sheets, auth, voting unchanged).
+- **Data impact:** No drops, recreates, or seed changes.
+- **Do not re-run** `db:seed-judging-templates` as part of this work.
+
+**Production note:** Migration was likely **already applied** to production (`cnxvrfeyqhurebpibuvu`) because `.env.local` pointed to production during validation (`npm run db:migrate:deploy`). Acceptable — migration is idempotent/no-op when constraints already exist. **Do not revert** unless a real defect is found. Merging PR aligns repo migration history with production `_prisma_migrations`.
+
+**After merge:**
+
+- `npm run db:migrate:deploy` on production should be a **no-op** (or skip if already recorded).
+- Vercel deploy: migration file only; no app code changes in PR.
+
+**Validation (pre-merge):** `npm run build` pass; `npm run test:judging-integration` 27/27; `prisma migrate status` up to date (45 migrations).
+
+---
+
+### Production smoke test — `https://events.carshowscout.com`
+
+**Automated pre-checks (unauthenticated):**
+
+| Route | HTTP | Notes |
+|-------|------|-------|
+| `/login` | 200 | Loads |
+| `/signup` | 200 | Loads |
+| `/admin` | 307 → `/login?redirect=%2Fadmin` | Auth gate OK |
+| `/judge` | 307 → `/login` | Auth gate OK |
+| `/dashboard` | 307 → `/login?redirect=%2Fdashboard` | Auth gate OK |
+
+**Manual checklist (authenticated production — 2026-06-01):**
+
+| # | Area | Route / action | Status |
+|---|------|----------------|--------|
+| 1 | Auth | `/login` → log in → log out; no PKCE verifier error | ✅ PASS |
+| 2 | Admin | `/admin` loads; no missing-table Prisma errors | ✅ PASS |
+| 3 | Organizer event | Event page loads | ✅ PASS |
+| 4 | Awards hub | `/organizer/events/{eventId}/awards-judging` | ✅ PASS |
+| 5 | Hub tiles | Public Voting · Judge Ballot Awards · Score Sheet Judging | ✅ PASS |
+| 6 | Ballot setup | `/organizer/events/{eventId}/awards-judging/ballot` | ✅ PASS |
+| 7 | Score sheets | `/organizer/events/{eventId}/awards-judging/score-sheets` — seeded templates visible | ✅ PASS |
+| 8 | Judge | `/judge` loads | ✅ PASS |
+| 9 | Logs | No P2024, missing-table, PKCE, or repeated getSession warnings | ✅ PASS |
+
+**Overall:** ✅ **PASS** — Production deploy `e5494a0` verified. Migrations applied, global judging templates seeded, Awards & Judging live on https://events.carshowscout.com
+
+- **QA Update — Production smoke test (authenticated)**
+  - **Status:** PASS
+  - **Base URL:** https://events.carshowscout.com
+  - **Browser result:** All authenticated routes loaded successfully.
+  - **Verified:** Login, logout, `/admin`, organizer event, Awards & Judging hub (all three tiles), ballot setup, score sheet setup (seeded templates visible), `/judge`.
+  - **Errors observed:** No missing-table Prisma, PKCE verifier, P2024, or repeated getSession warnings.
+  - **Notes:** Production release for judging/awards (`e5494a0`) complete. Do not re-run `db:seed-judging-templates` unless intentionally resetting global templates.
+
+### Release announcement — Awards & Judging (production complete)
+
+**CarShowScout Awards & Judging Release — Production Complete**
+
+The new Awards & Judging module is now live on production at https://events.carshowscout.com.
+
+This release adds three judging and award workflows:
+
+1. **Public Voting** — Existing QR/SMS public voting remains available and unchanged.
+2. **Judge Ballot Awards** — Event organizers can create award categories (e.g. Best Paint, Best Engine Bay, Best in Show). Assigned judges vote from a mobile-friendly judge screen, with configurable vote limits and organizer results.
+3. **Score Sheet Judging** — Event organizers start from judging templates and configure event-specific score sheet judging. Judges complete mobile score sheets, save drafts, resume judging, submit final scores, and view submitted sheets in read-only mode.
+
+**Additional improvements:**
+
+- New Awards & Judging organizer hub
+- Judge mobile assignment dashboard
+- Seeded judging templates: PCA-style, AACA-style, Marque Authenticity, Modified/Custom
+- Improved production database migration support
+- Supabase auth/PKCE improvements
+- Prisma database pool resilience improvements
+
+**Production verification:**
+
+- Vercel deployment succeeded (`e5494a0`)
+- Production database migrations up to date
+- Global judging templates seeded
+- Authenticated production smoke testing passed
+- No missing-table, PKCE, Prisma P2024, or Supabase session warnings observed
+
+**Status:** Judging and awards release signed off for production.
+
+---
 
 | Check | Result |
 |-------|--------|

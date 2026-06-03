@@ -71,16 +71,27 @@ export function EventSetupListCards({
             Configure public voting, assigned judge ballot awards, and structured
             score sheet judging for this event.
           </p>
-          <Link
-            href={`/organizer/events/${eventId}/awards-judging`}
-            className={cn(
-              buttonVariants({ variant: "default" }),
-              "inline-flex h-11 w-full items-center justify-center gap-2 sm:w-auto",
-            )}
-          >
-            <Award className="size-4" aria-hidden />
-            Open Awards &amp; Judging Setup
-          </Link>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Link
+              href={`/organizer/events/${eventId}/awards-judging`}
+              className={cn(
+                buttonVariants({ variant: "default" }),
+                "inline-flex h-11 w-full items-center justify-center gap-2 sm:w-auto",
+              )}
+            >
+              <Award className="size-4" aria-hidden />
+              Open Awards &amp; Judging Setup
+            </Link>
+            <Link
+              href={`/organizer/events/${eventId}/awards-judging/score-sheets/results`}
+              className={cn(
+                buttonVariants({ variant: "outline" }),
+                "inline-flex h-11 w-full items-center justify-center gap-2 sm:w-auto",
+              )}
+            >
+              View Score Sheet Results
+            </Link>
+          </div>
         </div>
       </CollapsibleCard>
       <CollapsibleCard

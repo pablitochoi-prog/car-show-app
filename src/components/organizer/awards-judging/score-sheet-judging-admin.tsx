@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ClipboardList, Loader2, Plus } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -259,6 +262,15 @@ export function ScoreSheetJudgingAdmin({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap gap-2">
+        <Link
+          href={`/organizer/events/${eventId}/awards-judging/score-sheets/results`}
+          className={cn(buttonVariants())}
+        >
+          View Results
+        </Link>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
