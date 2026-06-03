@@ -120,7 +120,7 @@ export function JudgeAssignmentsList() {
               )}
             >
               <span className="text-sm font-semibold text-foreground">
-                Score Sheet Judging
+                My Judging — Score Sheets
               </span>
               <span className="text-xs font-normal text-primary">
                 {ev.scoreSheetAssignmentCount > 0

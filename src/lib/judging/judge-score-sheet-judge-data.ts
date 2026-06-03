@@ -76,7 +76,7 @@ type AssignmentClassRow = {
   eligibleCategories: Array<{ eventCategoryId: string }>;
 };
 
-async function assertJudgeForEvent(
+export async function assertJudgeForEvent(
   judgeUserId: string,
   eventId: string,
 ): Promise<void> {

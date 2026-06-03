@@ -7,7 +7,7 @@ import {
   isJudgeAssignedToBallotCategory,
   sumVoteCounts,
 } from "@/lib/judging/judge-ballot-validation";
-import { loadJudgeScoreSheetAssignmentSummary } from "@/lib/judging/judge-score-sheet-judge-data";
+import { loadJudgeAssignedScoreSummary } from "@/lib/judging/judge-assigned-scorecard-data";
 
 export class JudgeBallotAccessError extends Error {
   code: string;
@@ -136,13 +136,13 @@ export async function loadJudgeBallotAssignments(
       ),
     );
 
-    const scoreSheetSummary = await loadJudgeScoreSheetAssignmentSummary(
+    const scoreSheetSummary = await loadJudgeAssignedScoreSummary(
       judgeUserId,
       link.eventId,
     );
     if (
       accessible.length === 0 &&
-      scoreSheetSummary.scoreSheetAssignmentCount === 0
+      scoreSheetSummary.assignmentCount === 0
     ) {
       continue;
     }
@@ -154,8 +154,8 @@ export async function loadJudgeBallotAssignments(
       startDate: link.event.startDate.toISOString(),
       openBallotCategoryCount: accessible.filter((c) => c.status === "OPEN")
         .length,
-      scoreSheetAssignmentCount: scoreSheetSummary.scoreSheetAssignmentCount,
-      scoreSheetPendingCount: scoreSheetSummary.scoreSheetPendingCount,
+      scoreSheetAssignmentCount: scoreSheetSummary.assignmentCount,
+      scoreSheetPendingCount: scoreSheetSummary.pendingCount,
     });
   }
 

@@ -1213,6 +1213,7 @@ model EventJudgingSection {
   template EventJudgingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   items    EventJudgingItem[]
   judgeAssignments EventJudgeCategoryAssignment[]
+  scoreSheetSections JudgeScoreSheetSection[]
 
   @@index([templateId, sortOrder])
   @@map("event_judging_sections")
@@ -1325,19 +1326,22 @@ model JudgeScoreSheet {
 }
 
 model JudgeScoreSheetSection {
-  id               String   @id @default(uuid())
-  scoreSheetId     String
-  name             String
-  sortOrder        Int      @default(0)
-  weightPercent    Float?
-  maxSectionPoints Int?
-  judgeGuidance    String?  @db.Text
-  isActive         Boolean  @default(true)
+  id                    String   @id @default(uuid())
+  scoreSheetId          String
+  eventJudgingSectionId String?
+  name                  String
+  sortOrder             Int      @default(0)
+  weightPercent         Float?
+  maxSectionPoints      Int?
+  judgeGuidance         String?  @db.Text
+  isActive              Boolean  @default(true)
 
-  scoreSheet JudgeScoreSheet       @relation(fields: [scoreSheetId], references: [id], onDelete: Cascade)
-  items      JudgeScoreSheetItem[]
+  scoreSheet          JudgeScoreSheet        @relation(fields: [scoreSheetId], references: [id], onDelete: Cascade)
+  eventJudgingSection EventJudgingSection?   @relation(fields: [eventJudgingSectionId], references: [id], onDelete: SetNull)
+  items               JudgeScoreSheetItem[]
 
   @@index([scoreSheetId, sortOrder])
+  @@index([eventJudgingSectionId])
   @@map("judge_score_sheet_sections")
 }
 

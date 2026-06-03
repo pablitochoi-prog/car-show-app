@@ -82,6 +82,7 @@ export async function findOrCreateJudgeScoreSheet(input: {
       totalPoints: template.totalPoints,
       sections: {
         create: template.sections.map((section) => ({
+          eventJudgingSectionId: section.id,
           name: section.name,
           sortOrder: section.sortOrder,
           weightPercent: section.weightPercent,

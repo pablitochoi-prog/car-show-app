@@ -1,15 +1,50 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import {
-  getJudgeScoreSheetDetail,
   judgeScoreSheetAccessErrorResponse,
+  JudgeScoreSheetAccessError,
 } from "@/lib/judging/judge-score-sheet-judge-data";
-import { saveJudgeScoreSheetDraft } from "@/lib/judging/judge-score-sheet-mutations";
+import { loadJudgeAssignedScorecardDetail } from "@/lib/judging/judge-assigned-scorecard-data";
+import { saveAssignedScorecardDraft } from "@/lib/judging/judge-assigned-scorecard-mutations";
+import type { ScorecardItemDraftInput } from "@/lib/judging/judge-assigned-scorecard-validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteParams = { params: Promise<{ id: string; sheetId: string }> };
+
+function parseItems(raw: unknown): ScorecardItemDraftInput[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((row) => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    return {
+      itemId: typeof r.itemId === "string" ? r.itemId : "",
+      discretionaryPoints:
+        r.discretionaryPoints == null || r.discretionaryPoints === ""
+          ? null
+          : Number(r.discretionaryPoints),
+      levelSelections: Array.isArray(r.levelSelections)
+        ? r.levelSelections
+            .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+            .map((x) => ({
+              optionId: typeof x.optionId === "string" ? x.optionId : "",
+              violationCount:
+                x.violationCount == null ? undefined : Number(x.violationCount),
+            }))
+            .filter((x) => x.optionId)
+        : [],
+      itemNotes: typeof r.itemNotes === "string" ? r.itemNotes : "",
+      deductionComments:
+        r.deductionComments && typeof r.deductionComments === "object"
+          ? Object.fromEntries(
+              Object.entries(r.deductionComments as Record<string, unknown>).map(
+                ([k, v]) => [k, typeof v === "string" ? v : ""],
+              ),
+            )
+          : {},
+    };
+  });
+}
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser();
@@ -18,14 +53,14 @@ export async function GET(_request: Request, { params }: RouteParams) {
   }
   const { id: eventId, sheetId } = await params;
   try {
-    const detail = await getJudgeScoreSheetDetail(user.id, eventId, sheetId);
+    const detail = await loadJudgeAssignedScorecardDetail(user.id, eventId, sheetId);
     return NextResponse.json(detail);
   } catch (err) {
     const mapped = judgeScoreSheetAccessErrorResponse(err);
     if (mapped) {
       return NextResponse.json(mapped.body, { status: mapped.status });
     }
-    console.error("[GET judge score sheet]", err);
+    console.error("[GET judge assigned scorecard]", err);
     const message = err instanceof Error ? err.message : "Failed to load score sheet.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -44,51 +79,43 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+
   const payload = (body ?? {}) as {
     generalNotes?: unknown;
-    items?: Array<{
-      itemId?: unknown;
-      awardedPoints?: unknown;
-      itemNotes?: unknown;
-      deductionOptionIds?: unknown;
-      deductionComments?: unknown;
-    }>;
+    sectionIds?: unknown;
+    items?: unknown;
   };
 
+  const sectionIds = Array.isArray(payload.sectionIds)
+    ? payload.sectionIds.filter((id): id is string => typeof id === "string")
+    : [];
+
+  if (sectionIds.length === 0) {
+    return NextResponse.json(
+      { error: "sectionIds must include at least one category." },
+      { status: 400 },
+    );
+  }
+
   try {
-    const items = (Array.isArray(payload.items) ? payload.items : []).map((row) => ({
-      itemId: typeof row.itemId === "string" ? row.itemId : "",
-      awardedPoints:
-        row.awardedPoints == null || row.awardedPoints === ""
-          ? null
-          : Number(row.awardedPoints),
-      itemNotes: typeof row.itemNotes === "string" ? row.itemNotes : "",
-      deductionOptionIds: Array.isArray(row.deductionOptionIds)
-        ? row.deductionOptionIds.filter((id): id is string => typeof id === "string")
-        : [],
-      deductionComments:
-        row.deductionComments && typeof row.deductionComments === "object"
-          ? Object.fromEntries(
-              Object.entries(row.deductionComments as Record<string, unknown>).map(
-                ([k, v]) => [k, typeof v === "string" ? v : ""],
-              ),
-            )
-          : {},
-    }));
-    const calculated = await saveJudgeScoreSheetDraft({
+    const result = await saveAssignedScorecardDraft({
       judgeUserId: user.id,
       eventId,
       sheetId,
       generalNotes: typeof payload.generalNotes === "string" ? payload.generalNotes : "",
-      items,
+      sectionIds,
+      items: parseItems(payload.items),
     });
-    return NextResponse.json({ ok: true, calculated });
+    return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     const mapped = judgeScoreSheetAccessErrorResponse(err);
     if (mapped) {
       return NextResponse.json(mapped.body, { status: mapped.status });
     }
-    console.error("[PATCH judge score sheet]", err);
+    if (err instanceof JudgeScoreSheetAccessError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+    }
+    console.error("[PATCH judge assigned scorecard]", err);
     const message = err instanceof Error ? err.message : "Could not save draft.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

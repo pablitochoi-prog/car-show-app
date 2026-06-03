@@ -2,6 +2,8 @@ import type {
   JudgeScoreSheetStatus,
   JudgingDeductionBucket,
   JudgingMethodology,
+  JudgingSubcategoryPointType,
+  JudgingSubcategoryScoringType,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { calculateScoreFromSnapshot } from "@/lib/judging/calculate-score-from-snapshot";
@@ -143,9 +145,20 @@ export function serializeOrganizerJudgeScoreSheet(
         maxPoints: number;
         awardedPoints: number | null;
         itemNotes: string | null;
+        pointType: JudgingSubcategoryPointType | null;
+        scoringType: JudgingSubcategoryScoringType;
+        allowMultipleViolations: boolean;
+        deductionOptions: Array<{
+          id: string;
+          pointsDeducted: number;
+          deductionBucket: JudgingDeductionBucket | null;
+        }>;
         deductions: Array<{
           label: string;
+          optionId: string | null;
           pointsDeducted: number;
+          violationCount: number;
+          discretionaryPoints: number | null;
           deductionBucket: string | null;
           comment: string | null;
         }>;
@@ -162,8 +175,15 @@ export function serializeOrganizerJudgeScoreSheet(
       items: section.items.map((item) => ({
         maxPoints: item.maxPoints,
         awardedPoints: item.awardedPoints,
+        pointType: item.pointType,
+        scoringType: item.scoringType,
+        allowMultipleViolations: item.allowMultipleViolations,
+        deductionOptions: item.deductionOptions,
         deductions: item.deductions.map((d) => ({
+          optionId: d.optionId,
           pointsDeducted: d.pointsDeducted,
+          violationCount: d.violationCount,
+          discretionaryPoints: d.discretionaryPoints,
           deductionBucket: d.deductionBucket as JudgingDeductionBucket | null,
         })),
       })),

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { JudgeScoreSheetClassList } from "@/components/judge/judge-score-sheet-class-list";
+import { JudgeAssignedVehicleList } from "@/components/judge/judge-assigned-vehicle-list";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -10,14 +10,14 @@ export default async function JudgeEventScoreSheetsPage({ params }: Props) {
     <div className="space-y-6">
       <div>
         <Link href="/judge" className="text-sm text-muted-foreground underline">
-          Back to assignments
+          Back to My Judging
         </Link>
-        <h1 className="mt-2 text-2xl font-bold">Score Sheet Judging</h1>
+        <h1 className="mt-2 text-2xl font-bold">My Judging — Score Sheets</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Select a class and vehicle to start or resume judging
+          Vehicles and categories assigned to you
         </p>
       </div>
-      <JudgeScoreSheetClassList eventId={eventId} />
+      <JudgeAssignedVehicleList eventId={eventId} />
     </div>
   );
 }

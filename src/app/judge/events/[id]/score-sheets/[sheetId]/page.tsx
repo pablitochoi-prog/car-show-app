@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { JudgeScoreSheetScreen } from "@/components/judge/judge-score-sheet-screen";
+import { JudgeAssignedScorecardScreen } from "@/components/judge/judge-assigned-scorecard-screen";
 
 type Props = { params: Promise<{ id: string; sheetId: string }> };
 
@@ -14,7 +14,7 @@ export default async function JudgeScoreSheetDetailPage({ params }: Props) {
       >
         Back to score sheets
       </Link>
-      <JudgeScoreSheetScreen eventId={eventId} sheetId={sheetId} />
+      <JudgeAssignedScorecardScreen eventId={eventId} sheetId={sheetId} />
     </div>
   );
 }
