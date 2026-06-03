@@ -18,10 +18,22 @@ type JudgingClassOption = {
   isActive: boolean;
 };
 
+function vehicleDetailHref(
+  eventId: string,
+  judgingClassId: string,
+  vehicleEntryCode: string,
+): string {
+  return `/organizer/events/${eventId}/awards-judging/score-sheets/results/vehicle/${encodeURIComponent(vehicleEntryCode)}?judgingClassId=${encodeURIComponent(judgingClassId)}`;
+}
+
 function ResultsTable({
+  eventId,
+  judgingClassId,
   rows,
   emptyMessage,
 }: {
+  eventId: string;
+  judgingClassId: string;
   rows: ScoreSheetResultRow[];
   emptyMessage: string;
 }) {
@@ -44,12 +56,18 @@ function ResultsTable({
             <th className="py-2 pr-3 font-medium">High</th>
             <th className="py-2 pr-3 font-medium">Low</th>
             <th className="py-2 pr-3 font-medium">Spread</th>
-            <th className="py-2 font-medium">Status</th>
+            <th className="py-2 pr-3 font-medium">Status</th>
+            <th className="py-2 font-medium" />
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <ResultRow key={row.vehicleEntryCode} row={row} />
+            <ResultRow
+              key={row.vehicleEntryCode}
+              eventId={eventId}
+              judgingClassId={judgingClassId}
+              row={row}
+            />
           ))}
         </tbody>
       </table>
@@ -57,7 +75,15 @@ function ResultsTable({
   );
 }
 
-function ResultRow({ row }: { row: ScoreSheetResultRow }) {
+function ResultRow({
+  eventId,
+  judgingClassId,
+  row,
+}: {
+  eventId: string;
+  judgingClassId: string;
+  row: ScoreSheetResultRow;
+}) {
   const statusParts = [
     row.draftCount > 0 ? `${row.draftCount} draft` : null,
     row.submittedCount > 0 ? `${row.submittedCount} submitted` : null,
@@ -101,13 +127,21 @@ function ResultRow({ row }: { row: ScoreSheetResultRow }) {
         <td className="py-2 pr-3 align-top">
           {row.scoreSpread != null ? row.scoreSpread : "—"}
         </td>
-        <td className="py-2 align-top text-xs text-muted-foreground">
+        <td className="py-2 pr-3 align-top text-xs text-muted-foreground">
           {statusParts.length > 0 ? statusParts.join(" · ") : "—"}
+        </td>
+        <td className="py-2 align-top">
+          <Link
+            href={vehicleDetailHref(eventId, judgingClassId, row.vehicleEntryCode)}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            View score sheets
+          </Link>
         </td>
       </tr>
       {row.sectionAverages.length > 0 ? (
         <tr className="border-b bg-muted/20 last:border-0">
-          <td colSpan={11} className="px-3 py-2">
+          <td colSpan={12} className="px-3 py-2">
             <details>
               <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
                 Section averages ({row.sectionAverages.length})
@@ -261,7 +295,7 @@ export function ScoreSheetResultsAdmin({ eventId }: { eventId: string }) {
         <div className="flex justify-center py-8">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
-      ) : results ? (
+      ) : results && selectedClassId != null ? (
         <div className="space-y-6">
           <div className="rounded-lg border bg-muted/30 p-4 text-sm">
             <p className="font-medium">{results.judgingClass.name}</p>
@@ -296,6 +330,8 @@ export function ScoreSheetResultsAdmin({ eventId }: { eventId: string }) {
               </p>
             ) : (
               <ResultsTable
+                eventId={eventId}
+                judgingClassId={selectedClassId}
                 rows={results.ranked}
                 emptyMessage="No submitted score sheets yet."
               />
@@ -306,6 +342,8 @@ export function ScoreSheetResultsAdmin({ eventId }: { eventId: string }) {
             <div className="space-y-2">
               <h2 className="text-lg font-semibold">Draft only (unranked)</h2>
               <ResultsTable
+                eventId={eventId}
+                judgingClassId={selectedClassId}
                 rows={results.unrankedDraftOnly}
                 emptyMessage="No draft-only vehicles."
               />
