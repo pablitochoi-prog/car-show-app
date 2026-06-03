@@ -11,7 +11,7 @@ export const MCA_1968_1972_EXTERIOR_TEMPLATE: GlobalTemplateSeed = {
   scoringGroup: "MCA",
   vehicleType: "Auto",
   description:
-    "Starter exterior scorecard based on provided MCA sample sheet. This seed mirrors the NCRS 1968-1972 Corvette exterior layout from the uploaded sample; organizers must verify MCA-specific rules before use. Not an official MCA rulebook.",
+    "Starter exterior scorecard based on the provided MCA sample. Product owner should verify whether this MCA sample is intended to mirror the NCRS 1968-1972 exterior structure. Event organizers should review and customize for their event.",
   methodology: "DEDUCTION",
   totalPoints: 1075,
   sortOrder: 2,

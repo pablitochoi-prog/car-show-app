@@ -85,35 +85,38 @@ export const NCRS_EXTERIOR_CATEGORIES: CategorySeed[] = [
     ncrsDiscretionarySubcategory("LT1 decals, 427 or 454 emblems", 7, 4, 3),
   ]),
   {
-    name: "Hardtop (variant — use if applicable)",
-    maxSectionPoints: 52,
-    judgeGuidance: "Use only when judging hardtop configuration.",
+    name: "Hardtop",
+    maxSectionPoints: 70,
+    judgeGuidance:
+      "Mutually exclusive with Soft Top and Coupe in the sample. Keep only the variant that applies; remove or deactivate the others when customizing for an event/class.",
     subcategories: [
-      ncrsDiscretionarySubcategory("Hardtop", 42, 23, 19, true),
-      ncrsDiscretionarySubcategory("Exterior metal moldings", 7, 4, 3, true),
-      ncrsDiscretionarySubcategory("All weatherstrip", 21, 11, 10, true),
+      ncrsDiscretionarySubcategory("Hardtop", 42, 23, 19),
+      ncrsDiscretionarySubcategory("Exterior metal moldings", 7, 4, 3),
+      ncrsDiscretionarySubcategory("All weatherstrip", 21, 11, 10),
     ],
   },
   {
-    name: "Soft Top (variant — use if applicable)",
+    name: "Soft Top",
     maxSectionPoints: 70,
-    judgeGuidance: "Use only when judging soft top configuration.",
+    judgeGuidance:
+      "Mutually exclusive with Hardtop and Coupe in the sample. Keep only the variant that applies; remove or deactivate the others when customizing for an event/class.",
     subcategories: [
-      ncrsDiscretionarySubcategory("Fit of top", 7, 4, 3, true),
-      ncrsDiscretionarySubcategory("Material", 28, 15, 13, true),
-      ncrsDiscretionarySubcategory("Heat seal of rear window", 7, 4, 3, true),
-      ncrsDiscretionarySubcategory("All weatherstrip", 21, 11, 10, true),
-      ncrsDiscretionarySubcategory("Caution label", 7, 4, 3, true),
+      ncrsDiscretionarySubcategory("Fit of top", 7, 4, 3),
+      ncrsDiscretionarySubcategory("Material", 28, 15, 13),
+      ncrsDiscretionarySubcategory("Heat seal of rear window", 7, 4, 3),
+      ncrsDiscretionarySubcategory("All weatherstrip", 21, 11, 10),
+      ncrsDiscretionarySubcategory("Caution label", 7, 4, 3),
     ],
   },
   {
-    name: "Coupe (variant — use if applicable)",
+    name: "Coupe",
     maxSectionPoints: 70,
-    judgeGuidance: "Use only when judging coupe configuration.",
+    judgeGuidance:
+      "Mutually exclusive with Hardtop and Soft Top in the sample. Keep only the variant that applies; remove or deactivate the others when customizing for an event/class.",
     subcategories: [
-      ncrsDiscretionarySubcategory("Removable top panels", 35, 19, 16, true),
-      ncrsDiscretionarySubcategory("All weatherstrip", 28, 15, 13, true),
-      ncrsDiscretionarySubcategory("Exterior metal moldings", 7, 4, 3, true),
+      ncrsDiscretionarySubcategory("Removable top panels", 35, 19, 16),
+      ncrsDiscretionarySubcategory("All weatherstrip", 28, 15, 13),
+      ncrsDiscretionarySubcategory("Exterior metal moldings", 7, 4, 3),
     ],
   },
   cat("Wheels & Wheel Covers", 56, [
@@ -138,7 +141,7 @@ export const NCRS_1968_1972_EXTERIOR_TEMPLATE: GlobalTemplateSeed = {
   scoringGroup: "NCRS",
   vehicleType: "Auto",
   description:
-    "Starter exterior scorecard based on provided NCRS 1968-1972 Corvette Exterior sample (1075 pts). Event organizers should review and customize. Not an official NCRS rulebook.",
+    "Starter exterior scorecard based on the provided NCRS 1968-1972 Corvette Exterior sample. Event organizers should review and customize for their event.",
   methodology: "DEDUCTION",
   totalPoints: 1075,
   sortOrder: 1,

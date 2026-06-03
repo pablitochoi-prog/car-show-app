@@ -7,7 +7,7 @@ export const PCA_ZONE8_TEMPLATE: GlobalTemplateSeed = {
   scoringGroup: "PCA",
   vehicleType: "Auto",
   description:
-    "Starter scorecard based on provided PCA Zone 8 Concours score sheet sample. Event organizers should review and customize for their event. Not an official PCA rulebook.",
+    "Starter scorecard based on the provided PCA Zone 8 Concours score sheet sample. Event organizers should review and customize for their event.",
   methodology: "DEDUCTION",
   totalPoints: 325,
   sortOrder: 0,

@@ -45,16 +45,23 @@ describe("global judging template seeds (Phase 5C)", () => {
 
   it("NCRS exterior starter has scoring group and O/C guidance", () => {
     expect(NCRS_1968_1972_EXTERIOR_TEMPLATE.scoringGroup).toBe("NCRS");
+    expect(NCRS_1968_1972_EXTERIOR_TEMPLATE.vehicleType).toBe("Auto");
+    expect(NCRS_1968_1972_EXTERIOR_TEMPLATE.methodology).toBe("DEDUCTION");
     expect(NCRS_1968_1972_EXTERIOR_TEMPLATE.totalPoints).toBe(1075);
-    expect(NCRS_1968_1972_EXTERIOR_TEMPLATE.categories.length).toBeGreaterThan(20);
+    expect(NCRS_1968_1972_EXTERIOR_TEMPLATE.categories).toHaveLength(26);
+    const hardtop = NCRS_1968_1972_EXTERIOR_TEMPLATE.categories.find((c) => c.name === "Hardtop");
+    expect(hardtop?.maxSectionPoints).toBe(70);
+    expect(hardtop?.judgeGuidance).toMatch(/mutually exclusive/i);
     const sub = NCRS_1968_1972_EXTERIOR_TEMPLATE.categories[1]!.subcategories[0]!;
     expect(sub.judgeGuidance).toMatch(/Originality max/i);
     expect(sub.judgeGuidance).toMatch(/Condition max/i);
+    expect(sub.scoringType).toBe("DISCRETIONARY");
+    expect(sub.pointType).toBe("DEDUCT");
   });
 
   it("MCA starter mirrors NCRS structure with MCA metadata", () => {
     expect(MCA_1968_1972_EXTERIOR_TEMPLATE.scoringGroup).toBe("MCA");
-    expect(MCA_1968_1972_EXTERIOR_TEMPLATE.description).toMatch(/mirrors/i);
+    expect(MCA_1968_1972_EXTERIOR_TEMPLATE.description).toMatch(/provided MCA sample/i);
     expect(MCA_1968_1972_EXTERIOR_TEMPLATE.categories).toHaveLength(
       NCRS_1968_1972_EXTERIOR_TEMPLATE.categories.length,
     );
@@ -62,6 +69,8 @@ describe("global judging template seeds (Phase 5C)", () => {
 
   it("AACA starter has four categories and violation-capable rows", () => {
     expect(AACA_AUTOMOBILE_TEMPLATE.scoringGroup).toBe("AACA");
+    expect(AACA_AUTOMOBILE_TEMPLATE.vehicleType).toBe("Auto");
+    expect(AACA_AUTOMOBILE_TEMPLATE.methodology).toBe("DEDUCTION");
     expect(AACA_AUTOMOBILE_TEMPLATE.totalPoints).toBe(400);
     expect(AACA_AUTOMOBILE_TEMPLATE.categories.map((c) => c.name)).toEqual([
       "Exterior",
@@ -87,5 +96,37 @@ describe("global judging template seeds (Phase 5C)", () => {
     expect(SCORECARD_STARTER_TEMPLATES.map((t) => t.slug).sort()).toEqual(
       ["aaca", "mca-1968-1972-exterior", "ncrs-1968-1972-exterior", "pca"].sort(),
     );
+  });
+
+  it("legacy templates backfill scoring metadata", () => {
+    const marque = ALL_GLOBAL_JUDGING_TEMPLATE_SEEDS.find(
+      (t) => t.slug === "marque-authenticity",
+    )!;
+    const modified = ALL_GLOBAL_JUDGING_TEMPLATE_SEEDS.find((t) => t.slug === "modified-custom")!;
+    for (const seed of [marque, modified]) {
+      expect(seed.scoringGroup).toBe("Custom");
+      expect(seed.vehicleType).toBe("Auto");
+    }
+    expect(marque.methodology).toBe("ORIGINALITY_CONDITION");
+    for (const sub of marque.categories.flatMap((c) => c.subcategories)) {
+      expect(sub.pointType).toBe("DEDUCT");
+      expect(sub.scoringType).toBe("LEVELS");
+      expect(sub.incrementLevels?.length).toBeGreaterThan(0);
+    }
+    expect(modified.methodology).toBe("ADDITIVE");
+    for (const sub of modified.categories.flatMap((c) => c.subcategories)) {
+      expect(sub.pointType).toBe("ADD");
+      expect(sub.scoringType).toBe("DISCRETIONARY");
+    }
+  });
+
+  it("seed mapper exposes Phase 5 fields for clone parity", () => {
+    const input = globalTemplateSeedToScorecardInput(PCA_ZONE8_TEMPLATE);
+    const cat = input.categories[0]!;
+    const sub = cat.subcategories[0]!;
+    expect(sub.scoringType).toBe("DISCRETIONARY");
+    expect(sub.pointType).toBe("DEDUCT");
+    expect(sub.allowMultipleViolations).toBe(false);
+    expect(sub.isIndented).toBe(false);
   });
 });
