@@ -125,6 +125,19 @@ enum JudgingDeductionBucket {
   CONDITION
 }
 
+/// Subcategory scoring control (Phase 5A — UI: Full / Levels / Discretionary).
+enum JudgingSubcategoryScoringType {
+  FULL
+  LEVELS
+  DISCRETIONARY
+}
+
+/// Per-subcategory add/deduct override (Phase 5A); null inherits template methodology.
+enum JudgingSubcategoryPointType {
+  ADD
+  DEDUCT
+}
+
 enum JudgeScoreSheetStatus {
   DRAFT
   SUBMITTED
@@ -1083,6 +1096,8 @@ model JudgingTemplate {
   slug         String               @unique
   name         String
   description  String?              @db.Text
+  scoringGroup String?
+  vehicleType  String?
   methodology  JudgingMethodology
   totalPoints  Int
   isActive     Boolean              @default(true)
@@ -1104,6 +1119,7 @@ model JudgingTemplateSection {
   weightPercent   Float?
   maxSectionPoints Int?
   judgeGuidance   String?  @db.Text
+  isActive        Boolean  @default(true)
 
   template JudgingTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
   items    JudgingTemplateItem[]
@@ -1118,8 +1134,13 @@ model JudgingTemplateItem {
   label                      String
   sortOrder                  Int      @default(0)
   maxPoints                  Int
+  isIndented                 Boolean  @default(false)
+  pointType                  JudgingSubcategoryPointType?
+  scoringType                JudgingSubcategoryScoringType @default(LEVELS)
+  allowMultipleViolations    Boolean  @default(false)
   judgeGuidance              String?  @db.Text
   requiresCommentOnDeduction Boolean  @default(false)
+  isActive                   Boolean  @default(true)
 
   section          JudgingTemplateSection           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   deductionOptions JudgingTemplateDeductionOption[]
@@ -1149,6 +1170,8 @@ model EventJudgingTemplate {
   sourceTemplateId String?
   name             String
   description      String?                      @db.Text
+  scoringGroup     String?
+  vehicleType      String?
   methodology      JudgingMethodology
   totalPoints      Int
   editLock         EventJudgingTemplateEditLock @default(OPEN)
@@ -1173,6 +1196,7 @@ model EventJudgingSection {
   weightPercent    Float?
   maxSectionPoints Int?
   judgeGuidance    String?  @db.Text
+  isActive         Boolean  @default(true)
 
   template EventJudgingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   items    EventJudgingItem[]
@@ -1187,8 +1211,13 @@ model EventJudgingItem {
   label                      String
   sortOrder                  Int      @default(0)
   maxPoints                  Int
+  isIndented                 Boolean  @default(false)
+  pointType                  JudgingSubcategoryPointType?
+  scoringType                JudgingSubcategoryScoringType @default(LEVELS)
+  allowMultipleViolations    Boolean  @default(false)
   judgeGuidance              String?  @db.Text
   requiresCommentOnDeduction Boolean  @default(false)
+  isActive                   Boolean  @default(true)
 
   section          EventJudgingSection           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   deductionOptions EventJudgingDeductionOption[]
@@ -1288,6 +1317,7 @@ model JudgeScoreSheetSection {
   weightPercent    Float?
   maxSectionPoints Int?
   judgeGuidance    String?  @db.Text
+  isActive         Boolean  @default(true)
 
   scoreSheet JudgeScoreSheet       @relation(fields: [scoreSheetId], references: [id], onDelete: Cascade)
   items      JudgeScoreSheetItem[]
@@ -1302,8 +1332,13 @@ model JudgeScoreSheetItem {
   label                      String
   sortOrder                  Int      @default(0)
   maxPoints                  Int
+  isIndented                 Boolean  @default(false)
+  pointType                  JudgingSubcategoryPointType?
+  scoringType                JudgingSubcategoryScoringType @default(LEVELS)
+  allowMultipleViolations    Boolean  @default(false)
   judgeGuidance              String?  @db.Text
   requiresCommentOnDeduction Boolean  @default(false)
+  isActive                   Boolean  @default(true)
   awardedPoints              Float?
   itemNotes                  String?  @db.Text
 
@@ -1330,13 +1365,15 @@ model JudgeScoreSheetDeductionOption {
 }
 
 model JudgeScoreSheetDeduction {
-  id              String                  @id @default(uuid())
-  itemId          String
-  optionId        String?
-  label           String
-  pointsDeducted  Int
-  deductionBucket JudgingDeductionBucket?
-  comment         String?                 @db.Text
+  id                  String                  @id @default(uuid())
+  itemId              String
+  optionId            String?
+  label               String
+  pointsDeducted      Int
+  violationCount      Int                     @default(1)
+  discretionaryPoints Int?
+  deductionBucket     JudgingDeductionBucket?
+  comment             String?                 @db.Text
 
   item JudgeScoreSheetItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 

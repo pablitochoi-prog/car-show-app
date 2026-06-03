@@ -63,13 +63,19 @@ export async function snapshotEventTemplateToScoreSheet(input: {
           weightPercent: section.weightPercent,
           maxSectionPoints: section.maxSectionPoints,
           judgeGuidance: section.judgeGuidance,
+          isActive: section.isActive,
           items: {
             create: section.items.map((item) => ({
               label: item.label,
               sortOrder: item.sortOrder,
               maxPoints: item.maxPoints,
+              isIndented: item.isIndented,
+              pointType: item.pointType,
+              scoringType: item.scoringType,
+              allowMultipleViolations: item.allowMultipleViolations,
               judgeGuidance: item.judgeGuidance,
               requiresCommentOnDeduction: item.requiresCommentOnDeduction,
+              isActive: item.isActive,
               deductionOptions: {
                 create: item.deductionOptions.map((opt) => ({
                   label: opt.label,

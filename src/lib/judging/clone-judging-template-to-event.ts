@@ -59,6 +59,8 @@ async function cloneTemplateTree(
       sourceTemplateId: source.id,
       name: input.name?.trim() || source.name,
       description: source.description,
+      scoringGroup: source.scoringGroup,
+      vehicleType: source.vehicleType,
       methodology: source.methodology,
       totalPoints: source.totalPoints,
       sections: {
@@ -68,6 +70,7 @@ async function cloneTemplateTree(
           weightPercent: section.weightPercent,
           maxSectionPoints: section.maxSectionPoints,
           judgeGuidance: section.judgeGuidance,
+          isActive: section.isActive,
           items: {
             create: section.items.map((item) => {
               itemCount += 1;
@@ -75,8 +78,13 @@ async function cloneTemplateTree(
                 label: item.label,
                 sortOrder: item.sortOrder,
                 maxPoints: item.maxPoints,
+                isIndented: item.isIndented,
+                pointType: item.pointType,
+                scoringType: item.scoringType,
+                allowMultipleViolations: item.allowMultipleViolations,
                 judgeGuidance: item.judgeGuidance,
                 requiresCommentOnDeduction: item.requiresCommentOnDeduction,
+                isActive: item.isActive,
                 deductionOptions: {
                   create: item.deductionOptions.map((opt) => ({
                     label: opt.label,
