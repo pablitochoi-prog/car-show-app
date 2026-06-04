@@ -1922,8 +1922,8 @@ Report each item as PASS / FAIL / SKIP; checklist updated on report. **QA date:*
 
 ### Phase 5 — Templated scorecard judging (AACA / PCA / NCRS / MCA model)
 
-**Status:** **5A–5C committed** — **5D–5E not started.**  
-**Note:** Phase 4A.1 still uncommitted in working tree; 5A files kept isolated from 4A.1/unrelated edits.  
+**Status:** **5A–5E committed** — **5F QA/regression planning (this section); no implementation yet.**  
+**Note:** Unrelated working-tree edits (sale-inquiry, session-idle, login/OTP) stay out of judging commits.  
 **Reference:** `tasks/judging-template-architecture-plan.md` (original three-workflow architecture).
 
 #### Executive summary
@@ -2021,7 +2021,7 @@ Snapshot copy in `snapshot-score-sheet.ts` must copy new fields. `calculate-scor
 | **5C — Seed + predefined picker** | Enrich PCA/AACA/NCRS/MCA seeds with scoring types; “Start from template” copies unchanged tree | `seed-judging-templates.ts`, clone flow QA |
 | **5D — Category judge assignment** | Models: `EventJudgingSectionJudgeAssignment` (event, sectionId, judgeUserId, vehicleEntryCode?) + organizer bulk UI from registrations; enforce on judge APIs | New APIs + organizer assign flow |
 | **5E — Mobile judge UX** | Category tabs, read-only sections, Full/Levels/Discretionary controls, violation count, vehicle header, status labels/sort, save/submit → back to list | `judge-score-sheet-*` components |
-| **5F — Regression + docs** | Ballot/public/4A/4A.1 smoke; manual QA checklist; update architecture doc | todo.md QA section |
+| **5F — Regression + QA** | Manual QA checklist (below); automated smoke; polish backlog; architecture doc update | **Planning only — see Phase 5F section** |
 
 **Out of scope for Phase 5 (unless explicitly added):** Per-judge CSV (4A.1b), ballot changes, public voting, legacy `VehicleJudgeScore` removal, renaming DB tables to Category/Subcategory.
 
@@ -2070,13 +2070,7 @@ Preserve submit → read-only behavior from Phase 2E.
 
 #### Manual QA (after 5F)
 
-- [ ] Clone PCA/AACA → event copy; edit event copy; confirm global unchanged
-- [ ] Full/Levels/Discretionary subcategories render correct judge controls
-- [ ] Multiple violations cap at subcategory max
-- [ ] Category assignment: assigned editable, unassigned read-only
-- [ ] Save for Later / Submit + list sort
-- [ ] Judge Ballot + Public Voting + Phase 4A results unchanged
-- [ ] `/judge` hub and QR scan flow
+_Superseded by **Phase 5F — Manual QA checklist** below (full scorecard workflow)._
 
 #### Files likely touched (by phase)
 
@@ -2105,8 +2099,8 @@ Preserve submit → read-only behavior from Phase 2E.
 - [x] `scorecard-scoring.ts` + tests (caps, D/A, Full/Levels/Discretionary, violations, O/C bridge)
 - [x] Clone + snapshot copy new metadata fields
 - [x] Organizer template builder UI (5B)
-- [ ] Judge mobile UI (5E)
-- [ ] Category judge assignment (5D)
+- [x] Judge mobile UI (5E) — assignment-based list, scorecard controls, save/submit
+- [x] Category judge assignment (5D) — `EventJudgeCategoryAssignment`
 - [x] Seed scoring types on global templates (5C)
 
 **5A files:** `prisma/schema.prisma`, `prisma/migrations/20260604120000_*`, `scorecard-template-validation.ts`, `scorecard-scoring.ts`, `clone-judging-template-to-event.ts`, `snapshot-score-sheet.ts`, `*.test.ts`
@@ -2117,9 +2111,189 @@ Preserve submit → read-only behavior from Phase 2E.
 
 **5C (complete):** `src/lib/judging/seed-templates/*` + `prisma/seed-judging-templates.ts` — PCA Zone 8, NCRS/MCA 1968-72 exterior, AACA automobile starter; Marque/Modified retained. Run `npm run db:seed-judging-templates` per environment (does not alter event copies).
 
-**Next:** Phase 5D assignment; Phase 5E judge mobile + `calculateScorecardSheetScore` wiring.
+**5D (committed):** `EventJudgeCategoryAssignment`, organizer `/awards-judging/score-sheets/assignments`, `findOrCreateJudgeScoreSheet`, assignment APIs.
+
+**5E (committed):** Judge `judge-assigned-*` UI/APIs, `eventJudgingSectionId` on sheet sections, `calculateScorecardFromSheet` / assignment status sync on save/submit.
+
+**Next:** Execute Phase 5F manual QA + automated smoke; then address polish backlog items as small fixes.
 
 #### Approval gate (historical)
+
+---
+
+### Phase 5F — QA / regression (planning only)
+
+**Do not implement features in 5F until QA sign-off and polish items are prioritized.**
+
+#### Prerequisites (before manual QA)
+
+- [ ] Production/staging DB: `npm run db:migrate:deploy` (includes `20260605130000_score_sheet_section_source` for `JudgeScoreSheetSection.eventJudgingSectionId`)
+- [ ] `npm run db:generate`
+- [ ] Global seeds (if fresh env): `npm run db:seed-judging-templates`
+- [ ] Test event with: at least one `EventJudgingClass` linked to a cloned event template (PCA/AACA/NCRS seed), registered vehicles with entry codes, event `JUDGE` staff (2+ judges), head judge/organizer access
+- [ ] Two judge accounts: **Judge A** (assigned categories) and **Judge B** (same vehicle, different categories) for read-only cross-check
+- [ ] Mobile or narrow viewport for judge scorecard screens
+
+#### Automated regression (run before / after manual QA)
+
+| Command | Purpose | Last verified |
+|---------|---------|---------------|
+| `npm test -- --run src/lib/judging/judge-assigned-scorecard-data.test.ts src/lib/judging/judge-assigned-scorecard-validation.test.ts src/lib/judging/event-judge-category-assignment.test.ts src/lib/judging/scorecard-scoring.test.ts src/lib/judging/calculate-score.test.ts src/lib/judging/organizer-score-sheet-vehicle-detail.test.ts src/lib/judging/score-sheet-results.test.ts src/lib/judging/judge-ballot-judge-api.test.ts` | 5E assignment + scoring + organizer serialize + ballot API | 44/44 pass |
+| `npm run build` | TypeScript + production build | Pass |
+| `npm run test:judging-integration` (optional) | Broader judging integration | Requires migrated DB (`eventJudgingSectionId` column) |
+
+Record results in **QA sign-off** at bottom of this section.
+
+---
+
+#### Manual QA checklist — full scorecard judging workflow
+
+**Tester / date / environment:** _TBD_  
+**Event / show #:** _TBD_
+
+##### 1. Template clone & event customization (5B / 5C)
+
+- [ ] **1.1** Organizer → Awards & Judging → Score Sheets → clone global template (e.g. PCA or AACA) into event copy
+- [ ] **1.2** Confirm event template is editable; global template unchanged after event edits
+- [ ] **1.3** Add/edit category (`section`): name, max points, judge guidance text
+- [ ] **1.4** Add/edit subcategory (`item`): max points, scoring type (DISCRETIONARY / LEVELS / FULL), point type, allow multiple violations, indent, guidelines
+- [ ] **1.5** LEVELS/FULL: increment options (weights) validate; DISCRETIONARY has no increment rows
+- [ ] **1.6** Save template; warnings (if any) match expectations (e.g. NCRS total vs category sum)
+- [ ] **1.7** Link judging class to event template; map vehicle classes to judging class
+- [ ] **1.8** After a judge sheet exists: template structure locked or soft-archive rules still correct
+
+##### 2. Judge assignment by category (5D)
+
+- [ ] **2.1** Organizer → Score Sheets → **Judge assignments** (`/awards-judging/score-sheets/assignments`)
+- [ ] **2.2** Filter registrations by vehicle class; select one or more vehicles
+- [ ] **2.3** Assign **Judge A** to one or more categories (sections) for vehicle V1
+- [ ] **2.4** Assign **Judge B** to different categories on same V1 (split assignment)
+- [ ] **2.5** Reassign category from Judge A → Judge C; confirm prior judge loses edit rights
+- [ ] **2.6** Confirm `JudgeScoreSheet` created (or linked) per judge/vehicle (`judgeScoreSheetId` on assignment)
+- [ ] **2.7** Vehicle with assignment but missing sheet: note behavior (should not appear on My Judging list until sheet exists)
+
+##### 3. My Judging — assigned vehicle list (5E)
+
+- [ ] **3.1** `/judge` hub shows event with ballot + score sheet tiles
+- [ ] **3.2** **My Judging — Score Sheets** shows pending count when assignments exist
+- [ ] **3.3** List at `/judge/events/{id}/score-sheets` shows **only** vehicles assigned to logged-in judge
+- [ ] **3.4** Each row: entry code, Y/M/M/T, owner name (per contact/ban rules), vehicle class, assigned category names, status summary, thumbnail when available
+- [ ] **3.5** Sort order: **Not Judged** → **Saved for Later** → **Submitted** (aggregate across assigned categories)
+- [ ] **3.6** CTA opens correct `sheetId` for continue scoring
+- [ ] **3.7** Judge with zero assignments: empty state; no other judges’ vehicles
+
+##### 4. Mobile scorecard — vehicle header & category nav (5E)
+
+- [ ] **4.1** Vehicle detail shows year, make, model, trim, VIN (when on registration)
+- [ ] **4.2** Thumbnail: event photo URL or vehicle `photoUrl` when http(s)
+- [ ] **4.3** Owner name, vehicle nickname, vehicle story when present
+- [ ] **4.4** Category tabs/buttons for all active scorecard sections on sheet
+- [ ] **4.5** Assigned categories: editable when sheet `DRAFT` and assignment not `SUBMITTED`
+- [ ] **4.6** Unassigned categories: visible, labeled read-only, inputs disabled
+- [ ] **4.7** Judge B on V1: can view Judge A’s categories read-only; cannot save scores there
+
+##### 5. Scoring controls by type (5A / 5E)
+
+- [ ] **5.1 DISCRETIONARY:** integer input 0..subcategory max; no increment buttons; no violation multiplier
+- [ ] **5.2 DISCRETIONARY:** reject / clamp out-of-range in UI and API (try above max)
+- [ ] **5.3 LEVELS:** one button per increment; tap selects level
+- [ ] **5.4 LEVELS + multiple violations:** count field appears after selection; impact = weight × count capped at max
+- [ ] **5.5 FULL:** single Select; all-or-nothing when multiple violations off
+- [ ] **5.6 FULL + multiple violations:** count after select; capped at max
+- [ ] **5.7** Subcategory with `judgeGuidance` / guidelines: info icon opens modal; dismiss on mobile
+- [ ] **5.8** `requiresCommentOnDeduction` (if enabled on template): comment required when deduction applied
+- [ ] **5.9** DEDUCTION methodology: category score starts at max, deductions reduce (verify one category math)
+- [ ] **5.10** ADDITIVE methodology (if test template): starts at 0, adds earned points
+- [ ] **5.11** ORIGINALITY_CONDITION template (Marque seed): legacy path still calculates; O/C totals on organizer view
+
+##### 6. Save for Later (5E)
+
+- [ ] **6.1** Enter scores in **one** assigned category only → **Save for Later**
+- [ ] **6.2** Returns to list or shows success consistent with prior judge UX
+- [ ] **6.3** `EventJudgeCategoryAssignment.status` → `SAVED_FOR_LATER` for saved categories only
+- [ ] **6.4** Unassigned/read-only categories unchanged
+- [ ] **6.5** List row moves to **Saved for Later** group (if no category still `NOT_JUDGED`)
+- [ ] **6.6** Re-open vehicle: saved inputs restored; `finalScore` on sheet updated (draft)
+- [ ] **6.7** API: PATCH with another judge’s `sectionIds` or unassigned section → `READ_ONLY` error
+
+##### 7. Submit (5E)
+
+- [ ] **7.1** Complete all **editable assigned** categories → **Submit**
+- [ ] **7.2** Assigned categories → `SUBMITTED`; sheet → `SUBMITTED` (+ timestamps)
+- [ ] **7.3** Submitted sheet: assigned categories read-only; unassigned categories still view-only
+- [ ] **7.4** List row in **Submitted** group
+- [ ] **7.5** Second judge can still edit their own assigned categories on same vehicle until they submit
+- [ ] **7.6** Submit on already-submitted sheet → blocked
+- [ ] **7.7** Organizer results reflect submitted score after refresh
+
+##### 8. Organizer read-only score review (4A + 5E compat)
+
+- [ ] **8.1** Score Sheet **Results** list loads; ranks / official score unchanged in behavior
+- [ ] **8.2** Drill into vehicle → per-judge sheets; submitted sheets read-only
+- [ ] **8.3** `calculatedFinalScore` matches expected for scorecard-type items (LEVELS/FULL/DISCRETIONARY)
+- [ ] **8.4** Section scores and item deductions display with comments
+- [ ] **8.5** CSV export (if used) still works; owner names per existing rules
+- [ ] **8.6** Draft sheets hidden from scoring results unless “include drafts” path tested
+
+##### 9. Score results aggregation (4A)
+
+- [ ] **9.1** Multiple judges submit on same vehicle/class: official score aggregation unchanged
+- [ ] **9.2** High/low/spread on results row correct with 2+ submitted sheets
+- [ ] **9.3** Vehicle with only one judge submitted: sensible official score
+- [ ] **9.4** Category-level assignment does not break class-level results grouping
+
+##### 10. Judge ballot awards — regression (must not break)
+
+- [ ] **10.1** `/judge` → **Judge Ballot Awards** for same event still lists OPEN categories
+- [ ] **10.2** Assigned judge can vote on eligible category; vote saves
+- [ ] **10.3** Over-allocation / closed category / wrong judge blocked (existing rules)
+- [ ] **10.4** Organizer ballot results page unchanged
+- [ ] **10.5** Event with ballot only (no score assignments) still appears on `/judge`
+- [ ] **10.6** Event with score assignments only (no ballot) still appears on `/judge`
+
+##### 11. Cross-cutting / infra
+
+- [ ] **11.1** No Prisma missing-column errors after migration deploy
+- [ ] **11.2** No P2024 / pool exhaustion during QA sweep
+- [ ] **11.3** Auth: judge APIs reject non-judge / wrong event
+- [ ] **11.4** Public voting + SMS routes untouched (smoke: public vote page loads)
+- [ ] **11.5** Legacy `/api/v/[code]/judge-score` (if still used) unaffected
+
+---
+
+#### Recommended polish / fix backlog (from 5A–5E code review — implement after QA)
+
+_Prioritize based on manual QA findings. Small, scoped fixes only._
+
+| ID | Area | Item | Severity |
+|----|------|------|----------|
+| P5F-1 | Data | **Backfill** `JudgeScoreSheetSection.eventJudgingSectionId` for sheets snapshotted before 5E migration (match by `eventJudgingSectionId` / sort order / name) so assignment edit rights work on old sheets | High if legacy sheets exist |
+| P5F-2 | List UX | Vehicles with assignment but **null `judgeScoreSheetId`** are skipped on My Judging — auto-call `findOrCreateJudgeScoreSheet` on assign or show “setup pending” | Medium |
+| P5F-3 | Submit validation | `submitAssignedScorecard` uses `requireComplete: false` — confirm product wants optional empty assigned categories on submit; tighten if required | Medium |
+| P5F-4 | Partial submit | Submit marks **entire** `JudgeScoreSheet` `SUBMITTED`/`finalizedAt` while only editable assigned sections submitted — document or split per-category sheet status if product needs incremental submit | Medium |
+| P5F-5 | Re-open | Category `SUBMITTED` + sheet `DRAFT` mismatch if head judge reopens sheet — define reopen → reset assignment status | Low |
+| P5F-6 | Tests | Add unit tests for `saveAssignedScorecardDraft` / `submitAssignedScorecard` (mock Prisma): assignment status sync, unassigned `READ_ONLY` | Low |
+| P5F-7 | Tests | Dedicated `calculate-score-from-snapshot.test.ts` for scorecard vs legacy branches | Low |
+| P5F-8 | Cleanup | Remove or deprecate unused `judge-score-sheet-screen.tsx` / `judge-score-sheet-class-list.tsx` if no routes reference | Low |
+| P5F-9 | Copy | Judge hub tile says “No assigned classes” — should say “categories” or “vehicles” | Low |
+| P5F-10 | Organizer | Deep-link assignments page with `eventCategoryId` query from registrations filter | Low |
+| P5F-11 | Integration | Add `judge-assigned-scorecard-*` tests to `test:judging-integration` npm script for CI parity | Low |
+| P5F-12 | Docs | Update `tasks/judging-template-architecture-plan.md` with assignment model + 5E status mapping | Low |
+| P5F-13 | Seed | NCRS template `totalPoints` vs sum of category maxes — confirm warning-only in builder QA | Low |
+| P5F-14 | API | `listJudgeAssignedVehicles` requires sheet id — document organizer flow must assign after class/template ready | Low |
+
+---
+
+#### Phase 5F — QA sign-off
+
+| Field | Value |
+|-------|--------|
+| Manual QA | _pending_ |
+| Automated tests (see table above) | _pending re-run on target env_ |
+| Build | _pending_ |
+| Blockers found | _none yet_ |
+| Polish items opened | _link GitHub issues or check P5F-* above_ |
+| Approved for polish implementation | _no — QA first_ |
 
 ---
 
