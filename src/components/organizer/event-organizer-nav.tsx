@@ -64,7 +64,7 @@ const TABS: {
   {
     id: "reports",
     label: "Reports",
-    href: (id) => `/organizer/events/${id}/reports?report=voting`,
+    href: (id) => `/organizer/events/${id}/reports?report=home`,
     icon: FileBarChart,
   },
   {

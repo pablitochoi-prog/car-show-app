@@ -24,9 +24,32 @@ const cleanup = {
   eventTemplateIds: [] as string[],
   judgingClassIds: [] as string[],
   scoreSheetIds: [] as string[],
+  eventCategoryIds: [] as string[],
 };
 
-describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
+async function releaseVitestJudgingCategories(eventId: string) {
+  const rows = await prisma.eventCategory.findMany({
+    where: { eventId, customName: { startsWith: "Vitest " } },
+    select: { id: true },
+  });
+  for (const row of rows) {
+    await prisma.eventJudgingClassEligibleCategory.deleteMany({
+      where: { eventCategoryId: row.id },
+    });
+    await prisma.eventCategory.deleteMany({ where: { id: row.id } });
+  }
+}
+
+async function createIsolatedEventCategory(eventId: string, label: string) {
+  const row = await prisma.eventCategory.create({
+    data: { eventId, customName: `Vitest ${label} ${Date.now()}` },
+    select: { id: true },
+  });
+  cleanup.eventCategoryIds.push(row.id);
+  return row.id;
+}
+
+describe.skipIf(!RUN).sequential("Phase 2D score sheet template builder", () => {
   let eventId: string;
   let eventCategoryId: string;
   let globalTemplateId: string;
@@ -51,6 +74,7 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
     });
     if (!event) throw new Error("No event for tests.");
     eventId = event.id;
+    await releaseVitestJudgingCategories(eventId);
 
     const ec = await prisma.eventCategory.findFirst({ where: { eventId } });
     if (!ec) throw new Error("Need event category.");
@@ -93,6 +117,15 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
     }
     for (const id of cleanup.eventTemplateIds) {
       await prisma.eventJudgingTemplate.deleteMany({ where: { id } });
+    }
+    for (const id of cleanup.eventCategoryIds) {
+      await prisma.eventJudgingClassEligibleCategory.deleteMany({
+        where: { eventCategoryId: id },
+      });
+      await prisma.eventCategory.deleteMany({ where: { id } });
+    }
+    if (eventId) {
+      await releaseVitestJudgingCategories(eventId);
     }
     await prisma.$disconnect();
   });
@@ -143,11 +176,14 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
     const reloaded = await loadEventJudgingTemplate(eventId, eventTemplateId);
     expect(reloaded!.template.scoringGroup).toBe("AACA");
     expect(reloaded!.template.vehicleType).toBe("Auto");
-    expect(reloaded!.template.sections[0].name).toBe("Updated Section");
-    expect(reloaded!.template.sections[0].items[0].label).toBe("Updated Criteria");
-    expect(
-      reloaded!.template.sections[0].items[0].deductionOptions[0].label,
-    ).toBe("New deduction");
+    const updatedSection = reloaded!.template.sections.find(
+      (s) => s.name === "Updated Section",
+    );
+    expect(updatedSection).toBeDefined();
+    expect(updatedSection!.items[0].label).toBe("Updated Criteria");
+    expect(updatedSection!.items[0].deductionOptions[0].label).toBe(
+      "New deduction",
+    );
   });
 
   it("persists scoring type changes on existing subcategories", async () => {
@@ -313,6 +349,7 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
               label: "Different criteria",
               sortOrder: 0,
               maxPoints: sheet.totalPoints,
+              scoringType: "DISCRETIONARY",
               deductionOptions: [],
             },
           ],
@@ -329,18 +366,23 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
   });
 
   it("creates EventJudgingClass mapped to template and vehicle class", async () => {
+    const isolatedCategoryId = await createIsolatedEventCategory(
+      eventId,
+      "2D Judging Class",
+    );
+
     const judgingClass = await createEventJudgingClass(eventId, {
-      name: "PCA Judging Class",
+      name: `PCA Judging Class ${Date.now()}`,
       description: "Test mapping",
       eventJudgingTemplateId: eventTemplateId,
-      eligibleEventCategoryIds: [eventCategoryId],
+      eligibleEventCategoryIds: [isolatedCategoryId],
       sortOrder: 1,
     });
     cleanup.judgingClassIds.push(judgingClass.id);
 
     const list = await listEventJudgingClasses(eventId);
     expect(list.some((c) => c.id === judgingClass.id)).toBe(true);
-    expect(judgingClass.eligibleEventCategoryIds).toContain(eventCategoryId);
+    expect(judgingClass.eligibleEventCategoryIds).toContain(isolatedCategoryId);
     expect(judgingClass.templateName).toBeTruthy();
   });
 
@@ -363,7 +405,15 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
           name: "Under total",
           sortOrder: 0,
           maxSectionPoints: 50,
-          items: [{ label: "A", sortOrder: 0, maxPoints: 50, deductionOptions: [] }],
+          items: [
+            {
+              label: "A",
+              sortOrder: 0,
+              maxPoints: 50,
+              scoringType: "DISCRETIONARY",
+              deductionOptions: [],
+            },
+          ],
         },
       ],
     });

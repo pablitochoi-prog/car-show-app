@@ -449,9 +449,9 @@ describe.skipIf(!RUN)("Phase 1C judging integration", () => {
           registrationId: rv2.registrationId,
           registrationVehicleId: rv2.id,
           vehicleEventCategoryId: rv2.eventCategoryId,
-          voteCount: 2,
+          voteCount: 3,
         }),
-      ).rejects.toThrow(/remaining/i);
+      ).rejects.toThrow(/at most 2 vote/i);
     }
 
     await closeJudgeBallotCategory(category.id, "CLOSED");
@@ -493,7 +493,7 @@ describe.skipIf(!RUN)("Phase 1C judging integration", () => {
       if (!roles.includes("JUDGE")) {
         await expect(
           assertJudgeCanVoteInCategory(nonJudgeUserId, category.id),
-        ).rejects.toThrow(/judge/i);
+        ).rejects.toThrow(/not assigned to vote in this award category/i);
       }
     }
   });

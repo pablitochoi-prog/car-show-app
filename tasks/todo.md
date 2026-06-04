@@ -2963,6 +2963,340 @@ npm run db:migrate:deploy
 | `judge-score-sheet-judge-flow.test.ts` not in `test:judging-integration` script | Low | Add to npm script for CI parity |
 | ESLint not clean repo-wide | Low | Pre-existing; not a build blocker |
 | No class-specific score sheet judge assignment | Known MVP | Documented in todo.md |
-| Required-comment UI not manually spot-checked | Low | Integration + unit tests; optional organizer template flag test |
+| Required-comment UI not manually spot-checked | Low | Integration + unit tests; optional organizer template flag test |udging 
 | Mixed unrelated diffs in working tree | Medium | Review/split before commit |
+
+---
+
+# Organizer Event Reports Module — Implementation Plan (CarShowScout)
+
+**Status:** Planning only — **do not implement until this section is reviewed and approved.**
+
+**Goal:** Expand `/organizer/events/[id]/reports` into a practical, export-friendly, mobile-friendly reports hub for financial, registration, staffing, voting, judging, awards, check-in, and geographic insights.
+
+---
+
+## 1. Current state (codebase audit)
+
+### Routes & UI (already exist)
+
+| Asset | Location | Notes |
+|-------|----------|-------|
+| Reports page | `src/app/organizer/events/[id]/reports/page.tsx` | Server component; `?report=` query param; step-up via `requireStaffStepUpPage` |
+| Report type registry | `src/lib/event-reports/report-types.ts` | 6 types; only `voting` (`available: true`) |
+| Public voting loader | `src/lib/event-reports/voting-tabulation.ts` | Aggregates `VehiclePublicVote` + `SmsVote` by `VotingCategory` |
+| Public voting UI | `src/components/organizer/reports/voting-tabulation-report.tsx` | Ranked tables; no top-25 cap yet |
+| Report nav tabs | `src/components/organizer/reports/event-reports-nav.tsx` | Horizontal tabs; “Coming soon” for disabled types |
+| Organizer top nav | `src/components/organizer/event-organizer-nav.tsx` | **Reports** tab → `/reports?report=voting` |
+| Duplicate public voting | `awards-judging/public-voting/results` | Reuses same tabulation — keep one source of truth |
+
+### Auth patterns (reuse)
+
+- Page guard: `getCurrentUser()` → `canManageEvent(userId, eventId, orgId, platformRole)` → `notFound()` if denied.
+- Sensitive pages: `requireStaffStepUpPage` (reports path is gated in `organizer-step-up-policy.ts`).
+- **Registration CSV export** (`/api/events/[id]/registrations/export`) is **more granular**: `ORGANIZER` \| `REGISTRAR` \| `TREASURER` slug **or** `canManageEvent`.
+- **`canManageEvent` today** = platform `ADMIN`, org **owner**, or staff with slug **`organizer` only** (see `userHasOrganizerStaffRole` — not treasurer/registrar/judge).
+- Recommendation: keep reports page on `canManageEvent` for MVP; add optional `requireEventRole` helpers per report in Phase 2 (financial → `ORGANIZER` + `TREASURER` + org owner).
+
+### Existing aggregation / export logic to reuse
+
+| Domain | Reuse |
+|--------|--------|
+| Public voting | `loadEventVotingTabulation` |
+| Judge ballot | `aggregateJudgeBallotResults` (`src/lib/judging/judge-ballot-results.ts`) |
+| Score sheet class results | `loadScoreSheetClassResults`, `buildScoreSheetResultsCsv` (`src/lib/judging/score-sheet-results.ts`) + export route |
+| Trophy / awards | `loadAwardTrophyWinnersPayload`, `award-trophy-ranking.ts`, `event-awards-trophies.ts` |
+| Staff list | `getEventStaffList` (`src/lib/event-staff.ts`) |
+| Registration contact | `resolveRegistrationContact` |
+| Registrations list/export | `organizer-registrations-list-query.ts`, `registrations/export` route |
+| Vehicle grid (reference UX) | `vehicle-registrations-grid.ts` — pagination/search patterns |
+| CSV escape | `csvEscape` in `score-sheet-results.ts`; duplicate small helper in registrations export |
+
+### Prisma models relevant to reports
+
+- **Registrations:** `Registration`, `RegistrationTier`, `RegistrationVehicle`, `VehicleEntryIndex`
+- **Payments:** `amountCents`, `platformFeeCents`, `refundedCents`, `paymentStatus`, `paidAt`, `stripe*` ids on `Registration`
+- **Vehicles:** `Vehicle` (year/make/model/trim/nickname/notes — **no `color` field**)
+- **Public voting:** `VotingCategory`, `VehiclePublicVote`, `SmsVote`
+- **Judge ballot:** `JudgeBallotCategory`, `JudgeBallotVote`, `JudgeBallotAllocation`, eligible classes, judge/special-judge assignments
+- **Score sheets:** `JudgeScoreSheet` (+ sections/items/deductions snapshots), `EventJudgingClass`, `EventJudgingTemplate`
+- **Assignments:** `EventJudgeCategoryAssignment` (judge ↔ vehicle ↔ template/class)
+- **Awards:** `EventAward`, `EventTrophyPlacement`, `eventAwardsVotingStatus` / `eventAwardsVotingFinalizedAt` on `Event`
+- **Staff:** `EventStaffMember`, `EventRoleDefinition`, `EventStaffRoleLink`
+- **Sale inquiries:** `VehicleSaleListing.enabled` → “open to buyer inquiries”
+- **Event location:** `Event.city`, `Event.state`, `Event.zip` (for geographic “local vs out-of-area”)
+- **SMS opt-in:** fields on `Registration`
+
+### What does **not** exist yet (gaps)
+
+| Need | Status |
+|------|--------|
+| Check-in (`checkedInAt`, `checkedInBy`, notes) | **No schema fields** — propose minimal addition in Phase 2 (after approval) |
+| Dash card “printed at check-in” | Only `vehicleQrUrl` / `vehicleQrObjectKey` on `RegistrationVehicle` → can show “QR ready” not “printed” |
+| Stripe processing fee per registration | **Not stored** — only platform fee + gross/refund on registration |
+| Per-registration Stripe net to organizer | Must be **derived** (amount − platform − refunded); label estimates clearly |
+| Award sponsor / award accepted | **Not on `EventAward`** — event-level sponsor fields exist on `Event` only |
+| Staff invite status / last login | No staff invite table; no per-event last-login — optional “last session activity” is global, not event-scoped |
+| Vehicle color | **Not in schema** |
+| Registrant notes/comments (organizer) | No dedicated field — only vehicle story / tier / status |
+| `last vote received` (public) | `VehiclePublicVote.createdAt` / `SmsVote` — can `max(createdAt)` per vehicle×category |
+| Comped registrations | Infer: `tier.priceCents === 0` or `amountCents === 0` + status — no explicit “comp” flag |
+
+---
+
+## 2. Report-by-report data matrix (MVP A–J)
+
+| Report | MVP priority | Data mostly available? | Gaps / “Not tracked yet” |
+|--------|--------------|------------------------|---------------------------|
+| **A. Financial Summary** | ✅ MVP | Partial | Stripe processing fees; explicit comp flag; donation breakdown if mixed tiers |
+| **B. Registration Detail** | ✅ MVP | Strong | Color; organizer notes; check-in; dash printed |
+| **C. Staffing List** | ✅ MVP | Strong | Invite status; last login; ballot category names per judge (derivable) |
+| **D. Public Voting Results** | ✅ MVP | Strong (exists) | Owner name; %; tie flag; trim/class; top-25 toggle; last vote time |
+| **E. Judge Ballot Results** | ✅ MVP | Strong | Owner name; avg votes/judge; %; extend existing aggregator |
+| **F. Structured Scorecard** | Phase 1b | Strong | Detailed drill-down is heavy — start with class summary + link to existing results UI |
+| **G. Awards/Winners** | ✅ MVP | Strong | Sponsor/accepted; label **Projected** until `eventAwardsVotingFinalizedAt` |
+| **H. Judge Progress** | ✅ MVP | Strong | Ballot remaining from `JudgeBallotAllocation` |
+| **I. Check-In / No-Show** | Phase 2 | **Blocked** | Requires schema — show placeholder + proposal only until approved |
+| **J. Geographic Breakdown** | Phase 1b | Strong | “Local vs out-of-area” needs event lat/long or city/state match heuristic |
+
+---
+
+## 3. Proposed route structure
+
+**Keep single entry** (matches existing app): `/organizer/events/[id]/reports?report=<id>`
+
+Optional later: subpaths redirect to query param for bookmarking.
+
+### Report IDs (replace/extend `EVENT_REPORT_TYPES`)
+
+| Group | `report` id | Label |
+|-------|-------------|-------|
+| Financial | `financial` | Financial Summary |
+| Registrations & Vehicles | `registrations` | Registration Detail |
+| Registrations & Vehicles | `geography` | Attendee / Geographic |
+| Voting & Awards | `public-voting` | Public Voting Results (migrate from `voting`) |
+| Voting & Awards | `judge-ballots` | Judge Ballot Results |
+| Voting & Awards | `awards` | Awards / Winners |
+| Judging Operations | `scorecards` | Structured Scorecard Results |
+| Judging Operations | `judge-progress` | Judge Progress |
+| Attendees & Marketing | `check-in` | Check-In / No-Show (placeholder until schema) |
+| Staffing / Admin | `staffing` | Staffing List |
+
+**Backward compat:** redirect `?report=voting` → `?report=public-voting`.
+
+### CSV API routes (new)
+
+Pattern: `GET /api/events/[id]/reports/[reportType]/csv`
+
+- Auth: same as parent report (start with `canManageEvent`; financial CSV also allow `TREASURER` via `getUserEventRoles` when we add role gates).
+- Reuse `csvEscape` from one shared `src/lib/csv.ts` (thin refactor) to avoid duplication.
+
+**MVP CSV:** registrations, staffing, public-voting, judge-ballots, awards, judge-progress, check-in (empty/placeholder until schema).
+
+---
+
+## 4. Proposed library layout (`src/lib/event-reports/`)
+
+```
+src/lib/event-reports/
+  report-types.ts          # extend groups, labels, available flags, MVP order
+  report-auth.ts           # canViewReport(user, eventId, reportId) — thin wrapper
+  csv.ts                   # csvEscape, row builder helpers (optional move from judging)
+  financial-summary.ts     # loadFinancialSummaryReport(eventId)
+  registration-detail.ts   # loadRegistrationDetailReport(eventId, { search, page })
+  staffing-list.ts           # loadStaffingListReport(eventId)
+  public-voting-results.ts   # wrap/enhance voting-tabulation (+ owner, %, top N)
+  judge-ballot-results.ts  # per-category top N, wrap aggregateJudgeBallotResults
+  scorecard-results.ts     # wrap score-sheet-results per class / event rollup
+  awards-winners.ts        # wrap loadAwardTrophyWinnersPayload + announcer lines
+  judge-progress.ts        # sheets + ballot allocation rollup per judge
+  check-in.ts              # stub until schema
+  geography.ts             # state/city/zip aggregates from registrant fields
+  index.ts                 # optional re-exports
+```
+
+**Principles:**
+
+- Each loader returns `{ generatedAt: string, ...typedPayload }`.
+- Server Components call loaders directly (no client-side Prisma).
+- Paginate registration detail (default 50, max 100 — align `organizer-registrations-list-query.ts`).
+- Top **25** per voting/ballot category with `?showAll=true` or “View all” expanding in UI.
+
+---
+
+## 5. UI layout proposal
+
+### Landing (reports home)
+
+When `?report` is missing or `report=home`:
+
+- Event header + **last refreshed** time (server render time).
+- **Card grid** grouped by category (Financial, Registrations & Vehicles, Voting & Awards, Judging Operations, Attendees & Marketing, Staffing/Admin).
+- Each card: title, 1-line description, “View report” link.
+- Keep compact **sub-nav** (existing tabs) below cards OR replace tabs with cards only — **recommendation:** cards on `report=home`, slim sticky sub-nav when inside a report.
+
+### Per-report shell (shared component)
+
+`src/components/organizer/reports/event-report-shell.tsx`:
+
+- Title + description (from `report-types`)
+- Generated timestamp
+- Toolbar: Search (if applicable), filters, **Export CSV**, **Print** (`window.print()` + `@media print` styles)
+- Mobile: tables in `overflow-x-auto`; card fallback for very narrow if needed later
+
+### Report-specific UI (new components)
+
+| Report | Component |
+|--------|-----------|
+| Financial | `financial-summary-report.tsx` — metric cards + small tables (revenue by tier/date) |
+| Registrations | `registration-detail-report.tsx` — search + paginated table |
+| Staffing | `staffing-list-report.tsx` |
+| Public voting | enhance `voting-tabulation-report.tsx` |
+| Judge ballots | `judge-ballot-results-report.tsx` (reuse `judge-ballot-results-table` patterns) |
+| Scorecards | `scorecard-results-report.tsx` — class picker + summary table; link to full results page |
+| Awards | `awards-winners-report.tsx` — **Announcer View** toggle (print-friendly plain text blocks) |
+| Judge progress | `judge-progress-report.tsx` — summary cards + judge table |
+| Check-in | `check-in-report-placeholder.tsx` — explains upcoming fields |
+| Geography | `geography-report.tsx` — tables only MVP |
+
+### Navigation
+
+- **No new top-level nav item** — Reports already in `EventOrganizerNav`.
+- Update default report from `voting` → `home` or `financial` (product choice on approval).
+- Improve `EventReportsNav`: use same wrapping grid pattern as `event-organizer-nav.tsx` (no horizontal scroll).
+
+---
+
+## 6. CSV / export approach
+
+1. **Server-generated CSV** in API routes (stream small/medium events; acceptable for MVP).
+2. **Registration Detail:** extend existing `registrations/export` OR new report CSV with richer columns — prefer **one canonical export** extended with missing columns to avoid drift.
+3. **Public / ballot:** flatten category sections into CSV rows (`category, rank, vehicleEntryCode, ...`).
+4. **Awards:** one row per placement slot (including vacant).
+5. **Judge progress:** one row per judge.
+
+---
+
+## 7. Permissions (document, minimal MVP code)
+
+| Report | Suggested viewers (future) | MVP implementation |
+|--------|---------------------------|-------------------|
+| Financial | Organizer, Treasurer, org owner | `canManageEvent` only |
+| Registration / PII | Organizer, Registrar, org owner | `canManageEvent` (+ align export with registrar later) |
+| Staffing | Organizer, Head Judge, org owner | `canManageEvent` |
+| Voting / Awards / Judging | Organizer, Head Judge, Judges (read-only?) | `canManageEvent` |
+| Check-in | Organizer, Registrar, Volunteer | `canManageEvent` |
+
+**Do not overbuild RBAC in MVP.** Add `report-auth.ts` stubs and comments for Phase 2.
+
+---
+
+## 8. Minimal schema changes (propose only — **not in MVP code**)
+
+### Check-in (Phase 2, after approval)
+
+Add to `Registration` (or `RegistrationVehicle` if check-in is per-vehicle — **recommend per-vehicle** for car shows):
+
+```prisma
+// RegistrationVehicle (preferred)
+checkedInAt     DateTime?
+checkedInById   String?   // User id (staff)
+checkInNotes    String?   @db.Text
+```
+
+Optional `Registration.checkedInAt` for registrant-only events without vehicles.
+
+### Optional later
+
+- `Registration.organizerNotes` for registration detail report
+- `Vehicle.color` if product wants it on reports
+- `Registration.stripeProcessingFeeCents` if Stripe balance data is synced via webhook
+
+---
+
+## 9. Phased implementation (approval checklist)
+
+### Phase 0 — Planning ✅ (this document)
+
+- [x] Codebase audit
+- [ ] **User approval to proceed**
+
+### Phase 1 — Foundation
+
+- [ ] Extend `report-types.ts` (groups, ids, descriptions, `available` flags)
+- [ ] Add `report=home` landing with card grid
+- [ ] Shared `event-report-shell` (timestamp, print, export button)
+- [ ] `report-auth.ts` + wire page switch for new loaders
+- [ ] Refactor `voting` → `public-voting` with redirect
+- [ ] Fix `EventReportsNav` layout (wrap, no horizontal scroll)
+- [ ] Shared `src/lib/csv.ts` (optional)
+
+### Phase 2 — MVP reports (A, B, C, D, E, G, H)
+
+- [ ] **A** `financial-summary.ts` + UI (graceful N/A rows)
+- [ ] **B** `registration-detail.ts` + paginated UI; extend CSV export columns
+- [ ] **C** `staffing-list.ts` + UI + CSV (roles, judging class assignments, ballot categories)
+- [ ] **D** Enhance public voting (owner, class, %, ties, top 25, last vote, CSV)
+- [ ] **E** `judge-ballot-results.ts` event-wide loader + UI + CSV
+- [ ] **G** `awards-winners.ts` + Announcer/print view + “Projected” banner
+- [ ] **H** `judge-progress.ts` + summary cards + CSV
+
+### Phase 3 — Secondary reports (F, J, I)
+
+- [ ] **F** Scorecard summary report (per-class table; drill-down link to existing `/awards-judging/score-sheets/results`)
+- [ ] **J** Geography aggregates
+- [ ] **I** Check-in report **after schema migration approved**
+
+### Phase 4 — Tests & polish
+
+- [ ] Unit tests: `financial-summary.test.ts`, `geography.test.ts`, `public-voting-results.test.ts` (ranking/%), `judge-progress.test.ts`
+- [ ] CSV route smoke tests (auth 401/403, header row)
+- [ ] Print CSS for awards + registrations + check-in
+- [ ] Manual QA checklist on Cruisin Classics / staging event
+
+---
+
+## 10. Test coverage plan
+
+| Module | Tests |
+|--------|-------|
+| `financial-summary.ts` | totals, tier breakdown, free vs paid, refunded, empty event |
+| `geography.ts` | state counts, missing address bucket, local heuristic |
+| `public-voting-results.ts` | rank order, tie ranks, percentage sum, top-25 slice |
+| `judge-ballot-results.ts` | avg votes per judge, multi-judge count |
+| `judge-progress.ts` | completion %, not-started vs draft vs submitted |
+| `awards-winners.ts` | projected label when not finalized; announcer line format |
+| `report-auth.ts` | organizer vs non-staff (when role gates added) |
+
+Use existing Vitest patterns under `src/lib/**/*.test.ts`.
+
+---
+
+## 11. Open product decisions (need approval)
+
+1. Default landing: `report=home` vs jump straight to Financial?
+2. Check-in: per-**registration** vs per-**vehicle**?
+3. Scorecard MVP: full deduction export in reports vs link to existing score-sheet results + CSV export there?
+4. Should **Registrar** / **Treasurer** staff (non-organizer slug) access reports via expanded auth?
+5. Rename tab “Public votes” → “Public Voting Results” for consistency?
+
+---
+
+## 12. Review gate
+
+**STOP — no implementation code until you approve this plan.**
+
+Reply with: approved as-is, or note changes to phases / permissions / check-in schema / default landing.
+
+After approval, implementation starts at **Phase 1** and proceeds in order; update checkboxes in this section as work completes.
+
+### Review (planning phase)
+
+| Item | Notes |
+|------|-------|
+| Date | 2026-05-31 |
+| Existing route | `/organizer/events/[id]/reports` — extend, do not replace |
+| Reuse | `voting-tabulation`, `judge-ballot-results`, `score-sheet-results`, `award-trophy-winners`, `getEventStaffList`, registrations export |
+| Blockers | Check-in schema; Stripe processing fee not stored |
+| Nav | Reports already in organizer nav; improve reports sub-nav layout |
 
