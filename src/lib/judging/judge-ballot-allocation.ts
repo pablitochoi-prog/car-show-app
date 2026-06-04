@@ -1,7 +1,11 @@
 import type { JudgeBallotAllocationStatus, JudgeBallotCategoryStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getUserEventRoles } from "@/lib/event-staff";
-import { sumVoteCounts } from "@/lib/judging/judge-ballot-validation";
+import { sumSubmittedVoteCounts } from "@/lib/judging/judge-ballot-validation";
+import {
+  userCanVoteInBallotCategory,
+  type BallotCategoryAuthShape,
+} from "@/lib/judging/judge-ballot-authorization";
 
 /** List user IDs with JUDGE role on an event. */
 export async function listEventJudgeUserIds(eventId: string): Promise<string[]> {
@@ -21,11 +25,45 @@ export async function listEventJudgeUserIds(eventId: string): Promise<string[]> 
   return judgeIds;
 }
 
+/** List user IDs with Special Judge role on an event. */
+export async function listEventSpecialJudgeUserIds(
+  eventId: string,
+): Promise<string[]> {
+  const staff = await prisma.eventStaffMember.findMany({
+    where: { eventId },
+    select: {
+      userId: true,
+      roleLinks: { include: { role: { select: { slug: true } } } },
+    },
+  });
+
+  const ids: string[] = [];
+  for (const member of staff) {
+    const has = member.roleLinks.some((l) => l.role.slug === "special_judge");
+    if (has) ids.push(member.userId);
+  }
+  return ids;
+}
+
 function allocationStatusForCategory(
   categoryStatus: JudgeBallotCategoryStatus,
 ): JudgeBallotAllocationStatus {
   if (categoryStatus === "OPEN") return "ACTIVE";
   return "LOCKED";
+}
+
+function categoryAuthShape(category: {
+  requiresSpecialJudge: boolean;
+  judgeAssignments: { judgeUserId: string }[];
+  specialJudgeAssignments: { judgeUserId: string }[];
+}): BallotCategoryAuthShape {
+  return {
+    requiresSpecialJudge: category.requiresSpecialJudge,
+    assignedJudgeUserIds: category.judgeAssignments.map((a) => a.judgeUserId),
+    specialJudgeUserIds: category.specialJudgeAssignments.map(
+      (a) => a.judgeUserId,
+    ),
+  };
 }
 
 /** Create or refresh vote allocations when a ballot category opens. */
@@ -34,7 +72,10 @@ export async function syncJudgeBallotAllocationsForCategory(
 ): Promise<{ allocationCount: number }> {
   const category = await prisma.judgeBallotCategory.findUnique({
     where: { id: categoryId },
-    include: { judgeAssignments: { select: { judgeUserId: true } } },
+    include: {
+      judgeAssignments: { select: { judgeUserId: true } },
+      specialJudgeAssignments: { select: { judgeUserId: true } },
+    },
   });
   if (!category) {
     throw new Error("Award category not found.");
@@ -43,12 +84,22 @@ export async function syncJudgeBallotAllocationsForCategory(
     throw new Error("Allocations are synced only when the category is OPEN.");
   }
 
-  const eventJudgeIds = await listEventJudgeUserIds(category.eventId);
-  const assignedIds = category.judgeAssignments.map((a) => a.judgeUserId);
-  const eligibleJudgeIds =
-    assignedIds.length > 0
-      ? assignedIds.filter((id) => eventJudgeIds.includes(id))
-      : eventJudgeIds;
+  const auth = categoryAuthShape(category);
+  let eligibleJudgeIds: string[] = [];
+
+  if (category.requiresSpecialJudge) {
+    const specialStaffIds = await listEventSpecialJudgeUserIds(category.eventId);
+    eligibleJudgeIds = auth.specialJudgeUserIds.filter((id) =>
+      specialStaffIds.includes(id),
+    );
+  } else {
+    const eventJudgeIds = await listEventJudgeUserIds(category.eventId);
+    const assignedIds = auth.assignedJudgeUserIds;
+    eligibleJudgeIds =
+      assignedIds.length > 0
+        ? assignedIds.filter((id) => eventJudgeIds.includes(id))
+        : eventJudgeIds;
+  }
 
   const allocStatus = allocationStatusForCategory(category.status);
 
@@ -75,17 +126,21 @@ export async function syncJudgeBallotAllocationsForCategory(
   return { allocationCount: eligibleJudgeIds.length };
 }
 
-/** Recompute votesUsed on a judge allocation from vote rows. */
+/** Recompute votesUsed on a judge allocation from submitted vote rows. */
 export async function recomputeJudgeBallotAllocationUsage(
   categoryId: string,
   judgeUserId: string,
 ): Promise<number> {
   const votes = await prisma.judgeBallotVote.findMany({
     where: { categoryId, judgeUserId },
-    select: { voteCount: true },
+    select: { voteCount: true, status: true },
   });
-  const votesUsed = sumVoteCounts(
-    votes.map((v) => ({ vehicleEntryCode: "", voteCount: v.voteCount })),
+  const votesUsed = sumSubmittedVoteCounts(
+    votes.map((v) => ({
+      vehicleEntryCode: "",
+      voteCount: v.voteCount,
+      status: v.status,
+    })),
   );
 
   await prisma.judgeBallotAllocation.updateMany({
@@ -122,26 +177,29 @@ export async function closeJudgeBallotCategory(
   return category;
 }
 
-/** Verify judge has JUDGE role and optional category assignment. */
+/** Verify judge may vote in a category (server-side authorization). */
 export async function assertJudgeCanVoteInCategory(
   judgeUserId: string,
   categoryId: string,
 ): Promise<{ eventId: string }> {
   const category = await prisma.judgeBallotCategory.findUnique({
     where: { id: categoryId },
-    include: { judgeAssignments: { select: { judgeUserId: true } } },
+    include: {
+      judgeAssignments: { select: { judgeUserId: true } },
+      specialJudgeAssignments: { select: { judgeUserId: true } },
+    },
   });
   if (!category) {
     throw new Error("Award category not found.");
   }
 
   const roles = await getUserEventRoles(judgeUserId, category.eventId);
-  if (!roles.includes("JUDGE")) {
-    throw new Error("You must be assigned as a judge for this event.");
-  }
+  const auth = categoryAuthShape(category);
 
-  const assignedIds = category.judgeAssignments.map((a) => a.judgeUserId);
-  if (assignedIds.length > 0 && !assignedIds.includes(judgeUserId)) {
+  if (!userCanVoteInBallotCategory(roles, judgeUserId, auth)) {
+    if (category.requiresSpecialJudge) {
+      throw new Error("You are not assigned to vote in this Special Judge award category.");
+    }
     throw new Error("You are not assigned to vote in this award category.");
   }
 

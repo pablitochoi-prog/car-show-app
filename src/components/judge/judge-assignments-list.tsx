@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatEventShowNumber } from "@/lib/event-show-number";
+import { JudgeBallotQuickVote } from "@/components/judge/judge-ballot-quick-vote";
 
 type AssignmentEvent = {
   eventId: string;
@@ -95,7 +96,13 @@ export function JudgeAssignmentsList() {
               year: "numeric",
             })}
           </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <JudgeBallotQuickVote eventId={ev.eventId} />
+          <div
+            className={cn(
+              "mt-3 grid gap-2",
+              ev.scoreSheetAssignmentCount > 0 ? "sm:grid-cols-2" : "sm:grid-cols-1",
+            )}
+          >
             <Link
               href={`/judge/events/${ev.eventId}/ballot`}
               className={cn(
@@ -104,7 +111,7 @@ export function JudgeAssignmentsList() {
               )}
             >
               <span className="text-sm font-semibold text-foreground">
-                Judge Ballot Awards
+                Judge Ballot Voting
               </span>
               <span className="text-xs font-normal text-primary">
                 {ev.openBallotCategoryCount > 0
@@ -112,22 +119,23 @@ export function JudgeAssignmentsList() {
                   : "View categories"}
               </span>
             </Link>
-            <Link
-              href={`/judge/events/${ev.eventId}/score-sheets`}
-              className={cn(
-                buttonVariants({ variant: "outline" }),
-                "h-auto flex-col items-start gap-1 px-3 py-3 text-left",
-              )}
-            >
-              <span className="text-sm font-semibold text-foreground">
-                My Judging — Score Sheets
-              </span>
-              <span className="text-xs font-normal text-primary">
-                {ev.scoreSheetAssignmentCount > 0
-                  ? `${ev.scoreSheetPendingCount} pending of ${ev.scoreSheetAssignmentCount}`
-                  : "No assigned classes"}
-              </span>
-            </Link>
+            {ev.scoreSheetAssignmentCount > 0 ? (
+              <Link
+                href={`/judge/events/${ev.eventId}/score-sheets`}
+                className={cn(
+                  buttonVariants({ variant: "outline" }),
+                  "h-auto flex-col items-start gap-1 px-3 py-3 text-left",
+                )}
+              >
+                <span className="text-sm font-semibold text-foreground">
+                  My Judging — Score Sheets
+                </span>
+                <span className="text-xs font-normal text-primary">
+                  {ev.scoreSheetPendingCount} pending of{" "}
+                  {ev.scoreSheetAssignmentCount}
+                </span>
+              </Link>
+            ) : null}
           </div>
         </div>
       ))}

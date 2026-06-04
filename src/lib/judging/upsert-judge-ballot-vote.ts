@@ -1,3 +1,4 @@
+import type { JudgeBallotVoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import {
   validateJudgeBallotVoteUpsert,
@@ -16,10 +17,14 @@ export type UpsertJudgeBallotVoteInput = {
   registrationVehicleId: string | null;
   vehicleEventCategoryId: string | null;
   voteCount: number;
+  starRating?: number | null;
+  status?: JudgeBallotVoteStatus;
   notes?: string | null;
 };
 
 export async function upsertJudgeBallotVote(input: UpsertJudgeBallotVoteInput) {
+  const voteStatus = input.status ?? "SUBMITTED";
+
   const { eventId } = await assertJudgeCanVoteInCategory(
     input.judgeUserId,
     input.categoryId,
@@ -35,9 +40,19 @@ export async function upsertJudgeBallotVote(input: UpsertJudgeBallotVoteInput) {
     throw new Error("Award category not found.");
   }
 
+  if (
+    input.voteCount > 0 &&
+    input.starRating != null &&
+    (!Number.isInteger(input.starRating) ||
+      input.starRating < 1 ||
+      input.starRating > 5)
+  ) {
+    throw new Error("Star rating must be between 1 and 5.");
+  }
+
   const existingRows = await prisma.judgeBallotVote.findMany({
     where: { categoryId: input.categoryId, judgeUserId: input.judgeUserId },
-    select: { vehicleEntryCode: true, voteCount: true },
+    select: { vehicleEntryCode: true, voteCount: true, status: true },
   });
 
   const validation = validateJudgeBallotVoteUpsert({
@@ -51,22 +66,50 @@ export async function upsertJudgeBallotVote(input: UpsertJudgeBallotVoteInput) {
     },
     vehicleEntryCode: input.vehicleEntryCode,
     vehicleEventCategoryId: input.vehicleEventCategoryId,
-    proposedVoteCount: input.voteCount,
+    proposedVoteCount: voteStatus === "SUBMITTED" ? input.voteCount : 0,
     existingVotes: existingRows as JudgeBallotVoteRow[],
   });
 
-  if (!validation.ok) {
+  if (voteStatus === "SUBMITTED" && !validation.ok) {
     const err = new Error(validation.message);
     (err as Error & { code: string }).code = validation.code;
     throw err;
   }
 
-  if (input.voteCount === 0) {
+  if (input.voteCount === 0 && voteStatus === "SUBMITTED") {
     await prisma.judgeBallotVote.deleteMany({
       where: {
         categoryId: input.categoryId,
         judgeUserId: input.judgeUserId,
         vehicleEntryCode: input.vehicleEntryCode,
+      },
+    });
+  } else if (voteStatus === "DRAFT" && input.voteCount === 0) {
+    await prisma.judgeBallotVote.upsert({
+      where: {
+        categoryId_judgeUserId_vehicleEntryCode: {
+          categoryId: input.categoryId,
+          judgeUserId: input.judgeUserId,
+          vehicleEntryCode: input.vehicleEntryCode,
+        },
+      },
+      create: {
+        eventId,
+        categoryId: input.categoryId,
+        judgeUserId: input.judgeUserId,
+        registrationId: input.registrationId,
+        registrationVehicleId: input.registrationVehicleId,
+        vehicleEntryCode: input.vehicleEntryCode,
+        voteCount: 0,
+        starRating: input.starRating ?? null,
+        status: "DRAFT",
+        notes: input.notes?.trim() || null,
+      },
+      update: {
+        voteCount: 0,
+        starRating: input.starRating ?? null,
+        status: "DRAFT",
+        notes: input.notes?.trim() || null,
       },
     });
   } else {
@@ -86,10 +129,14 @@ export async function upsertJudgeBallotVote(input: UpsertJudgeBallotVoteInput) {
         registrationVehicleId: input.registrationVehicleId,
         vehicleEntryCode: input.vehicleEntryCode,
         voteCount: input.voteCount,
+        starRating: input.starRating ?? null,
+        status: voteStatus,
         notes: input.notes?.trim() || null,
       },
       update: {
         voteCount: input.voteCount,
+        starRating: input.starRating ?? null,
+        status: voteStatus,
         notes: input.notes?.trim() || null,
       },
     });

@@ -170,6 +170,11 @@ enum JudgeBallotAllocationStatus {
   LOCKED
 }
 
+enum JudgeBallotVoteStatus {
+  DRAFT
+  SUBMITTED
+}
+
 model User {
   id          String       @id @default(uuid())
   email       String       @unique
@@ -229,6 +234,7 @@ model User {
   eventJudgeCategoryAssignments EventJudgeCategoryAssignment[] @relation("EventJudgeCategoryAssignments")
   eventJudgeCategoryAssignmentsAssigned EventJudgeCategoryAssignment[] @relation("EventJudgeCategoryAssignmentsAssignedBy")
   judgeBallotCategoryAssignments JudgeBallotCategoryJudge[]
+  judgeBallotSpecialJudgeAssignments JudgeBallotSpecialJudge[]
   judgeBallotAllocations JudgeBallotAllocation[]
   judgeBallotVotes JudgeBallotVote[]
 
@@ -1450,12 +1456,15 @@ model JudgeBallotCategory {
   endsAt                     DateTime?
   showResultsToJudges        Boolean                   @default(false)
   judgeGuidance              String?                   @db.Text
+  /// When true, only assigned Special Judges may vote in this category.
+  requiresSpecialJudge       Boolean                   @default(false)
   createdAt                  DateTime                  @default(now())
   updatedAt                  DateTime                  @updatedAt
 
   event            Event                        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   eligibleClasses  JudgeBallotEligibleClass[]
   judgeAssignments JudgeBallotCategoryJudge[]
+  specialJudgeAssignments JudgeBallotSpecialJudge[]
   allocations      JudgeBallotAllocation[]
   votes            JudgeBallotVote[]
 
@@ -1486,6 +1495,18 @@ model JudgeBallotCategoryJudge {
 
   @@id([categoryId, judgeUserId])
   @@map("judge_ballot_category_judges")
+}
+
+/// Special Judge staff assigned to vote in a Special Judge ballot category.
+model JudgeBallotSpecialJudge {
+  categoryId  String
+  judgeUserId String
+
+  category JudgeBallotCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  judge    User                @relation(fields: [judgeUserId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, judgeUserId])
+  @@map("judge_ballot_special_judges")
 }
 
 /// Vote budget for one judge in one award category.
@@ -1520,6 +1541,8 @@ model JudgeBallotVote {
   registrationVehicleId String?
   vehicleEntryCode      String
   voteCount             Int
+  starRating            Int?
+  status                JudgeBallotVoteStatus @default(SUBMITTED)
   notes                 String?  @db.Text
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt

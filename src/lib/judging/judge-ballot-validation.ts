@@ -1,9 +1,16 @@
-import type { JudgeBallotCategoryStatus } from "@prisma/client";
+import type {
+  JudgeBallotCategoryStatus,
+  JudgeBallotVoteStatus,
+} from "@prisma/client";
 
 export type JudgeBallotVoteRow = {
   vehicleEntryCode: string;
   voteCount: number;
+  status?: JudgeBallotVoteStatus;
 };
+
+export const BALLOT_VOTE_LIMIT_MESSAGE =
+  "You have reached the maximum number of votes for this award category.";
 
 export type JudgeBallotCategoryRules = {
   status: JudgeBallotCategoryStatus;
@@ -26,6 +33,13 @@ export type JudgeBallotValidationResult =
 
 export function sumVoteCounts(votes: JudgeBallotVoteRow[]): number {
   return votes.reduce((sum, v) => sum + v.voteCount, 0);
+}
+
+/** Count only finalized (SUBMITTED) votes toward per-category limits. */
+export function sumSubmittedVoteCounts(votes: JudgeBallotVoteRow[]): number {
+  return votes
+    .filter((v) => v.status !== "DRAFT")
+    .reduce((sum, v) => sum + v.voteCount, 0);
 }
 
 export function isVehicleEligibleForBallotCategory(
@@ -90,16 +104,17 @@ export function validateJudgeBallotVoteUpsert(
   }
 
   const otherVotes = existingVotes.filter(
-    (v) => v.vehicleEntryCode !== vehicleEntryCode,
+    (v) =>
+      v.vehicleEntryCode !== vehicleEntryCode && v.status !== "DRAFT",
   );
-  const otherTotal = sumVoteCounts(otherVotes);
+  const otherTotal = sumSubmittedVoteCounts(otherVotes);
   const totalVotesUsed = otherTotal + proposedVoteCount;
 
-  if (totalVotesUsed > category.votesPerJudge) {
+  if (proposedVoteCount > 0 && totalVotesUsed > category.votesPerJudge) {
     return {
       ok: false,
       code: "TOTAL_EXCEEDED",
-      message: `You have ${category.votesPerJudge - otherTotal} vote(s) remaining in this category.`,
+      message: BALLOT_VOTE_LIMIT_MESSAGE,
     };
   }
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  BALLOT_VOTE_LIMIT_MESSAGE,
   canEditBallotVotes,
   isJudgeAssignedToBallotCategory,
   isVehicleEligibleForBallotCategory,
+  sumSubmittedVoteCounts,
   sumVoteCounts,
   validateJudgeBallotVoteUpsert,
 } from "@/lib/judging/judge-ballot-validation";
@@ -69,7 +71,19 @@ describe("judge-ballot-validation", () => {
       existingVotes: existing,
     });
     expect(over.ok).toBe(false);
-    if (!over.ok) expect(over.code).toBe("TOTAL_EXCEEDED");
+    if (!over.ok) {
+      expect(over.code).toBe("TOTAL_EXCEEDED");
+      expect(over.message).toBe(BALLOT_VOTE_LIMIT_MESSAGE);
+    }
+  });
+
+  it("sumSubmittedVoteCounts ignores drafts", () => {
+    expect(
+      sumSubmittedVoteCounts([
+        { vehicleEntryCode: "A", voteCount: 2, status: "DRAFT" },
+        { vehicleEntryCode: "B", voteCount: 1, status: "SUBMITTED" },
+      ]),
+    ).toBe(1);
   });
 
   it("enforces max votes per vehicle", () => {
