@@ -34,23 +34,12 @@ function parseValue(raw: unknown): LegalPolicies {
   };
 }
 
+/** Read policies from site settings (no writes — admin seeds via dashboard upsert). */
 export async function getLegalPolicies(): Promise<LegalPolicies> {
   const row = await prisma.globalSetting.findUnique({
     where: { key: LEGAL_POLICIES_SETTING_KEY },
   });
-  if (!row) {
-    const initial: LegalPolicies = {
-      smsTextPolicyHtml: DEFAULT_SMS_TEXT_POLICY_HTML,
-      privacyPolicyHtml: null,
-    };
-    await prisma.globalSetting.upsert({
-      where: { key: LEGAL_POLICIES_SETTING_KEY },
-      update: {},
-      create: { key: LEGAL_POLICIES_SETTING_KEY, value: initial },
-    });
-    return initial;
-  }
-  if (!row.value) return { ...DEFAULT };
+  if (!row?.value) return { ...DEFAULT };
   return parseValue(row.value);
 }
 

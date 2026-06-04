@@ -4,7 +4,6 @@ import {
   POLICY_UNPUBLISHED_MESSAGE,
   PolicyPageContent,
 } from "@/components/legal/policy-page-content";
-import { SmsOptInProcessIllustrations } from "@/components/legal/sms-opt-in-process-illustrations";
 import { getSmsTextPolicyHtml } from "@/lib/legal-policies";
 
 export const metadata: Metadata = {
@@ -27,8 +26,7 @@ export default async function TermsPage() {
         </Link>
       </p>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">SMS Text Policy</h1>
-      <SmsOptInProcessIllustrations />
-      <div className="mt-8">
+      <div className="mt-6">
         {html ? (
           <PolicyPageContent html={html} />
         ) : (

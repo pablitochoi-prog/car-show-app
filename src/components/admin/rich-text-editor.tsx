@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { Extensions } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
+import {
+  DEFAULT_POLICY_IMAGE_STYLE,
+  PolicyImage,
+  POLICY_IMAGE_SIZE_STYLES,
+  policyImageSizeFromStyle,
+  type PolicyImageSize,
+} from "@/components/admin/tiptap-policy-image-extension";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Button } from "@/components/ui/button";
@@ -15,11 +24,16 @@ import {
   RICH_TEXT_FONT_FAMILIES,
 } from "@/components/admin/tiptap-font-family-extension";
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Bold,
+  ImageIcon,
   Italic,
   Link2,
   List,
   ListOrdered,
+  Loader2,
   Underline as UnderlineIcon,
   Unlink,
 } from "lucide-react";
@@ -48,6 +62,10 @@ type RichTextEditorProps = {
   /** Shorter editor surface for dialogs and compact forms. */
   compact?: boolean;
   idPrefix?: string;
+  /** Policy editors: upload images and align blocks (left / center / right). */
+  enableImages?: boolean;
+  enableTextAlign?: boolean;
+  imageUploadUrl?: string;
 };
 
 function ToolbarButton({
@@ -83,6 +101,53 @@ function ToolbarButton({
   );
 }
 
+function buildEditorExtensions(
+  enableImages: boolean,
+  enableTextAlign: boolean,
+): Extensions {
+  const extensions: Extensions = [
+    StarterKit.configure({
+      heading: { levels: [2, 3] },
+      link: false,
+      underline: false,
+    }),
+    Underline,
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: {
+        rel: "noopener noreferrer",
+        target: "_blank",
+      },
+    }),
+    TextStyle,
+    Color,
+    FontSizeExtension,
+    FontFamilyExtension,
+  ];
+
+  if (enableTextAlign) {
+    extensions.push(
+      TextAlign.configure({
+        types: enableImages
+          ? ["heading", "paragraph", "image"]
+          : ["heading", "paragraph"],
+        alignments: ["left", "center", "right"],
+      }),
+    );
+  }
+
+  if (enableImages) {
+    extensions.push(
+      PolicyImage.configure({
+        inline: false,
+        allowBase64: false,
+      }),
+    );
+  }
+
+  return extensions;
+}
+
 export function RichTextEditor({
   value,
   onChange,
@@ -91,27 +156,15 @@ export function RichTextEditor({
   "aria-label": ariaLabel = "Policy editor",
   compact = false,
   idPrefix = "rich-text",
+  enableImages = false,
+  enableTextAlign = false,
+  imageUploadUrl = "/api/admin/legal-policies/image",
 }: RichTextEditorProps) {
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [2, 3] },
-        link: false,
-        underline: false,
-      }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          rel: "noopener noreferrer",
-          target: "_blank",
-        },
-      }),
-      TextStyle,
-      Color,
-      FontSizeExtension,
-      FontFamilyExtension,
-    ],
+    extensions: buildEditorExtensions(enableImages, enableTextAlign),
     content: value || "<p></p>",
     editable: !disabled,
     immediatelyRender: false,
@@ -154,6 +207,63 @@ export function RichTextEditor({
       return;
     }
     editor.chain().focus().extendMarkRange("link").setLink({ href: trimmed }).run();
+  }
+
+  function insertImageByUrl() {
+    if (!editor) return;
+    const url = window.prompt("Image URL", "https://");
+    if (url == null) return;
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    editor
+      .chain()
+      .focus()
+      .setImage({ src: trimmed, style: DEFAULT_POLICY_IMAGE_STYLE })
+      .run();
+  }
+
+  function setSelectedImageSize(size: PolicyImageSize) {
+    if (!editor) return;
+    editor
+      .chain()
+      .focus()
+      .updateAttributes("image", { style: POLICY_IMAGE_SIZE_STYLES[size] })
+      .run();
+  }
+
+  async function uploadAndInsertImage(file: File) {
+    if (!editor) return;
+    setImageUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(imageUploadUrl, {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        throw new Error(data.error ?? "Image upload failed");
+      }
+      editor
+        .chain()
+        .focus()
+        .setImage({ src: data.url, style: DEFAULT_POLICY_IMAGE_STYLE })
+        .run();
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : "Could not upload image",
+      );
+    } finally {
+      setImageUploading(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  }
+
+  function handleImageFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) void uploadAndInsertImage(file);
   }
 
   if (!editor) {
@@ -311,6 +421,96 @@ export function RichTextEditor({
         >
           <ListOrdered className="size-4" />
         </ToolbarButton>
+
+        {enableTextAlign ? (
+          <>
+            <span className="mx-1 hidden h-6 w-px bg-border sm:inline" aria-hidden />
+            <ToolbarButton
+              title="Align left"
+              active={editor.isActive({ textAlign: "left" })}
+              disabled={disabled}
+              onClick={() => editor.chain().focus().setTextAlign("left").run()}
+            >
+              <AlignLeft className="size-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Align center"
+              active={editor.isActive({ textAlign: "center" })}
+              disabled={disabled}
+              onClick={() => editor.chain().focus().setTextAlign("center").run()}
+            >
+              <AlignCenter className="size-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Align right"
+              active={editor.isActive({ textAlign: "right" })}
+              disabled={disabled}
+              onClick={() => editor.chain().focus().setTextAlign("right").run()}
+            >
+              <AlignRight className="size-4" />
+            </ToolbarButton>
+          </>
+        ) : null}
+
+        {enableImages ? (
+          <>
+            <span className="mx-1 hidden h-6 w-px bg-border sm:inline" aria-hidden />
+            {editor.isActive("image") ? (
+              <>
+                <label className="sr-only" htmlFor={`${idPrefix}-image-size`}>
+                  Image size
+                </label>
+                <select
+                  id={`${idPrefix}-image-size`}
+                  disabled={disabled}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  value={policyImageSizeFromStyle(
+                    editor.getAttributes("image").style as string | undefined,
+                  )}
+                  onChange={(e) =>
+                    setSelectedImageSize(e.target.value as PolicyImageSize)
+                  }
+                >
+                  <option value="small">Image 25%</option>
+                  <option value="medium">Image 50%</option>
+                  <option value="large">Image 75%</option>
+                  <option value="full">Image 100%</option>
+                </select>
+              </>
+            ) : null}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden
+              onChange={handleImageFileChange}
+            />
+            <ToolbarButton
+              title="Upload image"
+              disabled={disabled || imageUploading}
+              onClick={() => imageInputRef.current?.click()}
+            >
+              {imageUploading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <ImageIcon className="size-4" />
+              )}
+            </ToolbarButton>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled}
+              className="h-8 px-2 text-xs"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={insertImageByUrl}
+            >
+              Image URL
+            </Button>
+          </>
+        ) : null}
       </div>
 
       <EditorContent editor={editor} />

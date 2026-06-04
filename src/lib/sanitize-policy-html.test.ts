@@ -10,12 +10,35 @@ describe("sanitizePolicyHtml", () => {
     expect(out).toContain('href="https://example.com"');
   });
 
-  it("strips script tags and handlers", () => {
+  it("strips script tags and unsafe images", () => {
     const out = sanitizePolicyHtml(
       '<p>Hi</p><script>alert(1)</script><img src=x onerror="alert(1)">',
     );
     expect(out).not.toContain("<script");
     expect(out).not.toContain("onerror");
+    expect(out).not.toContain("<img");
+  });
+
+  it("allows https images and text alignment", () => {
+    const out = sanitizePolicyHtml(
+      '<p style="text-align: center;"><img src="https://cdn.example.com/a.png" alt="Opt-in"></p>',
+    );
+    expect(out).toContain('src="https://cdn.example.com/a.png"');
+    expect(out).toContain('alt="Opt-in"');
+    expect(out).toMatch(/text-align:\s*center/);
+  });
+
+  it("allows image max-width sizing styles", () => {
+    const out = sanitizePolicyHtml(
+      '<img src="https://cdn.example.com/a.png" alt="x" style="max-width: 50%; height: auto;" />',
+    );
+    expect(out).toMatch(/max-width:\s*50%/);
+  });
+
+  it("blocks non-http image sources", () => {
+    const out = sanitizePolicyHtml(
+      '<img src="javascript:alert(1)" alt="x">',
+    );
     expect(out).not.toContain("<img");
   });
 

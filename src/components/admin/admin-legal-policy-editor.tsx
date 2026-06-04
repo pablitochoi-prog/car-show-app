@@ -98,6 +98,11 @@ export function AdminLegalPolicyEditor({
     <div className="space-y-4">
       <div>
         <p className="text-sm text-muted-foreground">{description}</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Content saved here is what visitors see on the public page. Use the
+          toolbar to align text or images, upload images (or paste a URL), then
+          select an image and choose Image 25%–100% to change its display size.
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Public page:{" "}
           <a
@@ -116,6 +121,8 @@ export function AdminLegalPolicyEditor({
         onChange={setHtml}
         disabled={saving}
         aria-label={`${title} editor`}
+        enableImages
+        enableTextAlign
       />
 
       {message ? (

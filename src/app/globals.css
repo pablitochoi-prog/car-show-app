@@ -199,6 +199,19 @@
     @apply font-medium text-primary underline-offset-4 hover:underline;
   }
 
+  .policy-content img,
+  .policy-editor-surface img,
+  .policy-content .policy-editor-image,
+  .policy-editor-surface .policy-editor-image {
+    @apply my-4 block h-auto w-auto rounded-md border border-border/60;
+    max-width: min(100%, 12rem);
+  }
+
+  .policy-content img[style*="max-width"],
+  .policy-editor-surface img[style*="max-width"] {
+    max-width: unset;
+  }
+
   .policy-editor-surface:empty::before {
     content: attr(data-placeholder);
     @apply pointer-events-none text-muted-foreground;
