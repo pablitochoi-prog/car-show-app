@@ -1922,7 +1922,7 @@ Report each item as PASS / FAIL / SKIP; checklist updated on report. **QA date:*
 
 ### Phase 5 — Templated scorecard judging (AACA / PCA / NCRS / MCA model)
 
-**Status:** **5A–5E committed** — **5F QA/regression planning (this section); no implementation yet.**  
+**Status:** **5A–5E committed** — **5F manual QA PASS** (sign-off below); polish backlog (P5F-*) next.  
 **Note:** Unrelated working-tree edits (sale-inquiry, session-idle, login/OTP) stay out of judging commits.  
 **Reference:** `tasks/judging-template-architecture-plan.md` (original three-workflow architecture).
 
@@ -2115,7 +2115,7 @@ _Superseded by **Phase 5F — Manual QA checklist** below (full scorecard workfl
 
 **5E (committed):** Judge `judge-assigned-*` UI/APIs, `eventJudgingSectionId` on sheet sections, `calculateScorecardFromSheet` / assignment status sync on save/submit.
 
-**Next:** Execute Phase 5F manual QA + automated smoke; then address polish backlog items as small fixes.
+**Next:** Re-run automated smoke on target env; address polish backlog items (P5F-*) as small fixes.
 
 #### Approval gate (historical)
 
@@ -2288,12 +2288,12 @@ _Prioritize based on manual QA findings. Small, scoped fixes only._
 
 | Field | Value |
 |-------|--------|
-| Manual QA | _pending_ |
+| Manual QA | **PASS** (2026-05-31) |
 | Automated tests (see table above) | _pending re-run on target env_ |
 | Build | _pending_ |
-| Blockers found | _none yet_ |
+| Blockers found | _none blocking release from manual QA_ |
 | Polish items opened | _link GitHub issues or check P5F-* above_ |
-| Approved for polish implementation | _no — QA first_ |
+| Approved for polish implementation | **yes — manual QA complete** |
 
 ---
 
