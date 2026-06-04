@@ -82,7 +82,9 @@ export function sanitizePolicyHtml(html: string): string {
     allowedAttributes,
     allowedSchemes: ["http", "https", "mailto"],
     allowedStyles: {
-      "*": POLICY_INLINE_STYLES,
+      "*": Object.fromEntries(
+        Object.entries(POLICY_INLINE_STYLES).map(([key, value]) => [key, [...value]])
+      ),
     },
     transformTags: {
       a: (tagName, attribs) => {

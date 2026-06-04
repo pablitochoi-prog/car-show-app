@@ -218,7 +218,7 @@ export function RichTextEditor({
     editor
       .chain()
       .focus()
-      .setImage({ src: trimmed, style: DEFAULT_POLICY_IMAGE_STYLE })
+      .setImage({ src: trimmed })
       .run();
   }
 
@@ -249,7 +249,7 @@ export function RichTextEditor({
       editor
         .chain()
         .focus()
-        .setImage({ src: data.url, style: DEFAULT_POLICY_IMAGE_STYLE })
+        .setImage({ src: data.url })
         .run();
     } catch (err) {
       window.alert(
