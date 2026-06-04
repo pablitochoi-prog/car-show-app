@@ -7,6 +7,7 @@ export type EventRole =
   | "TREASURER"
   | "REGISTRAR"
   | "JUDGE"
+  | "SPECIAL_JUDGE"
   | "MARKETING"
   | "VOLUNTEER";
 
