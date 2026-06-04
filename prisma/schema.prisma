@@ -164,6 +164,20 @@ enum JudgeBallotCategoryStatus {
   FINALIZED
 }
 
+/// Event-wide structured score sheet judging lifecycle (organizer / head judge / admin).
+enum ScoreSheetJudgingPeriodStatus {
+  OPEN
+  CLOSED
+  FINALIZED
+}
+
+/// Organizer hub: close all voting → CLOSED; finalize → FINALIZED (enables trophy winners).
+enum EventAwardsVotingStatus {
+  OPEN
+  CLOSED
+  FINALIZED
+}
+
 enum JudgeBallotAllocationStatus {
   ACTIVE
   SUBMITTED
@@ -219,6 +233,7 @@ model User {
   orgMemberships OrganizationMember[]
   eventStaffMembers EventStaffMember[]
   vehicles       Vehicle[]
+  vehicleManualAwards VehicleManualAward[]
   vehiclePhotos  VehiclePhoto[]
   registrations  Registration[]
   publicVotes    VehiclePublicVote[]
@@ -461,6 +476,19 @@ model Event {
   judgeBallotCategories JudgeBallotCategory[]
   judgeBallotAllocations JudgeBallotAllocation[]
   judgeBallotVotes      JudgeBallotVote[]
+  trophyPlacements    EventTrophyPlacement[]
+
+  /// Structured score sheet judging period — when CLOSED/FINALIZED, judges cannot edit scorecards.
+  scoreSheetJudgingPeriodStatus ScoreSheetJudgingPeriodStatus @default(OPEN)
+  scoreSheetJudgingClosedAt     DateTime?
+  scoreSheetJudgingFinalizedAt  DateTime?
+  scoreSheetJudgingFinalizedByUserId String?
+
+  /// Hub control for close / reopen / finalize all voting (public, ballot, score sheets).
+  eventAwardsVotingStatus EventAwardsVotingStatus @default(OPEN)
+  /// Set when eventAwardsVotingStatus becomes FINALIZED (24h delay before My Awards display).
+  eventAwardsVotingFinalizedAt DateTime?
+
   @@index([status, startDate])
   @@index([city, state])
   @@index([orgId])
@@ -515,9 +543,31 @@ model Vehicle {
 
   registrationRows RegistrationVehicle[]
   photos           VehiclePhoto[]
+  manualAwards     VehicleManualAward[]
 
   @@index([userId])
   @@map("vehicles")
+}
+
+/// Owner-recorded trophy from a show not managed on Car Show Scout.
+model VehicleManualAward {
+  id               String   @id @default(uuid())
+  awardName        String
+  eventName        String
+  eventDate        DateTime
+  organizationName String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, eventDate])
+  @@index([userId])
+  @@map("vehicle_manual_awards")
 }
 
 model VehiclePhoto {
@@ -969,11 +1019,34 @@ model EventAward {
   specialAwardId String?
   specialAward   SpecialAward? @relation(fields: [specialAwardId], references: [id], onDelete: SetNull)
 
+  /// Linked judge ballot category for informal award voting (when configured).
+  ballotCategory JudgeBallotCategory?
+
   createdAt DateTime @default(now())
 
   @@unique([eventId, specialAwardId])
   @@index([eventId])
   @@map("event_awards")
+}
+
+/// Organizer/head-judge selection for a specific trophy slot (category place or special award).
+model EventTrophyPlacement {
+  id             String  @id @default(uuid())
+  eventId        String
+  /// `place:{eventCategoryId}:{placeIndex}` or `special:{eventAwardId}` — see event-awards-trophies.ts
+  trophyEntryId  String
+  vehicleEntryCode String?
+  /// When true, no vehicle receives this trophy (use an alternate manually if needed).
+  isVacant       Boolean @default(false)
+  /// Manually excluded from this place — next ranked alternate is auto-selected.
+  excludedVehicleEntryCodes String[] @default([])
+  updatedAt      DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, trophyEntryId])
+  @@index([eventId])
+  @@map("event_trophy_placements")
 }
 
 model Message {
@@ -1191,6 +1264,7 @@ model EventJudgingTemplate {
   vehicleType      String?
   methodology      JudgingMethodology
   totalPoints      Int
+  sortOrder        Int                          @default(0)
   editLock         EventJudgingTemplateEditLock @default(OPEN)
   createdAt        DateTime                     @default(now())
   updatedAt        DateTime                     @updatedAt
@@ -1202,7 +1276,7 @@ model EventJudgingTemplate {
   scoreSheets    JudgeScoreSheet[]
   categoryAssignments EventJudgeCategoryAssignment[]
 
-  @@index([eventId])
+  @@index([eventId, sortOrder])
   @@map("event_judging_templates")
 }
 
@@ -1314,6 +1388,8 @@ model JudgeScoreSheet {
   generalNotes           String?               @db.Text
   submittedAt            DateTime?
   finalizedAt            DateTime?
+  /// Set after first open template sync or when judge work exists — blocks further template sync.
+  templateSyncedAt       DateTime?
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
 
@@ -1458,10 +1534,13 @@ model JudgeBallotCategory {
   judgeGuidance              String?                   @db.Text
   /// When true, only assigned Special Judges may vote in this category.
   requiresSpecialJudge       Boolean                   @default(false)
+  /// Optional link to an event special award from Edit Event → Awards & Trophies.
+  eventAwardId               String?                   @unique
   createdAt                  DateTime                  @default(now())
   updatedAt                  DateTime                  @updatedAt
 
   event            Event                        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventAward       EventAward?                  @relation(fields: [eventAwardId], references: [id], onDelete: Cascade)
   eligibleClasses  JudgeBallotEligibleClass[]
   judgeAssignments JudgeBallotCategoryJudge[]
   specialJudgeAssignments JudgeBallotSpecialJudge[]
@@ -1541,6 +1620,7 @@ model JudgeBallotVote {
   registrationVehicleId String?
   vehicleEntryCode      String
   voteCount             Int
+  /// 1–5 star rating for mobile ballot submissions (optional for legacy vote-count flow).
   starRating            Int?
   status                JudgeBallotVoteStatus @default(SUBMITTED)
   notes                 String?  @db.Text

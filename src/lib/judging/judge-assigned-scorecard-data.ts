@@ -15,6 +15,109 @@ import {
   JudgeScoreSheetAccessError,
 } from "@/lib/judging/judge-score-sheet-judge-data";
 import { calculateScorecardFromSheet } from "@/lib/judging/build-scorecard-from-sheet";
+import {
+  buildAssignmentLookups,
+  findAssignmentsForScoreSheet,
+  resolveSheetSectionAssignment,
+} from "@/lib/judging/judge-scorecard-section-assignment";
+import { maybeSyncScoreSheetTemplateOnOpen } from "@/lib/judging/maybe-sync-score-sheet-template-on-open";
+
+/** Backfill sheet.registrationVehicleId from assignments or entry code when missing. */
+export async function ensureSheetRegistrationVehicleId(
+  sheetId: string,
+  eventId: string,
+  vehicleEntryCode: string,
+  current: string | null,
+): Promise<string | null> {
+  if (current) return current;
+
+  const fromAssignment = await prisma.eventJudgeCategoryAssignment.findFirst({
+    where: { judgeScoreSheetId: sheetId },
+    select: { registrationVehicleId: true },
+  });
+  if (fromAssignment?.registrationVehicleId) {
+    await prisma.judgeScoreSheet.update({
+      where: { id: sheetId },
+      data: { registrationVehicleId: fromAssignment.registrationVehicleId },
+    });
+    return fromAssignment.registrationVehicleId;
+  }
+
+  const code = vehicleEntryCode.trim().toUpperCase();
+  const rv = await prisma.registrationVehicle.findFirst({
+    where: {
+      registration: { eventId },
+      publicVehicleId: code,
+    },
+    select: { id: true },
+  });
+  if (rv) {
+    await prisma.judgeScoreSheet.update({
+      where: { id: sheetId },
+      data: { registrationVehicleId: rv.id },
+    });
+    return rv.id;
+  }
+
+  return null;
+}
+
+const scorecardSheetInclude = {
+  eventJudgingClass: { select: { id: true, name: true } },
+  registrationVehicle: {
+    include: {
+      vehicle: {
+        select: {
+          year: true,
+          make: true,
+          model: true,
+          trim: true,
+          vin: true,
+          nickname: true,
+          photoUrl: true,
+        },
+      },
+      eventCategory: {
+        select: { customName: true, category: { select: { name: true } } },
+      },
+      registration: {
+        select: {
+          guestFirstName: true,
+          guestLastName: true,
+          guestEmail: true,
+          guestPhone: true,
+          registrantFirstName: true,
+          registrantLastName: true,
+          registrantEmail: true,
+          registrantPhone: true,
+          user: {
+            select: {
+              firstName: true,
+              lastName: true,
+              name: true,
+              email: true,
+              phone: true,
+              status: true,
+            },
+          },
+        },
+      },
+    },
+  },
+  sections: {
+    orderBy: { sortOrder: "asc" as const },
+    include: {
+      items: {
+        orderBy: { sortOrder: "asc" as const },
+        include: {
+          deductionOptions: { orderBy: { sortOrder: "asc" as const } },
+          deductions: true,
+        },
+      },
+    },
+  },
+} as const;
+
 const STATUS_SORT: Record<EventJudgeCategoryAssignmentStatus, number> = {
   NOT_JUDGED: 0,
   SAVED_FOR_LATER: 1,
@@ -302,87 +405,54 @@ export async function loadJudgeAssignedScorecardDetail(
 ): Promise<JudgeAssignedScorecardDetail> {
   await assertJudgeForEvent(judgeUserId, eventId);
 
-  const sheet = await prisma.judgeScoreSheet.findFirst({
+  let sheet = await prisma.judgeScoreSheet.findFirst({
     where: { id: sheetId, eventId, judgeUserId },
-    include: {
-      eventJudgingClass: { select: { id: true, name: true } },
-      registrationVehicle: {
-        include: {
-          vehicle: {
-            select: {
-              year: true,
-              make: true,
-              model: true,
-              trim: true,
-              vin: true,
-              nickname: true,
-              photoUrl: true,
-            },
-          },
-          eventCategory: {
-            select: { customName: true, category: { select: { name: true } } },
-          },
-          registration: {
-            select: {
-              guestFirstName: true,
-              guestLastName: true,
-              guestEmail: true,
-              guestPhone: true,
-              registrantFirstName: true,
-              registrantLastName: true,
-              registrantEmail: true,
-              registrantPhone: true,
-              user: {
-                select: {
-                  firstName: true,
-                  lastName: true,
-                  name: true,
-                  email: true,
-                  phone: true,
-                  status: true,
-                },
-              },
-            },
-          },
-        },
-      },
-      sections: {
-        orderBy: { sortOrder: "asc" },
-        include: {
-          items: {
-            orderBy: { sortOrder: "asc" },
-            include: {
-              deductionOptions: { orderBy: { sortOrder: "asc" } },
-              deductions: true,
-            },
-          },
-        },
-      },
-    },
+    include: scorecardSheetInclude,
   });
 
   if (!sheet) {
     throw new JudgeScoreSheetAccessError("NOT_FOUND", "Score sheet not found.");
   }
 
-  if (!sheet.registrationVehicleId) {
-    throw new JudgeScoreSheetAccessError("VEHICLE_NOT_FOUND", "Vehicle not linked.");
+  if (await maybeSyncScoreSheetTemplateOnOpen(sheetId)) {
+    sheet =
+      (await prisma.judgeScoreSheet.findFirst({
+        where: { id: sheetId, eventId, judgeUserId },
+        include: scorecardSheetInclude,
+      })) ?? sheet;
   }
 
-  const assignments = await prisma.eventJudgeCategoryAssignment.findMany({
-    where: {
-      eventId,
-      judgeUserId,
-      registrationVehicleId: sheet.registrationVehicleId ?? undefined,
-    },
-    select: {
-      eventJudgingSectionId: true,
-      status: true,
-    },
+  const registrationVehicleId = await ensureSheetRegistrationVehicleId(
+    sheetId,
+    eventId,
+    sheet.vehicleEntryCode,
+    sheet.registrationVehicleId,
+  );
+  if (!registrationVehicleId) {
+    throw new JudgeScoreSheetAccessError("VEHICLE_NOT_FOUND", "Vehicle not linked.");
+  }
+  if (sheet.registrationVehicleId !== registrationVehicleId) {
+    sheet =
+      (await prisma.judgeScoreSheet.findFirst({
+        where: { id: sheetId, eventId, judgeUserId },
+        include: scorecardSheetInclude,
+      })) ?? { ...sheet, registrationVehicleId };
+  }
+
+  const assignments = await findAssignmentsForScoreSheet({
+    sheetId,
+    eventId,
+    judgeUserId,
+    registrationVehicleId,
+    vehicleEntryCode: sheet.vehicleEntryCode,
   });
 
-  const assignmentBySection = new Map(
-    assignments.map((a) => [a.eventJudgingSectionId, a.status] as const),
+  const assignmentLookups = buildAssignmentLookups(
+    assignments.map((a) => ({
+      eventJudgingSectionId: a.eventJudgingSectionId,
+      status: a.status,
+      sectionName: a.section.name,
+    })),
   );
 
   const sheetReadOnly = sheet.status !== "DRAFT";
@@ -402,11 +472,15 @@ export async function loadJudgeAssignedScorecardDetail(
   const sections: JudgeAssignedScorecardSectionView[] = sheet.sections
     .filter((s) => s.isActive)
     .map((section) => {
-      const sectionKey = section.eventJudgingSectionId;
-      const assignmentStatus = sectionKey
-        ? (assignmentBySection.get(sectionKey) ?? null)
-        : null;
-      const isAssigned = assignmentStatus != null;
+      const resolved = resolveSheetSectionAssignment(
+        {
+          eventJudgingSectionId: section.eventJudgingSectionId,
+          name: section.name,
+        },
+        assignmentLookups,
+      );
+      const assignmentStatus = resolved.assignmentStatus;
+      const isAssigned = resolved.isAssigned;
       const isEditable =
         isAssigned &&
         !sheetReadOnly &&
@@ -414,7 +488,7 @@ export async function loadJudgeAssignedScorecardDetail(
 
       return {
         id: section.id,
-        eventJudgingSectionId: section.eventJudgingSectionId,
+        eventJudgingSectionId: resolved.resolvedEventJudgingSectionId,
         name: section.name,
         sortOrder: section.sortOrder,
         judgeGuidance: section.judgeGuidance,

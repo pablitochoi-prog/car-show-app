@@ -9,11 +9,18 @@ export const SMS_NOTIFICATIONS_BUYER_INQUIRY_OPT_IN_LABEL =
   "Send me SMS alerts when someone submits a buyer inquiry about this vehicle.";
 
 export const SMS_NOTIFICATIONS_OPT_IN_SOURCES = {
+  signup: "signup",
   eventRegistration: "event_registration",
   eventRegistrationBuyerInquiry: "event_registration_buyer_inquiry",
   buyerInterestForm: "buyer_interest_form",
   profile: "profile",
 } as const;
+
+/** Signup screen checkbox headline (TCPA). */
+export const SIGNUP_SMS_OPT_IN_HEADLINE =
+  "Text me helpful updates about my car event registration.";
+
+export const SIGNUP_SMS_OPT_IN_POLICY_PATH = "/terms";
 
 export type SmsNotificationsOptInSource =
   (typeof SMS_NOTIFICATIONS_OPT_IN_SOURCES)[keyof typeof SMS_NOTIFICATIONS_OPT_IN_SOURCES];

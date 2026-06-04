@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { isSiteAdmin } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import { DashboardAwardsTile } from "@/components/dashboard/dashboard-awards-tile";
 import { DashboardMessagesTile } from "@/components/dashboard/dashboard-messages-tile";
 import { NavTileLink } from "@/components/navigation/nav-tile-link";
 
@@ -26,15 +27,9 @@ const destinations = [
     icon: "tag" as const,
   },
   {
-    href: "/dashboard/awards",
-    title: "My Awards",
-    description: "Awards and placings from events you entered.",
-    icon: "trophy" as const,
-  },
-  {
     href: "/judge",
     title: "My Judging",
-    description: "Judge ballot awards — vote for vehicles at assigned events.",
+    description: "Judge ballot voting — vote for vehicles at assigned events.",
     icon: "trophy" as const,
   },
   {
@@ -77,6 +72,8 @@ export default async function DashboardPage() {
             icon={icon}
           />
         ))}
+
+        <DashboardAwardsTile userId={user.id} />
 
         <DashboardMessagesTile />
 

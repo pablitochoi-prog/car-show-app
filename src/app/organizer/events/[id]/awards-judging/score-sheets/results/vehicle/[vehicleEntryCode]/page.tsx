@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { OrganizerScoreSheetVehicleDetail } from "@/components/organizer/awards-judging/organizer-score-sheet-vehicle-detail";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 
@@ -61,7 +61,7 @@ export default async function ScoreSheetVehicleDetailPage({
       </div>
 
       <div className="print:hidden">
-        <EventOrganizerNav eventId={eventId} active="awards-judging" />
+        <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
       </div>
 
       <OrganizerScoreSheetVehicleDetail

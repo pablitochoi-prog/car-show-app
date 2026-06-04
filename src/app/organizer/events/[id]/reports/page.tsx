@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { EventReportsNav } from "@/components/organizer/reports/event-reports-nav";
 import { VotingTabulationReport } from "@/components/organizer/reports/voting-tabulation-report";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
@@ -91,7 +91,7 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
       </div>
 
       <div className="space-y-4">
-        <EventOrganizerNav eventId={eventId} active="reports" />
+        <EventOrganizerNavBar eventId={eventId} active="reports" user={user} />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">

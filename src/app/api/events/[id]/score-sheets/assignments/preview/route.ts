@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { canManageEvent, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
+import { canManageVehicleRegistrations } from "@/lib/vehicle-registrations-auth";
 import {
   EventJudgeAssignmentError,
   previewJudgeCategoryAssignmentConflicts,
@@ -14,10 +15,9 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const { id: eventId } = await params;
-  const allowed = await canManageEvent(
+  const allowed = await canManageVehicleRegistrations(
     user.id,
     eventId,
-    undefined,
     user.platformRole,
   );
   if (!allowed) {

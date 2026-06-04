@@ -3,8 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
-import { canManageEvent } from "@/lib/auth";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { canManageVehicleRegistrations } from "@/lib/vehicle-registrations-auth";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { ScoreSheetJudgeAssignments } from "@/components/organizer/awards-judging/score-sheet-judge-assignments";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,11 @@ export default async function ScoreSheetAssignmentsPage({
     pathname: `/organizer/events/${eventId}/awards-judging/score-sheets/assignments`,
   });
 
-  const allowed = await canManageEvent(user.id, eventId, undefined, user.platformRole);
+  const allowed = await canManageVehicleRegistrations(
+    user.id,
+    eventId,
+    user.platformRole,
+  );
   if (!allowed) notFound();
 
   const event = await prisma.event.findUnique({
@@ -35,7 +39,7 @@ export default async function ScoreSheetAssignmentsPage({
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
-      <EventOrganizerNav eventId={eventId} active="awards-judging" />
+      <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Judge assignments</h1>

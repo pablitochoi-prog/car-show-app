@@ -1,6 +1,7 @@
 import type { JudgingSubcategoryScoringType } from "@prisma/client";
 import { computeSubcategoryImpact } from "@/lib/judging/scorecard-scoring";
 import { JudgeScoreSheetAccessError } from "@/lib/judging/judge-score-sheet-judge-data";
+import { resolveScorecardOptionForSelection } from "@/lib/judging/resolve-scorecard-option";
 
 export type ScorecardItemDraftInput = {
   itemId: string;
@@ -13,6 +14,12 @@ export type ScorecardItemDraftInput = {
   deductionComments?: Record<string, string>;
 };
 
+export type {
+  ScorecardUiDraftLike,
+  ScorecardUiItemLike,
+} from "@/lib/judging/scorecard-required-comment";
+export { itemDraftMissingRequiredComment } from "@/lib/judging/scorecard-required-comment";
+
 type DraftItemLike = {
   id: string;
   label: string;
@@ -22,6 +29,7 @@ type DraftItemLike = {
   requiresCommentOnDeduction: boolean;
   deductionOptions: Array<{
     id: string;
+    label: string;
     pointsDeducted: number;
   }>;
 };
@@ -30,7 +38,9 @@ export function validateScorecardItemDraft(
   item: DraftItemLike,
   draft: ScorecardItemDraftInput,
   templateMethodology: "DEDUCTION" | "ADDITIVE" | "ORIGINALITY_CONDITION",
+  options?: { requireComments?: boolean },
 ): void {
+  const requireComments = options?.requireComments ?? true;
   const scoringType = item.scoringType;
 
   if (scoringType === "DISCRETIONARY") {
@@ -41,12 +51,12 @@ export function validateScorecardItemDraft(
         `Deduction for "${item.label}" must be between 0 and ${item.maxPoints}.`,
       );
     }
-    if (item.requiresCommentOnDeduction && raw > 0) {
+    if (requireComments && item.requiresCommentOnDeduction && raw > 0) {
       const note = draft.itemNotes?.trim() || "";
       if (!note) {
         throw new JudgeScoreSheetAccessError(
           "REQUIRED_COMMENT",
-          `Remarks are required when deductions are taken for "${item.label}".`,
+          `A note is required when deductions are taken for "${item.label}".`,
         );
       }
     }
@@ -54,12 +64,16 @@ export function validateScorecardItemDraft(
   }
 
   const selections = draft.levelSelections ?? [];
-  const optionSet = new Set(item.deductionOptions.map((o) => o.id));
   for (const sel of selections) {
-    if (!optionSet.has(sel.optionId)) {
+    const opt = resolveScorecardOptionForSelection(item.deductionOptions, {
+      optionId: sel.optionId,
+      pointsDeducted: item.deductionOptions.find((o) => o.id === sel.optionId)
+        ?.pointsDeducted,
+    });
+    if (!opt) {
       throw new JudgeScoreSheetAccessError(
         "INVALID_OPTION",
-        `Invalid selection for "${item.label}".`,
+        `Invalid selection for "${item.label}". Refresh the scorecard and try again.`,
       );
     }
     if (item.allowMultipleViolations) {
@@ -71,12 +85,15 @@ export function validateScorecardItemDraft(
         );
       }
     }
-    if (item.requiresCommentOnDeduction) {
-      const comment = draft.deductionComments?.[sel.optionId]?.trim() || "";
+    if (requireComments && item.requiresCommentOnDeduction) {
+      const comment =
+        draft.deductionComments?.[sel.optionId]?.trim() ||
+        draft.itemNotes?.trim() ||
+        "";
       if (!comment) {
         throw new JudgeScoreSheetAccessError(
           "REQUIRED_COMMENT",
-          `Deduction comment is required for "${item.label}".`,
+          `A note is required for "${item.label}" when a deduction is applied.`,
         );
       }
     }
@@ -84,7 +101,9 @@ export function validateScorecardItemDraft(
 
   if (selections.length > 0) {
     const weights = selections.map((sel) => {
-      const opt = item.deductionOptions.find((o) => o.id === sel.optionId)!;
+      const opt = resolveScorecardOptionForSelection(item.deductionOptions, {
+        optionId: sel.optionId,
+      })!;
       return {
         weight: opt.pointsDeducted,
         violationCount: item.allowMultipleViolations ? sel.violationCount ?? 1 : 1,
@@ -113,6 +132,7 @@ export function validateEditableSectionItems(
   drafts: ScorecardItemDraftInput[],
   templateMethodology: "DEDUCTION" | "ADDITIVE" | "ORIGINALITY_CONDITION",
   requireComplete: boolean,
+  requireComments = true,
 ): void {
   const draftById = new Map(drafts.map((d) => [d.itemId, d]));
 
@@ -127,6 +147,6 @@ export function validateEditableSectionItems(
       }
       continue;
     }
-    validateScorecardItemDraft(item, draft, templateMethodology);
+    validateScorecardItemDraft(item, draft, templateMethodology, { requireComments });
   }
 }

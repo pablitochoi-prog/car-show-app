@@ -238,10 +238,10 @@ export default async function EventsPage({
                       {registrationStatus ? (
                         <>
                           <Link
-                            href={`/events/${ev.id}`}
+                            href={`/events/${ev.id}/register/edit`}
                             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
                           >
-                            Add Vehicles
+                            Edit Registration
                           </Link>
                           <CancelRegistrationButton
                             registrationId={registrationStatus.registrationId}

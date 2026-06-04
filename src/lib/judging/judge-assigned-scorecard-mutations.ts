@@ -1,15 +1,24 @@
 import type { JudgingDeductionBucket } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { calculateScorecardFromSheet } from "@/lib/judging/build-scorecard-from-sheet";
 import {
-  loadJudgeAssignedScorecardDetail,
-  type JudgeAssignedScorecardDetail,
-} from "@/lib/judging/judge-assigned-scorecard-data";
+  assertSavableSectionIds,
+  loadScorecardSaveContext,
+  recalculateAndStoreSheetScore,
+  updateAssignmentStatusesForSheet,
+} from "@/lib/judging/judge-assigned-scorecard-save";
 import {
   validateEditableSectionItems,
   type ScorecardItemDraftInput,
 } from "@/lib/judging/judge-assigned-scorecard-validation";
+import { resolveScorecardOptionForSelection } from "@/lib/judging/resolve-scorecard-option";
+import { resolveEventSectionIdsForAssignmentUpdate } from "@/lib/judging/judge-scorecard-section-assignment";
+import { lockScoreSheetTemplateStructure } from "@/lib/judging/maybe-sync-score-sheet-template-on-open";
+import { ensureScoreSheetJudgingClassLink } from "@/lib/judging/score-sheet-judging-class-link";
 import { JudgeScoreSheetAccessError } from "@/lib/judging/judge-score-sheet-judge-data";
+import {
+  assertScoreSheetJudgingOpenForJudges,
+  ScoreSheetJudgingPeriodError,
+} from "@/lib/judging/score-sheet-judging-period";
 
 export type SaveAssignedScorecardInput = {
   judgeUserId: string;
@@ -18,27 +27,11 @@ export type SaveAssignedScorecardInput = {
   generalNotes?: string;
   sectionIds: string[];
   items: ScorecardItemDraftInput[];
+  /** When true (submit), required deduction comments are enforced. Save-for-later skips them. */
+  requireComments?: boolean;
 };
 
-function editableItemsForSections(
-  detail: JudgeAssignedScorecardDetail,
-  sectionIds: string[],
-) {
-  const idSet = new Set(sectionIds);
-  const sections = detail.sections.filter(
-    (s) => idSet.has(s.id) && s.isEditable,
-  );
-  if (sections.length !== sectionIds.length) {
-    throw new JudgeScoreSheetAccessError(
-      "READ_ONLY",
-      "One or more categories are not assigned or are read-only.",
-    );
-  }
-  return sections.flatMap((s) => s.items);
-}
-
 async function persistScorecardItems(
-  sheetId: string,
   items: ScorecardItemDraftInput[],
   itemMeta: Map<
     string,
@@ -54,7 +47,12 @@ async function persistScorecardItems(
   await prisma.$transaction(async (tx) => {
     for (const [itemId, draft] of updateByItem) {
       const meta = itemMeta.get(itemId);
-      if (!meta) continue;
+      if (!meta) {
+        throw new JudgeScoreSheetAccessError(
+          "INVALID_ITEM",
+          "Score item no longer exists. Refresh the scorecard and try again.",
+        );
+      }
 
       await tx.judgeScoreSheetItem.update({
         where: { id: itemId },
@@ -79,8 +77,15 @@ async function persistScorecardItems(
       }
 
       for (const sel of draft.levelSelections ?? []) {
-        const opt = meta.deductionOptions.find((o) => o.id === sel.optionId);
-        if (!opt) continue;
+        const opt = resolveScorecardOptionForSelection(meta.deductionOptions, {
+          optionId: sel.optionId,
+        });
+        if (!opt) {
+          throw new JudgeScoreSheetAccessError(
+            "INVALID_OPTION",
+            `Invalid selection for "${meta.label}". Refresh the scorecard and try again.`,
+          );
+        }
         const violationCount = Math.max(1, sel.violationCount ?? 1);
         await tx.judgeScoreSheetDeduction.create({
           data: {
@@ -98,7 +103,9 @@ async function persistScorecardItems(
   });
 }
 
-function buildItemMetaMap(detail: JudgeAssignedScorecardDetail) {
+function buildItemMetaFromSavableSections(
+  savableSections: Awaited<ReturnType<typeof assertSavableSectionIds>>,
+) {
   const map = new Map<
     string,
     {
@@ -110,7 +117,7 @@ function buildItemMetaMap(detail: JudgeAssignedScorecardDetail) {
       deductionOptions: Array<{ id: string; label: string; pointsDeducted: number }>;
     }
   >();
-  for (const section of detail.sections) {
+  for (const section of savableSections) {
     for (const item of section.items) {
       map.set(item.id, {
         scoringType: item.scoringType,
@@ -127,22 +134,28 @@ function buildItemMetaMap(detail: JudgeAssignedScorecardDetail) {
 
 export async function saveAssignedScorecardDraft(
   input: SaveAssignedScorecardInput,
-) {
-  const detail = await loadJudgeAssignedScorecardDetail(
+): Promise<{ ok: true; itemsSaved: number; assignmentsUpdated: number }> {
+  try {
+    await assertScoreSheetJudgingOpenForJudges(input.eventId);
+  } catch (e) {
+    if (e instanceof ScoreSheetJudgingPeriodError) {
+      throw new JudgeScoreSheetAccessError("JUDGING_CLOSED", e.message);
+    }
+    throw e;
+  }
+
+  const ctx = await loadScorecardSaveContext(
     input.judgeUserId,
     input.eventId,
     input.sheetId,
   );
-  if (detail.sheet.status !== "DRAFT") {
-    throw new JudgeScoreSheetAccessError(
-      "READ_ONLY",
-      "Submitted score sheets are read-only.",
-    );
-  }
 
-  const editableItems = editableItemsForSections(detail, input.sectionIds);
-  const itemMeta = buildItemMetaMap(detail);
+  const savableSections = await assertSavableSectionIds(ctx, input.sectionIds);
+  const itemMeta = buildItemMetaFromSavableSections(savableSections);
+  const editableItemIds = new Set(itemMeta.keys());
+  const itemsToSave = input.items.filter((row) => editableItemIds.has(row.itemId));
 
+  const editableItems = savableSections.flatMap((s) => s.items);
   validateEditableSectionItems(
     editableItems.map((i) => ({
       id: i.id,
@@ -151,11 +164,16 @@ export async function saveAssignedScorecardDraft(
       scoringType: i.scoringType as "DISCRETIONARY" | "LEVELS" | "FULL",
       allowMultipleViolations: i.allowMultipleViolations,
       requiresCommentOnDeduction: i.requiresCommentOnDeduction,
-      deductionOptions: i.deductionOptions,
+      deductionOptions: i.deductionOptions.map((o) => ({
+        id: o.id,
+        label: o.label,
+        pointsDeducted: o.pointsDeducted,
+      })),
     })),
-    input.items.filter((row) => editableItems.some((i) => i.id === row.itemId)),
-    detail.sheet.methodology,
+    itemsToSave,
+    ctx.methodology,
     false,
+    input.requireComments ?? false,
   );
 
   await prisma.judgeScoreSheet.update({
@@ -163,77 +181,59 @@ export async function saveAssignedScorecardDraft(
     data: { generalNotes: input.generalNotes?.trim() || null },
   });
 
-  await persistScorecardItems(input.sheetId, input.items, itemMeta);
+  await persistScorecardItems(itemsToSave, itemMeta);
 
-  const sectionKeys = detail.sections
-    .filter((s) => input.sectionIds.includes(s.id) && s.eventJudgingSectionId)
-    .map((s) => s.eventJudgingSectionId!);
-
-  const sheetMeta = await prisma.judgeScoreSheet.findUnique({
-    where: { id: input.sheetId },
-    select: { registrationVehicleId: true },
+  await resolveEventSectionIdsForAssignmentUpdate({
+    eventId: ctx.eventId,
+    judgeUserId: ctx.judgeUserId,
+    registrationVehicleId: ctx.registrationVehicleId,
+    sheetSections: ctx.sections.map((s) => ({
+      id: s.id,
+      eventJudgingSectionId: s.eventJudgingSectionId,
+      name: s.name,
+    })),
+    sheetSectionIds: input.sectionIds,
   });
 
-  if (sectionKeys.length > 0 && sheetMeta?.registrationVehicleId) {
-    await prisma.eventJudgeCategoryAssignment.updateMany({
-      where: {
-        eventId: input.eventId,
-        judgeUserId: input.judgeUserId,
-        registrationVehicleId: sheetMeta.registrationVehicleId,
-        eventJudgingSectionId: { in: sectionKeys },
-      },
-      data: { status: "SAVED_FOR_LATER" },
-    });
-  }
-
-  const refreshed = await loadJudgeAssignedScorecardDetail(
-    input.judgeUserId,
-    input.eventId,
-    input.sheetId,
-  );
-
-  const sheetRow = await prisma.judgeScoreSheet.findUnique({
-    where: { id: input.sheetId },
-    include: {
-      sections: {
-        include: {
-          items: {
-            include: { deductionOptions: true, deductions: true },
-          },
-        },
-      },
-    },
+  const assignmentsUpdated = await updateAssignmentStatusesForSheet({
+    sheetId: ctx.sheetId,
+    eventId: ctx.eventId,
+    judgeUserId: ctx.judgeUserId,
+    registrationVehicleId: ctx.registrationVehicleId,
+    vehicleEntryCode: ctx.vehicleEntryCode,
+    sheetSections: ctx.sections.map((s) => ({
+      id: s.id,
+      name: s.name,
+      eventJudgingSectionId: s.eventJudgingSectionId,
+    })),
+    sheetSectionIds: input.sectionIds,
+    status: "SAVED_FOR_LATER",
   });
-  if (sheetRow) {
-    const calculated = calculateScorecardFromSheet({
-      methodology: sheetRow.methodology,
-      totalPoints: sheetRow.totalPoints,
-      sections: sheetRow.sections.map((section) => ({
-        weightPercent: section.weightPercent,
-        maxSectionPoints: section.maxSectionPoints,
-        items: section.items.map((item) => ({
-          maxPoints: item.maxPoints,
-          pointType: item.pointType,
-          scoringType: item.scoringType,
-          allowMultipleViolations: item.allowMultipleViolations,
-          awardedPoints: item.awardedPoints,
-          deductionOptions: item.deductionOptions,
-          deductions: item.deductions,
-        })),
-      })),
-    });
-    await prisma.judgeScoreSheet.update({
-      where: { id: input.sheetId },
-      data: {
-        finalScore: calculated.finalScore,
-        originalityDeductions: calculated.originalityDeductions,
-        conditionDeductions: calculated.conditionDeductions,
-      },
-    });
-    return { detail: refreshed, calculated };
+
+  await recalculateAndStoreSheetScore(input.sheetId);
+  await ensureScoreSheetJudgingClassLink(input.sheetId);
+  await lockScoreSheetTemplateStructure(input.sheetId);
+
+  return { ok: true, itemsSaved: itemsToSave.length, assignmentsUpdated };
+}
+
+function sectionIdsFromSaveItems(
+  ctx: Awaited<ReturnType<typeof loadScorecardSaveContext>>,
+  items: ScorecardItemDraftInput[],
+  explicitSectionIds?: string[],
+): string[] {
+  const itemIds = new Set(items.map((i) => i.itemId).filter(Boolean));
+  const fromItems = ctx.sections
+    .filter((sec) => sec.items.some((it) => itemIds.has(it.id)))
+    .map((sec) => sec.id);
+
+  if (explicitSectionIds && explicitSectionIds.length > 0) {
+    const allowed = new Set(fromItems);
+    const picked = explicitSectionIds.filter((id) => allowed.has(id));
+    if (picked.length > 0) return picked;
   }
 
-  return { detail: refreshed, calculated: refreshed.calculated };
+  return fromItems;
 }
 
 export async function submitAssignedScorecard(input: {
@@ -241,81 +241,57 @@ export async function submitAssignedScorecard(input: {
   eventId: string;
   sheetId: string;
   generalNotes?: string;
+  sectionIds?: string[];
   items: ScorecardItemDraftInput[];
-}) {
-  const detail = await loadJudgeAssignedScorecardDetail(
+}): Promise<{ ok: true }> {
+  const ctx = await loadScorecardSaveContext(
     input.judgeUserId,
     input.eventId,
     input.sheetId,
   );
-  if (detail.sheet.status !== "DRAFT") {
+
+  const savableSectionIds = sectionIdsFromSaveItems(
+    ctx,
+    input.items,
+    input.sectionIds,
+  );
+
+  if (savableSectionIds.length === 0) {
     throw new JudgeScoreSheetAccessError(
       "READ_ONLY",
-      "Score sheet is already submitted.",
+      "No assigned categories are available to submit.",
     );
   }
 
-  const editableSections = detail.sections.filter((s) => s.isEditable);
-  const sectionIds = editableSections.map((s) => s.id);
-
-  const editableItems = editableSections.flatMap((s) => s.items);
-  const itemMeta = buildItemMetaMap(detail);
-
-  validateEditableSectionItems(
-    editableItems.map((i) => ({
-      id: i.id,
-      label: i.label,
-      maxPoints: i.maxPoints,
-      scoringType: i.scoringType as "DISCRETIONARY" | "LEVELS" | "FULL",
-      allowMultipleViolations: i.allowMultipleViolations,
-      requiresCommentOnDeduction: i.requiresCommentOnDeduction,
-      deductionOptions: i.deductionOptions,
-    })),
-    input.items.filter((row) => editableItems.some((i) => i.id === row.itemId)),
-    detail.sheet.methodology,
-    false,
-  );
-
   await saveAssignedScorecardDraft({
     ...input,
-    sectionIds,
+    sectionIds: savableSectionIds,
+    requireComments: true,
   });
 
-  const sectionKeys = editableSections
-    .filter((s) => s.eventJudgingSectionId)
-    .map((s) => s.eventJudgingSectionId!);
+  await updateAssignmentStatusesForSheet({
+    sheetId: ctx.sheetId,
+    eventId: ctx.eventId,
+    judgeUserId: ctx.judgeUserId,
+    registrationVehicleId: ctx.registrationVehicleId,
+    vehicleEntryCode: ctx.vehicleEntryCode,
+    sheetSections: ctx.sections.map((s) => ({
+      id: s.id,
+      name: s.name,
+      eventJudgingSectionId: s.eventJudgingSectionId,
+    })),
+    sheetSectionIds: savableSectionIds,
+    status: "SUBMITTED",
+  });
 
-  const sheetMeta = await prisma.judgeScoreSheet.findUnique({
+  await prisma.judgeScoreSheet.update({
     where: { id: input.sheetId },
-    select: { registrationVehicleId: true },
+    data: {
+      status: "SUBMITTED",
+      submittedAt: new Date(),
+      finalizedAt: new Date(),
+    },
   });
 
-  await prisma.$transaction(async (tx) => {
-    if (sectionKeys.length > 0 && sheetMeta?.registrationVehicleId) {
-      await tx.eventJudgeCategoryAssignment.updateMany({
-        where: {
-          eventId: input.eventId,
-          judgeUserId: input.judgeUserId,
-          registrationVehicleId: sheetMeta.registrationVehicleId,
-          eventJudgingSectionId: { in: sectionKeys },
-        },
-        data: { status: "SUBMITTED" },
-      });
-    }
-    await tx.judgeScoreSheet.update({
-      where: { id: input.sheetId },
-      data: {
-        status: "SUBMITTED",
-        submittedAt: new Date(),
-        finalizedAt: new Date(),
-      },
-    });
-  });
-
-  const refreshed = await loadJudgeAssignedScorecardDetail(
-    input.judgeUserId,
-    input.eventId,
-    input.sheetId,
-  );
-  return refreshed;
+  return { ok: true };
 }

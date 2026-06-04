@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
+import { canManageVehicleRegistrations } from "@/lib/vehicle-registrations-auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventForm, type EventInitial } from "@/components/forms/event-form";
 import { parseDailyHours } from "@/lib/daily-hours";
@@ -9,7 +10,7 @@ import { getEventStaffList, listEventRoleDefinitions } from "@/lib/event-staff";
 import { EventStaffManager } from "@/components/forms/event-staff-manager";
 import { EventSetupListCards } from "@/components/forms/event-setup-list-cards";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { countEventAwardTrophies } from "@/lib/event-awards-trophies";
 import {
@@ -27,19 +28,25 @@ import { countUnreadMessagesForUserAndEvent } from "@/lib/unread-messages";
 import { Suspense } from "react";
 import { StripeReturnBanner } from "@/components/stripe/stripe-return-banner";
 import { fulfillPlatformSetupFeeFromCheckoutSession } from "@/lib/stripe-fulfill-platform-setup-fee";
+import { syncAccountStatus } from "@/lib/stripe-connect";
 
 export default async function EditEventPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ session_id?: string; platform_fee_paid?: string }>;
+  searchParams: Promise<{
+    session_id?: string;
+    platform_fee_paid?: string;
+    stripe?: string;
+  }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const { id } = await params;
   const sp = await searchParams;
+  const stripeReturnParam = Array.isArray(sp.stripe) ? sp.stripe[0] : sp.stripe;
 
   const returnQuery = new URLSearchParams();
   if (sp.session_id) returnQuery.set("session_id", sp.session_id);
@@ -77,6 +84,12 @@ export default async function EditEventPage({
 
   const allowed = await canManageEvent(user.id, id, event.orgId, user.platformRole);
   if (!allowed) notFound();
+
+  const vehicleRegistrationsAccess = await canManageVehicleRegistrations(
+    user.id,
+    id,
+    user.platformRole,
+  );
 
   const [
     memberships,
@@ -199,17 +212,66 @@ export default async function EditEventPage({
       )
     : false;
 
-  const stripeInfo: StripeConnectInfo | null = event.organization
+  let stripeRequirements: {
+    currentlyDue: string[];
+    pastDue: string[];
+    disabledReason: string | null;
+    requirementErrors: Array<{ code: string; reason: string; requirement: string }>;
+  } | null = null;
+
+  let stripeOrg = event.organization;
+
+  if (
+    isOrgOwner &&
+    stripeOrg?.stripeAccountId &&
+    process.env.STRIPE_SECRET_KEY?.trim()
+  ) {
+    try {
+      const { org, sync } = await syncAccountStatus(stripeOrg.stripeAccountId);
+      stripeOrg = {
+        id: org.id,
+        name: org.name,
+        stripeAccountId: org.stripeAccountId,
+        stripeAccountStatus: org.stripeAccountStatus,
+        stripeChargesEnabled: org.stripeChargesEnabled,
+        stripePayoutsEnabled: org.stripePayoutsEnabled,
+        stripeDetailsSubmitted: org.stripeDetailsSubmitted,
+      };
+      stripeRequirements = {
+        currentlyDue: sync.requirementsCurrentlyDue,
+        pastDue: sync.requirementsPastDue,
+        disabledReason: sync.disabledReason,
+        requirementErrors: sync.requirementErrors,
+      };
+    } catch (err) {
+      console.error("[EditEventPage] Stripe status sync failed", err);
+    }
+  }
+
+  const stripeInfo: StripeConnectInfo | null = stripeOrg
     ? {
-        orgId: event.organization.id,
-        orgName: event.organization.name,
-        stripeAccountId: event.organization.stripeAccountId,
-        stripeAccountStatus: event.organization.stripeAccountStatus,
-        chargesEnabled: event.organization.stripeChargesEnabled,
-        payoutsEnabled: event.organization.stripePayoutsEnabled,
-        detailsSubmitted: event.organization.stripeDetailsSubmitted,
+        orgId: stripeOrg.id,
+        orgName: stripeOrg.name,
+        stripeAccountId: stripeOrg.stripeAccountId,
+        stripeAccountStatus: stripeOrg.stripeAccountStatus,
+        chargesEnabled: stripeOrg.stripeChargesEnabled,
+        payoutsEnabled: stripeOrg.stripePayoutsEnabled,
+        detailsSubmitted: stripeOrg.stripeDetailsSubmitted,
+        requirementsCurrentlyDue: stripeRequirements?.currentlyDue,
+        requirementsPastDue: stripeRequirements?.pastDue,
+        disabledReason: stripeRequirements?.disabledReason,
+        requirementErrors: stripeRequirements?.requirementErrors,
       }
     : null;
+
+  const stripeReturnNeedsAttention =
+    stripeReturnParam === "incomplete" ||
+    stripeReturnParam === "error" ||
+    stripeReturnParam === "pending";
+  const stripeConnectIncomplete =
+    stripeInfo != null && !stripeInfo.chargesEnabled;
+  const paymentSettingsDefaultOpen =
+    stripeReturnNeedsAttention || stripeConnectIncomplete;
 
   const initial: EventInitial = {
     id: event.id,
@@ -269,7 +331,22 @@ export default async function EditEventPage({
       </div>
 
       <div className="space-y-4">
-        <EventOrganizerNav eventId={event.id} active="edit" />
+        <EventOrganizerNavBar
+          eventId={event.id}
+          active="edit"
+          user={user}
+        />
+        {vehicleRegistrationsAccess ? (
+          <p className="text-sm text-muted-foreground">
+            <Link
+              href={`/organizer/events/${event.id}/vehicle-registrations`}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              Vehicle registrations
+            </Link>
+            {" — assign judges to vehicles and scorecard categories."}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">
@@ -315,8 +392,13 @@ export default async function EditEventPage({
         betweenOrganizerAndActions={
           <>
             <CollapsibleCard
+              key={
+                paymentSettingsDefaultOpen
+                  ? "payment-settings-open"
+                  : "payment-settings-collapsed"
+              }
               title="Payment Settings"
-              defaultOpen={false}
+              defaultOpen={paymentSettingsDefaultOpen}
               badge={paymentSettingsComplete ? <CompletedBadge /> : undefined}
             >
               <div id="payment-settings" className="scroll-mt-24">

@@ -4,13 +4,15 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import {
   AwardsJudgingHub,
   type AwardsJudgingHubStats,
 } from "@/components/organizer/awards-judging/awards-judging-hub";
+import { countEventAwardTrophies } from "@/lib/event-awards-trophies";
+import { loadEventVotingControl } from "@/lib/judging/event-voting-control";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -27,7 +29,28 @@ export default async function AwardsJudgingHubPage({ params }: Props) {
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, name: true, showNumber: true, orgId: true, smsVotingEnabled: true },
+    select: {
+      id: true,
+      name: true,
+      showNumber: true,
+      orgId: true,
+      smsVotingEnabled: true,
+      eventCategories: {
+        select: {
+          id: true,
+          trophyCount: true,
+          customName: true,
+          category: { select: { name: true } },
+        },
+      },
+      eventAwards: {
+        select: {
+          id: true,
+          customName: true,
+          specialAward: { select: { name: true } },
+        },
+      },
+    },
   });
   if (!event) notFound();
 
@@ -55,12 +78,26 @@ export default async function AwardsJudgingHubPage({ params }: Props) {
     prisma.eventJudgingTemplate.count({ where: { eventId } }),
   ]);
 
+  const votingSnapshot = await loadEventVotingControl(eventId);
+
   const stats: AwardsJudgingHubStats = {
     publicVotingEnabled: event.smsVotingEnabled,
     publicVotingCategoryCount,
     ballotCategoryCount,
     openBallotCategoryCount,
     scoreSheetTemplateCount,
+    eventVotingFinalized: votingSnapshot?.trophyWinnersEnabled ?? false,
+    trophyCount: countEventAwardTrophies({
+      categories: event.eventCategories.map((c) => ({
+        id: c.id,
+        name: c.customName?.trim() || c.category?.name || "Category",
+        trophyCount: c.trophyCount,
+      })),
+      specialAwards: event.eventAwards.map((a) => ({
+        id: a.id,
+        name: a.specialAward?.name ?? a.customName ?? "Custom Award",
+      })),
+    }),
   };
 
   return (
@@ -83,9 +120,14 @@ export default async function AwardsJudgingHubPage({ params }: Props) {
         />
       </div>
 
-      <EventOrganizerNav eventId={eventId} active="awards-judging" />
+      <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
 
-      <AwardsJudgingHub eventId={eventId} stats={stats} />
+      <AwardsJudgingHub
+        eventId={eventId}
+        stats={stats}
+        initialVotingSnapshot={votingSnapshot}
+        isSiteAdmin={user.platformRole === "ADMIN"}
+      />
 
       <p className="text-center text-sm text-muted-foreground">
         <Link href={`/organizer/events/${eventId}/edit`} className="underline">

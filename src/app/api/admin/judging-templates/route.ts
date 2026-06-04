@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isSiteAdmin } from "@/lib/permissions";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user || !isSiteAdmin(user)) {
@@ -10,10 +13,9 @@ export async function GET() {
   }
 
   const templates = await prisma.judgingTemplate.findMany({
-    where: { isActive: true },
-    orderBy: { sortOrder: "asc" },
+    orderBy: [{ isActive: "desc" }, { sortOrder: "asc" }],
     include: {
-      _count: { select: { sections: true } },
+      _count: { select: { sections: true, eventCopies: true } },
     },
   });
 
@@ -25,8 +27,12 @@ export async function GET() {
       description: t.description,
       methodology: t.methodology,
       totalPoints: t.totalPoints,
+      scoringGroup: t.scoringGroup,
+      vehicleType: t.vehicleType,
       sortOrder: t.sortOrder,
       sectionCount: t._count.sections,
+      eventCopyCount: t._count.eventCopies,
+      isActive: t.isActive,
     })),
   });
 }

@@ -5,7 +5,7 @@ import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { getEventStaffList } from "@/lib/event-staff";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { JudgeBallotAdmin } from "@/components/organizer/awards-judging/judge-ballot-admin";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 
@@ -57,6 +57,14 @@ export default async function JudgeBallotAdminPage({ params }: Props) {
       email: m.email,
     }));
 
+  const eventSpecialJudges = staff
+    .filter((m) => m.roles.some((r) => r.slug === "special_judge"))
+    .map((m) => ({
+      userId: m.userId,
+      name: m.name,
+      email: m.email,
+    }));
+
   const classOptions = vehicleClasses.map((ec) => ({
     id: ec.id,
     label: ec.customName?.trim() || ec.category?.name || "Vehicle Class",
@@ -72,16 +80,17 @@ export default async function JudgeBallotAdminPage({ params }: Props) {
           <EventNameWithNumber name={event.name} showNumber={event.showNumber} />
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Judge Ballot Award Categories — judges allocate votes per award category
+          Judge Ballot Voting — configure award categories and vote limits
         </p>
       </div>
 
-      <EventOrganizerNav eventId={eventId} active="awards-judging" />
+      <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
 
       <JudgeBallotAdmin
         eventId={eventId}
         vehicleClasses={classOptions}
         eventJudges={eventJudges}
+        eventSpecialJudges={eventSpecialJudges}
       />
 
       <p className="text-center text-sm text-muted-foreground">

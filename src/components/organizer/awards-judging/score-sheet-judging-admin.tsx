@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ClipboardList, Loader2, Plus } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -13,100 +13,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ScoreSheetTemplateEditor } from "@/components/organizer/awards-judging/score-sheet-template-editor";
-import { EventJudgingClassPanel } from "@/components/organizer/awards-judging/event-judging-class-panel";
+import { ScoreSheetTemplateList } from "@/components/organizer/awards-judging/score-sheet-template-list";
 import { formatTemplateDraftValidationErrors } from "@/lib/judging/scorecard-template-mapper";
+import { apiTemplateToDraft } from "@/lib/judging/scorecard-template-draft-mapper";
 import {
   toStructurePayload,
   type EditLockInfo,
   type EventTemplateSummary,
-  type JudgingClassRow,
   type SourceTemplate,
   type TemplateDraft,
   type ValidationWarning,
   type VehicleClassOption,
 } from "@/components/organizer/awards-judging/score-sheet-types";
-
-function apiTemplateToDraft(
-  template: {
-    name: string;
-    description: string | null;
-    scoringGroup?: string | null;
-    vehicleType?: string | null;
-    methodology: TemplateDraft["methodology"];
-    totalPoints: number;
-    sections: {
-      id: string;
-      name: string;
-      sortOrder: number;
-      weightPercent: number | null;
-      maxSectionPoints: number | null;
-      judgeGuidance: string | null;
-      isActive: boolean;
-      items: {
-        id: string;
-        label: string;
-        sortOrder: number;
-        maxPoints: number;
-        isIndented: boolean;
-        pointType: "ADD" | "DEDUCT" | null;
-        scoringType: "FULL" | "LEVELS" | "DISCRETIONARY";
-        allowMultipleViolations: boolean;
-        judgeGuidance: string | null;
-        requiresCommentOnDeduction: boolean;
-        isActive: boolean;
-        deductionOptions: {
-          id: string;
-          label: string;
-          pointsDeducted: number;
-          sortOrder: number;
-          deductionBucket: "ORIGINALITY" | "CONDITION" | null;
-        }[];
-      }[];
-    }[];
-  },
-): TemplateDraft {
-  return {
-    name: template.name,
-    description: template.description ?? "",
-    scoringGroup: template.scoringGroup ?? "",
-    vehicleType: template.vehicleType ?? "",
-    totalPoints: template.totalPoints,
-    methodology: template.methodology,
-    sections: template.sections.map((section) => ({
-      clientKey: section.id,
-      name: section.name,
-      sortOrder: section.sortOrder,
-      weightPercent:
-        section.weightPercent != null ? String(section.weightPercent) : "",
-      maxSectionPoints:
-        section.maxSectionPoints != null ? String(section.maxSectionPoints) : "",
-      judgeGuidance: section.judgeGuidance ?? "",
-      isActive: section.isActive,
-      items: section.items.map((item) => ({
-        clientKey: item.id,
-        label: item.label,
-        sortOrder: item.sortOrder,
-        maxPoints: item.maxPoints,
-        isIndented: item.isIndented,
-        pointType: item.pointType,
-        scoringType: item.scoringType,
-        allowMultipleViolations: item.allowMultipleViolations,
-        judgeGuidance: item.judgeGuidance ?? "",
-        requiresCommentOnDeduction: item.requiresCommentOnDeduction,
-        isActive: item.isActive,
-        deductionOptions: item.deductionOptions.map((opt) => ({
-          clientKey: opt.id,
-          label: opt.label,
-          pointsDeducted: opt.pointsDeducted,
-          sortOrder: opt.sortOrder,
-          deductionBucket: opt.deductionBucket,
-        })),
-      })),
-    })),
-  };
-}
 
 export function ScoreSheetJudgingAdmin({
   eventId,
@@ -117,7 +36,6 @@ export function ScoreSheetJudgingAdmin({
 }) {
   const [templates, setTemplates] = useState<EventTemplateSummary[]>([]);
   const [sourceTemplates, setSourceTemplates] = useState<SourceTemplate[]>([]);
-  const [judgingClasses, setJudgingClasses] = useState<JudgingClassRow[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TemplateDraft | null>(null);
   const [editLockInfo, setEditLockInfo] = useState<EditLockInfo | null>(null);
@@ -130,19 +48,21 @@ export function ScoreSheetJudgingAdmin({
   const [showPreview, setShowPreview] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [blockingErrors, setBlockingErrors] = useState<string[]>([]);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const draftRef = useRef<TemplateDraft | null>(null);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   const loadLists = useCallback(async () => {
-    const [tplRes, srcRes, classRes] = await Promise.all([
+    const [tplRes, srcRes] = await Promise.all([
       fetch(`/api/events/${eventId}/judging-templates`),
       fetch(`/api/events/${eventId}/judging-templates/source`),
-      fetch(`/api/events/${eventId}/judging-classes`),
     ]);
     const tplData = await tplRes.json();
     const srcData = await srcRes.json();
-    const classData = await classRes.json();
     setTemplates(tplData.templates ?? []);
     setSourceTemplates(srcData.templates ?? []);
-    setJudgingClasses(classData.classes ?? []);
   }, [eventId]);
 
   const loadTemplateDetail = useCallback(
@@ -189,7 +109,7 @@ export function ScoreSheetJudgingAdmin({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceTemplateId,
-          name: `${sourceName} — Event Copy`,
+          name: sourceName,
         }),
       });
       const data = await res.json();
@@ -204,10 +124,27 @@ export function ScoreSheetJudgingAdmin({
     }
   }
 
-  async function handleSave() {
-    if (!selectedTemplateId || !draft || !editLockInfo) return;
+  function applyLoadedTemplate(data: {
+    template: Parameters<typeof apiTemplateToDraft>[0];
+    editLockInfo: EditLockInfo;
+    warnings?: ValidationWarning[];
+    saveWarnings?: ValidationWarning[];
+  }) {
+    setDraft(apiTemplateToDraft(data.template));
+    setEditLockInfo({
+      ...data.editLockInfo,
+      scoreSheetCount: data.template._count?.scoreSheets ?? 0,
+    });
+    setWarnings(data.warnings ?? data.saveWarnings ?? []);
+    setBlockingErrors([]);
+    setError(null);
+  }
 
-    const clientErrors = formatTemplateDraftValidationErrors(draft);
+  async function handleSave() {
+    const currentDraft = draftRef.current;
+    if (!selectedTemplateId || !currentDraft || !editLockInfo) return;
+
+    const clientErrors = formatTemplateDraftValidationErrors(currentDraft);
     if (editLockInfo.canEditStructure && clientErrors.length > 0) {
       setBlockingErrors(clientErrors);
       setError("Fix validation errors before saving.");
@@ -216,20 +153,71 @@ export function ScoreSheetJudgingAdmin({
 
     setSaving(true);
     setError(null);
+    setSavedMessage(null);
     setBlockingErrors([]);
     try {
-      const structurePayload = toStructurePayload(draft);
+      const structurePayload = toStructurePayload(currentDraft);
+      let structData: {
+        template: Parameters<typeof apiTemplateToDraft>[0];
+        editLockInfo: EditLockInfo;
+        warnings?: ValidationWarning[];
+        saveWarnings?: ValidationWarning[];
+      } | null = null;
+
+      if (editLockInfo.canEditStructure) {
+        const structRes = await fetch(
+          `/api/events/${eventId}/judging-templates/${selectedTemplateId}/structure`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(structurePayload),
+          },
+        );
+        const structBody = await structRes.json();
+        if (!structRes.ok) {
+          throw new Error(
+            (structBody as { error?: string }).error ?? "Structure save failed.",
+          );
+        }
+        structData = structBody;
+      } else if (editLockInfo.canEditGuidance) {
+        const guidanceRes = await fetch(
+          `/api/events/${eventId}/judging-templates/${selectedTemplateId}/guidance`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sections: currentDraft.sections.map((section) => ({
+                id: section.clientKey,
+                judgeGuidance: section.judgeGuidance.trim() || null,
+                items: section.items.map((item) => ({
+                  id: item.clientKey,
+                  judgeGuidance: item.judgeGuidance.trim() || null,
+                })),
+              })),
+            }),
+          },
+        );
+        const guidanceBody = await guidanceRes.json();
+        if (!guidanceRes.ok) {
+          throw new Error(
+            (guidanceBody as { error?: string }).error ?? "Guidance save failed.",
+          );
+        }
+        structData = guidanceBody;
+      }
+
       const metaRes = await fetch(
         `/api/events/${eventId}/judging-templates/${selectedTemplateId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: draft.name.trim(),
-            description: draft.description.trim() || null,
+            name: currentDraft.name.trim(),
+            description: currentDraft.description.trim() || null,
             ...(editLockInfo.canEditStructure
               ? {
-                  totalPoints: draft.totalPoints,
+                  totalPoints: currentDraft.totalPoints,
                   scoringGroup: structurePayload.scoringGroup,
                   vehicleType: structurePayload.vehicleType,
                   methodology: structurePayload.methodology,
@@ -241,47 +229,9 @@ export function ScoreSheetJudgingAdmin({
       const metaData = await metaRes.json();
       if (!metaRes.ok) throw new Error(metaData.error ?? "Metadata save failed.");
 
-      let structData = metaData;
-      if (editLockInfo.canEditStructure) {
-        const structRes = await fetch(
-          `/api/events/${eventId}/judging-templates/${selectedTemplateId}/structure`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(structurePayload),
-          },
-        );
-        structData = await structRes.json();
-        if (!structRes.ok) {
-          throw new Error(structData.error ?? "Structure save failed.");
-        }
-      } else if (editLockInfo.canEditGuidance) {
-        const guidanceRes = await fetch(
-          `/api/events/${eventId}/judging-templates/${selectedTemplateId}/guidance`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sections: draft.sections.map((section) => ({
-                id: section.clientKey,
-                judgeGuidance: section.judgeGuidance.trim() || null,
-                items: section.items.map((item) => ({
-                  id: item.clientKey,
-                  judgeGuidance: item.judgeGuidance.trim() || null,
-                })),
-              })),
-            }),
-          },
-        );
-        structData = await guidanceRes.json();
-        if (!guidanceRes.ok) {
-          throw new Error(structData.error ?? "Guidance save failed.");
-        }
-      }
-
-      setDraft(apiTemplateToDraft(structData.template));
-      setEditLockInfo(structData.editLockInfo);
-      setWarnings(structData.warnings ?? structData.saveWarnings ?? []);
+      const response = structData ?? metaData;
+      applyLoadedTemplate(response);
+      setSavedMessage("Template saved.");
       await loadLists();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed.");
@@ -290,7 +240,7 @@ export function ScoreSheetJudgingAdmin({
     }
   }
 
-  if (loading && !draft) {
+  if (loading && templates.length === 0 && !draft) {
     return (
       <div className="flex justify-center py-12">
         <Loader2 className="size-8 animate-spin text-muted-foreground" />
@@ -322,50 +272,34 @@ export function ScoreSheetJudgingAdmin({
             Score Sheet Templates
           </CardTitle>
           <CardDescription>
-            Select a predefined template to create an editable copy for this event.
-            Changes here do not modify the global template or other events. Customize
-            categories, subcategories, and increment levels, then map judging classes
-            below.
+            Add templates for this event, drag to set display order, and choose which
+            registration vehicle classes use each template. Select a row to edit
+            categories and scoring rules. Changes here do not affect global templates
+            or other events.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {templates.length > 0 ? (
-            <div className="space-y-2">
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => void loadTemplateDetail(t.id)}
-                  className={`flex w-full items-start justify-between rounded-md border p-3 text-left text-sm transition-colors hover:bg-accent/40 ${
-                    selectedTemplateId === t.id ? "border-primary bg-accent/30" : ""
-                  }`}
-                >
-                  <div>
-                    <p className="font-medium">{t.name}</p>
-                    <p className="text-muted-foreground">
-                      {t.totalPoints} pts · {t._count.sections} sections ·{" "}
-                      {t._count.scoreSheets} score sheet
-                      {t._count.scoreSheets === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                  <Badge variant="outline">{t.editLock.replace(/_/g, " ")}</Badge>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No event score sheet templates yet. Start from a global template.
-            </p>
-          )}
+          <ScoreSheetTemplateList
+            eventId={eventId}
+            templates={templates}
+            vehicleClasses={vehicleClasses}
+            selectedTemplateId={selectedTemplateId}
+            onSelectTemplate={(id) => void loadTemplateDetail(id)}
+            onTemplatesChange={setTemplates}
+            onVehicleClassError={setError}
+            onTemplateDeleted={(templateId) => {
+              if (selectedTemplateId === templateId) {
+                setSelectedTemplateId(null);
+                setDraft(null);
+                setEditLockInfo(null);
+                setWarnings([]);
+              }
+            }}
+          />
 
           {showClonePicker ? (
             <div className="space-y-2 rounded-lg border p-4">
-              <p className="text-sm text-muted-foreground">
-                Selecting a template creates an editable copy for this event. Changes
-                you make here will not modify the global/default template or any other
-                event.
-              </p>
-              <p className="text-sm font-medium">Select a predefined template</p>
+              <p className="text-sm font-medium">Add template from library</p>
               {sourceTemplates.map((st) => (
                 <button
                   key={st.id}
@@ -376,8 +310,9 @@ export function ScoreSheetJudgingAdmin({
                 >
                   <p className="font-medium">{st.name}</p>
                   <p className="text-muted-foreground">
-                    {st.totalPoints} pts · {st.sectionCount} sections ·{" "}
+                    {st.totalPoints} pts · {st.sectionCount} categories ·{" "}
                     {st.methodology.replace(/_/g, " ")}
+                    {st.vehicleType ? ` · ${st.vehicleType}` : ""}
                   </p>
                 </button>
               ))}
@@ -402,18 +337,27 @@ export function ScoreSheetJudgingAdmin({
               ) : (
                 <Plus className="mr-2 size-4" />
               )}
-              Start from Template
+              Add template
             </Button>
           )}
         </CardContent>
       </Card>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {savedMessage ? (
+        <p className="text-sm text-emerald-700 dark:text-emerald-300">{savedMessage}</p>
+      ) : null}
+
+      {loading && selectedTemplateId && !draft ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : null}
 
       {draft && editLockInfo ? (
         <Card>
           <CardHeader>
-            <CardTitle>Edit Score Sheet Template</CardTitle>
+            <CardTitle>Edit score sheet template</CardTitle>
           </CardHeader>
           <CardContent>
             <ScoreSheetTemplateEditor
@@ -428,18 +372,20 @@ export function ScoreSheetJudgingAdmin({
               onTogglePreview={() => setShowPreview((v) => !v)}
               showArchived={showArchived}
               onShowArchivedChange={setShowArchived}
+              excelExportHref={`/api/events/${eventId}/judging-templates/${selectedTemplateId}/export`}
+              excelImportHref={`/api/events/${eventId}/judging-templates/${selectedTemplateId}/import`}
+              onExcelImportSuccess={(data) => {
+                applyLoadedTemplate(
+                  data as Parameters<typeof applyLoadedTemplate>[0],
+                );
+                setSavedMessage("Template imported from Excel.");
+                void loadLists();
+              }}
+              onExcelError={(message) => setError(message ?? null)}
             />
           </CardContent>
         </Card>
       ) : null}
-
-      <EventJudgingClassPanel
-        eventId={eventId}
-        templates={templates}
-        vehicleClasses={vehicleClasses}
-        classes={judgingClasses}
-        onChanged={() => void loadLists()}
-      />
     </div>
   );
 }

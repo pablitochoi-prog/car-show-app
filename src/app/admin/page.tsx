@@ -12,6 +12,7 @@ import { AdminCategoryFolders } from "@/components/admin/admin-category-folders"
 import { AdminAwardList } from "@/components/admin/admin-award-list";
 import { AdminStaffRolesSection } from "@/components/admin/admin-staff-roles-section";
 import { AdminTierTemplatesSection } from "@/components/admin/admin-tier-templates-section";
+import { AdminJudgingTemplatesSection } from "@/components/admin/admin-judging-templates-section";
 import { AdminConvenienceFee } from "@/components/admin/admin-convenience-fee";
 import { AdminEventSetupFee } from "@/components/admin/admin-event-setup-fee";
 import { AdminPlatformStripe } from "@/components/admin/admin-platform-stripe";
@@ -156,6 +157,19 @@ export default async function AdminDashboardPage() {
 
             <CollapsibleCard title="Registration Tier Templates" defaultOpen={false}>
               <AdminTierTemplatesSection />
+            </CollapsibleCard>
+
+            <CollapsibleCard title="Judging Section" defaultOpen={false}>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Master <span className="font-medium text-foreground">scoring templates</span>{" "}
+                for judge score sheets. Organizers clone these when setting up Awards &amp;
+                Judging for an event. Use <span className="font-medium text-foreground">Edit</span>{" "}
+                on a template to change scoring settings, categories, subcategories, and whether
+                notes are required when judges apply deductions. Use Export to Excel / Import from
+                Excel inside the editor for bulk edits. Archive hides a template from organizers;
+                Delete permanently removes it from the library (with confirmation).
+              </p>
+              <AdminJudgingTemplatesSection />
             </CollapsibleCard>
 
             <CollapsibleCard title="Award Categories" defaultOpen={false}>

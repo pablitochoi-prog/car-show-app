@@ -13,22 +13,31 @@ function parseItems(raw: unknown): ScorecardItemDraftInput[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((row) => {
     const r = (row ?? {}) as Record<string, unknown>;
+    const levelSelections = Array.isArray(r.levelSelections)
+      ? r.levelSelections
+          .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+          .map((x) => ({
+            optionId: typeof x.optionId === "string" ? x.optionId : "",
+            violationCount:
+              x.violationCount == null ? undefined : Number(x.violationCount),
+          }))
+          .filter((x) => x.optionId)
+      : [];
+    const legacyOptionIds = Array.isArray(r.deductionOptionIds)
+      ? r.deductionOptionIds.filter((id): id is string => typeof id === "string")
+      : [];
+    const mergedSelections =
+      levelSelections.length > 0
+        ? levelSelections
+        : legacyOptionIds.map((optionId) => ({ optionId, violationCount: undefined }));
+
     return {
       itemId: typeof r.itemId === "string" ? r.itemId : "",
       discretionaryPoints:
         r.discretionaryPoints == null || r.discretionaryPoints === ""
           ? null
           : Number(r.discretionaryPoints),
-      levelSelections: Array.isArray(r.levelSelections)
-        ? r.levelSelections
-            .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
-            .map((x) => ({
-              optionId: typeof x.optionId === "string" ? x.optionId : "",
-              violationCount:
-                x.violationCount == null ? undefined : Number(x.violationCount),
-            }))
-            .filter((x) => x.optionId)
-        : [],
+      levelSelections: mergedSelections,
       itemNotes: typeof r.itemNotes === "string" ? r.itemNotes : "",
       deductionComments:
         r.deductionComments && typeof r.deductionComments === "object"
@@ -56,17 +65,26 @@ export async function POST(request: Request, { params }: RouteParams) {
     body = {};
   }
 
-  const payload = (body ?? {}) as { generalNotes?: unknown; items?: unknown };
+  const payload = (body ?? {}) as {
+    generalNotes?: unknown;
+    items?: unknown;
+    sectionIds?: unknown;
+  };
+
+  const sectionIds = Array.isArray(payload.sectionIds)
+    ? payload.sectionIds.filter((id): id is string => typeof id === "string")
+    : [];
 
   try {
-    const detail = await submitAssignedScorecard({
+    const result = await submitAssignedScorecard({
       judgeUserId: user.id,
       eventId,
       sheetId,
       generalNotes: typeof payload.generalNotes === "string" ? payload.generalNotes : "",
+      sectionIds,
       items: parseItems(payload.items),
     });
-    return NextResponse.json({ ok: true, detail });
+    return NextResponse.json(result);
   } catch (err) {
     const mapped = judgeScoreSheetAccessErrorResponse(err);
     if (mapped) {

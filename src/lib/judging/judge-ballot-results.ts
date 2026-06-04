@@ -36,7 +36,11 @@ export async function aggregateJudgeBallotResults(
   options?: { includeVoteSpread?: boolean },
 ): Promise<JudgeBallotResultDetail[]> {
   const votes = await prisma.judgeBallotVote.findMany({
-    where: { categoryId, voteCount: { gt: 0 } },
+    where: {
+      categoryId,
+      voteCount: { gt: 0 },
+      status: "SUBMITTED",
+    },
     select: {
       judgeUserId: true,
       voteCount: true,

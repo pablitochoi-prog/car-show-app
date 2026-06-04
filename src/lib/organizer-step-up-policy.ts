@@ -29,6 +29,7 @@ export function isSensitiveOrganizerPagePath(pathname: string): boolean {
   return (
     rest.startsWith("/edit") ||
     rest.startsWith("/registrations") ||
+    rest.startsWith("/vehicle-registrations") ||
     rest.startsWith("/reports") ||
     rest.startsWith("/messages")
   );

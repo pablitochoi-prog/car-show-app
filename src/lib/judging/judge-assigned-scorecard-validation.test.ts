@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { JudgeScoreSheetAccessError } from "@/lib/judging/judge-score-sheet-judge-data";
+import { itemDraftMissingRequiredComment } from "@/lib/judging/scorecard-required-comment";
 import { validateScorecardItemDraft } from "@/lib/judging/judge-assigned-scorecard-validation";
 
 const baseItem = {
@@ -11,6 +12,42 @@ const baseItem = {
   requiresCommentOnDeduction: false,
   deductionOptions: [],
 };
+
+describe("itemDraftMissingRequiredComment", () => {
+  it("flags FULL selection without note when required", () => {
+    expect(
+      itemDraftMissingRequiredComment(
+        {
+          scoringType: "FULL",
+          requiresCommentOnDeduction: true,
+          maxPoints: 10,
+        },
+        {
+          discretionaryPoints: "",
+          selectedOptionIds: ["opt-1"],
+          itemNotes: "",
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("clears when note is present", () => {
+    expect(
+      itemDraftMissingRequiredComment(
+        {
+          scoringType: "FULL",
+          requiresCommentOnDeduction: true,
+          maxPoints: 10,
+        },
+        {
+          discretionaryPoints: "",
+          selectedOptionIds: ["opt-1"],
+          itemNotes: "Chip on dash",
+        },
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("validateScorecardItemDraft", () => {
   it("accepts discretionary 0..max", () => {
@@ -53,7 +90,7 @@ describe("validateScorecardItemDraft", () => {
       ...baseItem,
       scoringType: "FULL" as const,
       maxPoints: 10,
-      deductionOptions: [{ id: "opt-1", pointsDeducted: 10 }],
+      deductionOptions: [{ id: "opt-1", label: "Full", pointsDeducted: 10 }],
     };
     expect(() =>
       validateScorecardItemDraft(
@@ -62,5 +99,41 @@ describe("validateScorecardItemDraft", () => {
         "DEDUCTION",
       ),
     ).not.toThrow();
+  });
+
+  it("skips required comment on save-for-later when requireComments is false", () => {
+    const item = {
+      ...baseItem,
+      scoringType: "FULL" as const,
+      maxPoints: 10,
+      requiresCommentOnDeduction: true,
+      deductionOptions: [{ id: "opt-1", label: "Major", pointsDeducted: 10 }],
+    };
+    expect(() =>
+      validateScorecardItemDraft(
+        item,
+        { itemId: "item-1", levelSelections: [{ optionId: "opt-1" }] },
+        "DEDUCTION",
+        { requireComments: false },
+      ),
+    ).not.toThrow();
+  });
+
+  it("requires comment on submit when requireComments is true", () => {
+    const item = {
+      ...baseItem,
+      scoringType: "FULL" as const,
+      maxPoints: 10,
+      requiresCommentOnDeduction: true,
+      deductionOptions: [{ id: "opt-1", label: "Major", pointsDeducted: 10 }],
+    };
+    expect(() =>
+      validateScorecardItemDraft(
+        item,
+        { itemId: "item-1", levelSelections: [{ optionId: "opt-1" }] },
+        "DEDUCTION",
+        { requireComments: true },
+      ),
+    ).toThrow(JudgeScoreSheetAccessError);
   });
 });

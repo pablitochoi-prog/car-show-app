@@ -18,7 +18,7 @@ export function OrganizerScoreSheetVehicleDetail({
   vehicleEntryCode: string;
 }) {
   const [detail, setDetail] = useState<OrganizerVehicleScoreSheetDetail | null>(null);
-  const [includeDrafts, setIncludeDrafts] = useState(false);
+  const [includeDrafts, setIncludeDrafts] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

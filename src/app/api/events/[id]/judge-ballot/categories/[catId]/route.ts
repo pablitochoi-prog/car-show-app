@@ -4,6 +4,7 @@ import { canManageEvent, getCurrentUser } from "@/lib/auth";
 import {
   closeJudgeBallotCategory,
   openJudgeBallotCategory,
+  syncJudgeBallotAllocationsForCategory,
 } from "@/lib/judging/judge-ballot-allocation";
 
 type RouteParams = { params: Promise<{ id: string; catId: string }> };
@@ -48,6 +49,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     maxVotesPerJudgePerVehicle,
     eligibleEventCategoryIds,
     assignedJudgeUserIds,
+    requiresSpecialJudge,
+    assignedSpecialJudgeUserIds,
   } = (body ?? {}) as {
     action?: "open" | "close" | "finalize";
     name?: string;
@@ -57,6 +60,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     maxVotesPerJudgePerVehicle?: number;
     eligibleEventCategoryIds?: string[];
     assignedJudgeUserIds?: string[];
+    requiresSpecialJudge?: boolean;
+    assignedSpecialJudgeUserIds?: string[];
   };
 
   if (action === "open") {
@@ -80,15 +85,72 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ category });
   }
 
-  if (existing.status !== "DRAFT") {
+  const hasFullSettingsPatch =
+    judgeGuidance !== undefined ||
+    maxVotesPerJudgePerVehicle !== undefined ||
+    requiresSpecialJudge !== undefined ||
+    assignedJudgeUserIds !== undefined ||
+    assignedSpecialJudgeUserIds !== undefined ||
+    name !== undefined ||
+    description !== undefined ||
+    eligibleEventCategoryIds !== undefined;
+
+  if (
+    votesPerJudge !== undefined &&
+    !hasFullSettingsPatch &&
+    (existing.status === "DRAFT" || existing.status === "OPEN")
+  ) {
+    if (!Number.isInteger(votesPerJudge) || votesPerJudge < 1) {
+      return NextResponse.json(
+        { error: "votesPerJudge must be a positive integer." },
+        { status: 400 },
+      );
+    }
+    const updated = await prisma.judgeBallotCategory.update({
+      where: { id: catId },
+      data: { votesPerJudge },
+      include: {
+        eligibleClasses: { select: { eventCategoryId: true } },
+        judgeAssignments: { select: { judgeUserId: true } },
+        specialJudgeAssignments: { select: { judgeUserId: true } },
+      },
+    });
+    if (existing.status === "OPEN") {
+      await syncJudgeBallotAllocationsForCategory(catId);
+    }
+    return NextResponse.json({ category: updated });
+  }
+
+  const canEditStructure = existing.status === "DRAFT";
+  const canEditJudges =
+    existing.status === "DRAFT" ||
+    existing.status === "OPEN" ||
+    existing.status === "CLOSED";
+
+  if (!canEditJudges) {
     return NextResponse.json(
-      { error: "Only draft categories can be edited." },
+      { error: "Finalized categories cannot be edited." },
+      { status: 400 },
+    );
+  }
+
+  if (
+    !canEditStructure &&
+    (name !== undefined ||
+      description !== undefined ||
+      eligibleEventCategoryIds !== undefined)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "Only draft categories can change name or vehicle class eligibility.",
+      },
       { status: 400 },
     );
   }
 
   const category = await prisma.$transaction(async (tx) => {
-    if (eligibleEventCategoryIds !== undefined) {
+    if (eligibleEventCategoryIds !== undefined && canEditStructure) {
       await tx.judgeBallotEligibleClass.deleteMany({ where: { categoryId: catId } });
       if (eligibleEventCategoryIds.length > 0) {
         await tx.judgeBallotEligibleClass.createMany({
@@ -99,6 +161,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         });
       }
     }
+
+    const specialFlag =
+      requiresSpecialJudge !== undefined
+        ? requiresSpecialJudge
+        : undefined;
 
     if (assignedJudgeUserIds !== undefined) {
       await tx.judgeBallotCategoryJudge.deleteMany({ where: { categoryId: catId } });
@@ -112,12 +179,33 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       }
     }
 
-    return tx.judgeBallotCategory.update({
+    if (assignedSpecialJudgeUserIds !== undefined) {
+      await tx.judgeBallotSpecialJudge.deleteMany({ where: { categoryId: catId } });
+      if (assignedSpecialJudgeUserIds.length > 0) {
+        await tx.judgeBallotSpecialJudge.createMany({
+          data: assignedSpecialJudgeUserIds.map((judgeUserId) => ({
+            categoryId: catId,
+            judgeUserId,
+          })),
+        });
+      }
+    }
+
+    if (specialFlag === true) {
+      await tx.judgeBallotCategoryJudge.deleteMany({ where: { categoryId: catId } });
+    }
+    if (specialFlag === false) {
+      await tx.judgeBallotSpecialJudge.deleteMany({ where: { categoryId: catId } });
+    }
+
+    const updated = await tx.judgeBallotCategory.update({
       where: { id: catId },
       data: {
-        name: name?.trim() || undefined,
+        name: canEditStructure && name?.trim() ? name.trim() : undefined,
         description:
-          description !== undefined ? description.trim() || null : undefined,
+          canEditStructure && description !== undefined
+            ? description.trim() || null
+            : undefined,
         judgeGuidance:
           judgeGuidance !== undefined ? judgeGuidance.trim() || null : undefined,
         votesPerJudge: votesPerJudge !== undefined ? votesPerJudge : undefined,
@@ -125,13 +213,21 @@ export async function PATCH(request: Request, { params }: RouteParams) {
           maxVotesPerJudgePerVehicle !== undefined
             ? maxVotesPerJudgePerVehicle
             : undefined,
+        requiresSpecialJudge: specialFlag,
       },
       include: {
         eligibleClasses: { select: { eventCategoryId: true } },
         judgeAssignments: { select: { judgeUserId: true } },
+        specialJudgeAssignments: { select: { judgeUserId: true } },
       },
     });
+
+    return updated;
   });
+
+  if (existing.status === "OPEN") {
+    await syncJudgeBallotAllocationsForCategory(catId);
+  }
 
   return NextResponse.json({ category });
 }

@@ -1,15 +1,23 @@
 import { prisma } from "@/lib/db";
 import type { EventRole } from "@/types";
 import { formatUSPhoneDigits } from "@/lib/phone-us";
-import { getDefaultRoleTemplate } from "@/lib/admin-staff-roles";
+import {
+  getDefaultRoleTemplate,
+  mergeWithBuiltinDefaultStaffRoles,
+} from "@/lib/admin-staff-roles";
 
 async function getDefaultRoleSeed() {
-  const templates = await getDefaultRoleTemplate();
+  const templates = mergeWithBuiltinDefaultStaffRoles(await getDefaultRoleTemplate());
   return templates.map((r) => ({
     slug: r.slug,
     name: r.name,
     sortOrder: r.sortOrder,
   }));
+}
+
+/** Ensures built-in roles (including Head Judge) exist on this event. */
+export async function syncBuiltinEventStaffRoles(eventId: string): Promise<void> {
+  await ensureDefaultEventRoles(eventId);
 }
 
 /** Map default slug → legacy permission enum used across the app. Custom roles omit. */
@@ -20,6 +28,8 @@ export function slugToPermissionRole(slug: string | null): EventRole | undefined
     treasurer: "TREASURER",
     registrar: "REGISTRAR",
     judge: "JUDGE",
+    special_judge: "SPECIAL_JUDGE",
+    head_judge: "HEAD_JUDGE",
     marketing: "MARKETING",
     volunteer: "VOLUNTEER",
   };
@@ -63,17 +73,43 @@ export type StaffMember = {
 
 export async function ensureDefaultEventRoles(eventId: string): Promise<void> {
   const n = await prisma.eventRoleDefinition.count({ where: { eventId } });
-  if (n > 0) return;
+  if (n === 0) {
+    await prisma.eventRoleDefinition.createMany({
+      data: (await getDefaultRoleSeed()).map((r) => ({
+        eventId,
+        slug: r.slug,
+        name: r.name,
+        isDefault: true,
+        sortOrder: r.sortOrder,
+      })),
+    });
+    return;
+  }
 
-  await prisma.eventRoleDefinition.createMany({
-    data: (await getDefaultRoleSeed()).map((r) => ({
-      eventId,
-      slug: r.slug,
-      name: r.name,
-      isDefault: true,
-      sortOrder: r.sortOrder,
-    })),
+  const seed = await getDefaultRoleSeed();
+  const existing = await prisma.eventRoleDefinition.findMany({
+    where: { eventId, slug: { not: null } },
+    select: { slug: true },
   });
+  const have = new Set(existing.map((r) => r.slug));
+  const missing = seed.filter((r) => !have.has(r.slug));
+  for (const r of missing) {
+    await prisma.eventRoleDefinition.upsert({
+      where: { eventId_slug: { eventId, slug: r.slug } },
+      create: {
+        eventId,
+        slug: r.slug,
+        name: r.name,
+        isDefault: true,
+        sortOrder: r.sortOrder,
+      },
+      update: {
+        name: r.name,
+        isDefault: true,
+        sortOrder: r.sortOrder,
+      },
+    });
+  }
 }
 
 export async function listEventRoleDefinitions(eventId: string) {
@@ -354,6 +390,20 @@ export async function userHasOrganizerStaffRole(
     where: {
       staffMember: { userId, eventId },
       role: { slug: "organizer" },
+    },
+  });
+  return n > 0;
+}
+
+/** True if the user has the default “Head Judge” role on this event. */
+export async function userHasHeadJudgeStaffRole(
+  userId: string,
+  eventId: string,
+): Promise<boolean> {
+  const n = await prisma.eventStaffRoleLink.count({
+    where: {
+      staffMember: { userId, eventId },
+      role: { slug: "head_judge" },
     },
   });
   return n > 0;

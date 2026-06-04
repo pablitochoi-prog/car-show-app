@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { getSupabaseSessionBinding } from "@/lib/supabase-session-binding";
 import { getMfaSessionState } from "@/lib/mfa-session";
 import { isSiteAdmin } from "@/lib/permissions";
 import { safeInternalPath } from "@/lib/safe-internal-path";

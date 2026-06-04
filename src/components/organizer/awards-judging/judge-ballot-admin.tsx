@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { JudgeStaffMultiSelect } from "@/components/forms/judge-staff-multi-select";
+import { SpecialJudgeMultiSelect } from "@/components/forms/special-judge-multi-select";
 import {
   Card,
   CardContent,
@@ -32,9 +34,12 @@ type BallotCategory = {
   status: "DRAFT" | "OPEN" | "CLOSED" | "FINALIZED";
   votesPerJudge: number;
   maxVotesPerJudgePerVehicle: number;
+  requiresSpecialJudge: boolean;
   judgeGuidance: string | null;
+  eventAwardId: string | null;
   eligibleClasses: { eventCategoryId: string }[];
   judgeAssignments: { judgeUserId: string }[];
+  specialJudgeAssignments: { judgeUserId: string }[];
   _count: { votes: number; allocations: number };
 };
 
@@ -58,6 +63,10 @@ const STATUS_LABELS: Record<BallotCategory["status"], string> = {
   FINALIZED: "Finalized",
 };
 
+/** Stands out so organizers can find “stop voting” actions quickly. */
+const CLOSE_VOTING_BUTTON_CLASS =
+  "border-amber-500 bg-amber-100 font-semibold text-amber-950 shadow-sm hover:bg-amber-200 dark:border-amber-400 dark:bg-amber-500/30 dark:text-amber-50 dark:hover:bg-amber-500/45";
+
 function statusVariant(
   status: BallotCategory["status"],
 ): "default" | "secondary" | "outline" | "success" | "warning" {
@@ -73,207 +82,437 @@ function statusVariant(
   }
 }
 
-type CategoryFormState = {
-  name: string;
-  description: string;
-  votesPerJudge: number;
-  maxVotesPerJudgePerVehicle: number;
+type VehicleClassRowState = {
+  eventCategoryId: string;
+  label: string;
+  selected: boolean;
   judgeGuidance: string;
-  eligibleEventCategoryIds: string[];
-  assignedJudgeUserIds: string[];
 };
 
-function emptyForm(): CategoryFormState {
+type CreateFormState = {
+  votesPerJudge: number;
+  maxVotesPerJudgePerVehicle: number;
+  vehicleClassRows: VehicleClassRowState[];
+};
+
+type EditFormState = {
+  votesPerJudge: number;
+  maxVotesPerJudgePerVehicle: number;
+  requiresSpecialJudge: boolean;
+  judgeGuidance: string;
+  /** Checked judges may vote; all checked = entire event judge panel. */
+  participatingJudgeUserIds: string[];
+  assignedSpecialJudgeUserIds: string[];
+};
+
+function emptyCreateForm(availableClasses: VehicleClassOption[]): CreateFormState {
   return {
-    name: "",
-    description: "",
-    votesPerJudge: 5,
+    votesPerJudge: 10,
     maxVotesPerJudgePerVehicle: 1,
-    judgeGuidance: "",
-    eligibleEventCategoryIds: [],
-    assignedJudgeUserIds: [],
+    vehicleClassRows: availableClasses.map((vc) => ({
+      eventCategoryId: vc.id,
+      label: vc.label,
+      selected: false,
+      judgeGuidance: "",
+    })),
   };
 }
 
-function categoryToForm(
+function categoryToEditForm(
   cat: BallotCategory,
-  vehicleClasses: VehicleClassOption[],
-): CategoryFormState {
+  eventJudges: JudgeOption[],
+): EditFormState {
+  const allJudgeIds = eventJudges.map((j) => j.userId);
+  const restricted = cat.judgeAssignments.map((j) => j.judgeUserId);
+  const participatingJudgeUserIds =
+    restricted.length === 0 ? [...allJudgeIds] : restricted;
+
   return {
-    name: cat.name,
-    description: cat.description ?? "",
     votesPerJudge: cat.votesPerJudge,
     maxVotesPerJudgePerVehicle: cat.maxVotesPerJudgePerVehicle,
+    requiresSpecialJudge: cat.requiresSpecialJudge,
     judgeGuidance: cat.judgeGuidance ?? "",
-    eligibleEventCategoryIds: cat.eligibleClasses.map((c) => c.eventCategoryId),
-    assignedJudgeUserIds: cat.judgeAssignments.map((j) => j.judgeUserId),
+    participatingJudgeUserIds,
+    assignedSpecialJudgeUserIds: cat.specialJudgeAssignments.map(
+      (j) => j.judgeUserId,
+    ),
   };
 }
 
-function MultiCheckboxList({
-  options,
-  selected,
+function assignedJudgeIdsForSave(
+  allJudgeIds: string[],
+  participatingJudgeUserIds: string[],
+): string[] {
+  if (participatingJudgeUserIds.length === 0) return [];
+  if (participatingJudgeUserIds.length >= allJudgeIds.length) return [];
+  return participatingJudgeUserIds;
+}
+
+function judgeDisplayName(
+  userId: string,
+  eventJudges: JudgeOption[],
+  eventSpecialJudges: JudgeOption[],
+): string {
+  return (
+    eventJudges.find((j) => j.userId === userId)?.name ??
+    eventSpecialJudges.find((j) => j.userId === userId)?.name ??
+    "Judge"
+  );
+}
+
+function configuredClassIds(categories: BallotCategory[]): Set<string> {
+  const ids = new Set<string>();
+  for (const cat of categories) {
+    for (const ec of cat.eligibleClasses) {
+      ids.add(ec.eventCategoryId);
+    }
+  }
+  return ids;
+}
+
+function BallotVoteSettingsFields({
+  votesPerJudge,
+  maxVotesPerJudgePerVehicle,
   onChange,
-  emptyMessage,
+  disabled,
+  allowMaxVotesEdit,
+  idPrefix,
+  layout = "stacked",
 }: {
-  options: { id: string; label: string }[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-  emptyMessage?: string;
+  votesPerJudge: number;
+  maxVotesPerJudgePerVehicle: number;
+  onChange: (patch: {
+    votesPerJudge?: number;
+    maxVotesPerJudgePerVehicle?: number;
+  }) => void;
+  disabled?: boolean;
+  allowMaxVotesEdit?: boolean;
+  idPrefix: string;
+  layout?: "stacked" | "compact";
 }) {
-  if (options.length === 0) {
+  const gridClass =
+    layout === "compact" ? "grid grid-cols-2 gap-3" : "grid gap-4 sm:grid-cols-2";
+
+  return (
+    <div className={gridClass}>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-votes-per-judge`} className="text-xs">
+          Max votes per judge
+        </Label>
+        <Input
+          id={`${idPrefix}-votes-per-judge`}
+          type="number"
+          min={1}
+          className="h-8"
+          value={votesPerJudge}
+          onChange={(e) =>
+            onChange({
+              votesPerJudge: Math.max(1, parseInt(e.target.value, 10) || 1),
+            })
+          }
+          disabled={disabled && !allowMaxVotesEdit}
+        />
+        {layout === "stacked" ? (
+          <p className="text-xs text-muted-foreground">
+            Default 10. Each judge may cast up to this many votes in the class.
+          </p>
+        ) : null}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-max-per-vehicle`} className="text-xs">
+          Max votes per vehicle
+        </Label>
+        <Input
+          id={`${idPrefix}-max-per-vehicle`}
+          type="number"
+          min={1}
+          className="h-8"
+          value={maxVotesPerJudgePerVehicle}
+          onChange={(e) =>
+            onChange({
+              maxVotesPerJudgePerVehicle: Math.max(
+                1,
+                parseInt(e.target.value, 10) || 1,
+              ),
+            })
+          }
+          disabled={disabled}
+        />
+      </div>
+    </div>
+  );
+}
+
+function VehicleClassVotingPicker({
+  rows,
+  onChange,
+  disabled,
+}: {
+  rows: VehicleClassRowState[];
+  onChange: (rows: VehicleClassRowState[]) => void;
+  disabled?: boolean;
+}) {
+  if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        {emptyMessage ?? "No options available."}
+        All vehicle classes already have judge ballot voting configured, or none
+        are defined on the event yet. Add classes under Awards and Categories on
+        Edit Event.
       </p>
     );
   }
 
   return (
-    <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
-      {options.map((opt) => {
-        const checked = selected.includes(opt.id);
-        return (
-          <label
-            key={opt.id}
-            className="flex cursor-pointer items-center gap-2 text-sm"
+    <div className="space-y-3">
+      <Label>Eligible vehicle classes</Label>
+      <p className="text-xs text-muted-foreground">
+        Each selected class becomes its own judge ballot category (the class name
+        is the award name). Add optional judge guidance for that class only when
+        it is selected.
+      </p>
+      <ul className="space-y-3 rounded-md border p-3">
+        {rows.map((row) => (
+          <li
+            key={row.eventCategoryId}
+            className="space-y-2 border-b border-border/60 pb-3 last:border-0 last:pb-0"
           >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={() => {
-                onChange(
-                  checked
-                    ? selected.filter((id) => id !== opt.id)
-                    : [...selected, opt.id],
-                );
-              }}
-              className="size-4 rounded border"
-            />
-            {opt.label}
-          </label>
-        );
-      })}
+            <label className="flex cursor-pointer items-start gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={row.selected}
+                disabled={disabled}
+                className="mt-0.5 size-4 shrink-0 rounded border"
+                onChange={() => {
+                  onChange(
+                    rows.map((r) =>
+                      r.eventCategoryId === row.eventCategoryId
+                        ? {
+                            ...r,
+                            selected: !r.selected,
+                            judgeGuidance: !r.selected ? r.judgeGuidance : "",
+                          }
+                        : r,
+                    ),
+                  );
+                }}
+              />
+              {row.label}
+            </label>
+            {row.selected ? (
+              <div className="ml-6 space-y-1">
+                <Label
+                  htmlFor={`class-guidance-${row.eventCategoryId}`}
+                  className="text-xs font-normal text-muted-foreground"
+                >
+                  Judge guidance / clarification (optional)
+                </Label>
+                <Textarea
+                  id={`class-guidance-${row.eventCategoryId}`}
+                  value={row.judgeGuidance}
+                  disabled={disabled}
+                  rows={2}
+                  placeholder="Notes for judges voting in this class…"
+                  onChange={(e) => {
+                    onChange(
+                      rows.map((r) =>
+                        r.eventCategoryId === row.eventCategoryId
+                          ? { ...r, judgeGuidance: e.target.value }
+                          : r,
+                      ),
+                    );
+                  }}
+                />
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
-function CategoryFormFields({
+function CreateBallotCategoryForm({
   form,
   setForm,
-  vehicleClasses,
-  eventJudges,
   disabled,
 }: {
-  form: CategoryFormState;
-  setForm: (f: CategoryFormState) => void;
-  vehicleClasses: VehicleClassOption[];
-  eventJudges: JudgeOption[];
+  form: CreateFormState;
+  setForm: (f: CreateFormState) => void;
   disabled?: boolean;
 }) {
   return (
     <div className="space-y-4">
+      <VehicleClassVotingPicker
+        rows={form.vehicleClassRows}
+        onChange={(vehicleClassRows) => setForm({ ...form, vehicleClassRows })}
+        disabled={disabled}
+      />
+      <BallotVoteSettingsFields
+        votesPerJudge={form.votesPerJudge}
+        maxVotesPerJudgePerVehicle={form.maxVotesPerJudgePerVehicle}
+        onChange={(patch) => setForm({ ...form, ...patch })}
+        disabled={disabled}
+        idPrefix="create-ballot"
+      />
+      <p className="text-xs text-muted-foreground">
+        After creating a category, use Edit on its card to assign a special judge
+        or limit which judges vote on that class or award.
+      </p>
+    </div>
+  );
+}
+
+function EditBallotCategoryForm({
+  form,
+  setForm,
+  categoryLabel,
+  isSpecialAward,
+  eventJudges,
+  eventSpecialJudges,
+  disabled,
+}: {
+  form: EditFormState;
+  setForm: (f: EditFormState) => void;
+  categoryLabel: string;
+  isSpecialAward: boolean;
+  eventJudges: JudgeOption[];
+  eventSpecialJudges: JudgeOption[];
+  disabled?: boolean;
+}) {
+  const allJudgeIds = eventJudges.map((j) => j.userId);
+
+  return (
+    <div className="space-y-3 rounded-md border bg-muted/20 p-3">
       <div className="space-y-2">
-        <Label htmlFor="award-name">Award Category Name</Label>
-        <Input
-          id="award-name"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="e.g. Best Paint"
-          disabled={disabled}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="award-desc">Description (optional)</Label>
-        <Input
-          id="award-desc"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          disabled={disabled}
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="votes-per-judge">Votes per Judge</Label>
-          <Input
-            id="votes-per-judge"
-            type="number"
-            min={1}
-            value={form.votesPerJudge}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                votesPerJudge: Math.max(1, parseInt(e.target.value, 10) || 1),
-              })
-            }
-            disabled={disabled}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="max-per-vehicle">Max Votes per Vehicle (per judge)</Label>
-          <Input
-            id="max-per-vehicle"
-            type="number"
-            min={1}
-            value={form.maxVotesPerJudgePerVehicle}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                maxVotesPerJudgePerVehicle: Math.max(
-                  1,
-                  parseInt(e.target.value, 10) || 1,
-                ),
-              })
-            }
-            disabled={disabled}
-          />
-        </div>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="judge-guidance">Judge Guidance (optional)</Label>
+        <Label htmlFor="edit-class-guidance">
+          Judge guidance / clarification (optional)
+        </Label>
         <Textarea
-          id="judge-guidance"
+          id="edit-class-guidance"
           value={form.judgeGuidance}
           onChange={(e) => setForm({ ...form, judgeGuidance: e.target.value })}
-          rows={3}
+          rows={2}
           disabled={disabled}
+          className="text-sm"
         />
       </div>
-      <div className="space-y-2">
-        <Label>Eligible Vehicle Classes</Label>
-        <p className="text-xs text-muted-foreground">
-          Leave all unchecked to allow any registered vehicle. Select specific
-          classes to restrict eligibility.
-        </p>
-        <MultiCheckboxList
-          options={vehicleClasses}
-          selected={form.eligibleEventCategoryIds}
-          onChange={(ids) =>
-            setForm({ ...form, eligibleEventCategoryIds: ids })
+
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={form.requiresSpecialJudge}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              requiresSpecialJudge: e.target.checked,
+              participatingJudgeUserIds: e.target.checked
+                ? []
+                : form.participatingJudgeUserIds.length === 0
+                  ? [...allJudgeIds]
+                  : form.participatingJudgeUserIds,
+              assignedSpecialJudgeUserIds: e.target.checked
+                ? form.assignedSpecialJudgeUserIds
+                : [],
+            })
           }
-          emptyMessage="Add vehicle classes on the event setup page first."
+          disabled={disabled}
+          className="size-4 rounded border"
         />
-      </div>
-      <div className="space-y-2">
-        <Label>Assigned Judges</Label>
-        <p className="text-xs text-muted-foreground">
-          Leave all unchecked to allow all event judges. Select specific judges
-          to restrict this award category.
-        </p>
-        <MultiCheckboxList
-          options={eventJudges.map((j) => ({
-            id: j.userId,
-            label: `${j.name} (${j.email})`,
-          }))}
-          selected={form.assignedJudgeUserIds}
-          onChange={(ids) =>
-            setForm({ ...form, assignedJudgeUserIds: ids })
-          }
-          emptyMessage="Assign judges on the event staff page first."
-        />
+        Special judge category (only selected Special Judges vote)
+      </label>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-3 md:pr-2">
+          <p className="text-xs font-medium text-muted-foreground">
+            {isSpecialAward ? "Special award" : "Vehicle class"}: {categoryLabel}
+          </p>
+          <BallotVoteSettingsFields
+            votesPerJudge={form.votesPerJudge}
+            maxVotesPerJudgePerVehicle={form.maxVotesPerJudgePerVehicle}
+            onChange={(patch) => setForm({ ...form, ...patch })}
+            disabled={disabled}
+            idPrefix="edit-ballot"
+            layout="compact"
+          />
+        </div>
+
+        <div className="md:border-l md:pl-4">
+          {form.requiresSpecialJudge ? (
+            <div className="space-y-2">
+              <Label>Special judges</Label>
+              <p className="text-xs text-muted-foreground">
+                Event staff with the Special Judge role.
+              </p>
+              <SpecialJudgeMultiSelect
+                staff={eventSpecialJudges}
+                selectedUserIds={form.assignedSpecialJudgeUserIds}
+                onSelectedUserIdsChange={(ids) =>
+                  setForm({ ...form, assignedSpecialJudgeUserIds: ids })
+                }
+                disabled={disabled}
+              />
+            </div>
+          ) : (
+            <JudgeStaffMultiSelect
+              judges={eventJudges}
+              selectedUserIds={form.participatingJudgeUserIds}
+              onSelectedUserIdsChange={(ids) =>
+                setForm({ ...form, participatingJudgeUserIds: ids })
+              }
+              disabled={disabled}
+              label="Event judges"
+            />
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function categoryDisplayTitle(
+  cat: BallotCategory,
+  vehicleClasses: VehicleClassOption[],
+): string {
+  if (cat.eventAwardId) return cat.name;
+  if (cat.eligibleClasses.length === 1) {
+    const id = cat.eligibleClasses[0]!.eventCategoryId;
+    return vehicleClasses.find((vc) => vc.id === id)?.label ?? cat.name;
+  }
+  return cat.name;
+}
+
+function compactCategorySubtitle(
+  cat: BallotCategory,
+  eventJudges: JudgeOption[],
+  eventSpecialJudges: JudgeOption[],
+): string {
+  const voteLimit = `Maximum of ${cat.votesPerJudge} vote${cat.votesPerJudge === 1 ? "" : "s"} in this category`;
+  const allJudgeCount = eventJudges.length;
+
+  let judgePart: string;
+  if (cat.requiresSpecialJudge) {
+    if (cat.specialJudgeAssignments.length === 0) {
+      judgePart = "Special judges not assigned";
+    } else {
+      const names = cat.specialJudgeAssignments.map((j) =>
+        judgeDisplayName(j.judgeUserId, eventJudges, eventSpecialJudges),
+      );
+      judgePart = `${names.join(", ")} vote`;
+    }
+  } else if (
+    cat.judgeAssignments.length === 0 ||
+    cat.judgeAssignments.length >= allJudgeCount
+  ) {
+    judgePart = "All judges vote";
+  } else {
+    const names = cat.judgeAssignments.map((j) =>
+      judgeDisplayName(j.judgeUserId, eventJudges, eventSpecialJudges),
+    );
+    judgePart = `${names.join(", ")} vote`;
+  }
+
+  const prefix = cat.eventAwardId ? "Special award. " : "";
+  return `${prefix}${judgePart}, ${voteLimit}.`;
 }
 
 function ResultsTable({ rows }: { rows: ResultRow[] }) {
@@ -329,24 +568,56 @@ export function JudgeBallotAdmin({
   eventId,
   vehicleClasses,
   eventJudges,
+  eventSpecialJudges,
 }: {
   eventId: string;
   vehicleClasses: VehicleClassOption[];
   eventJudges: JudgeOption[];
+  eventSpecialJudges: JudgeOption[];
 }) {
   const [categories, setCategories] = useState<BallotCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [createForm, setCreateForm] = useState(emptyForm());
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<CategoryFormState>(emptyForm());
+  const [editForm, setEditForm] = useState<EditFormState | null>(null);
+
+  const availableVehicleClasses = useMemo(() => {
+    const used = configuredClassIds(categories);
+    return vehicleClasses.filter((vc) => !used.has(vc.id));
+  }, [categories, vehicleClasses]);
+
+  const [createForm, setCreateForm] = useState<CreateFormState>(() =>
+    emptyCreateForm(vehicleClasses),
+  );
+  const prevShowCreate = useRef(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  useEffect(() => {
+    if (showCreate && !prevShowCreate.current) {
+      setCreateForm(emptyCreateForm(availableVehicleClasses));
+    }
+    prevShowCreate.current = showCreate;
+  }, [showCreate, availableVehicleClasses]);
+
+  const ballotOpenCount = useMemo(
+    () => categories.filter((c) => c.status === "OPEN").length,
+    [categories],
+  );
+  const ballotCanOpenCount = useMemo(
+    () =>
+      categories.filter(
+        (c) => c.status === "DRAFT" || c.status === "CLOSED",
+      ).length,
+    [categories],
+  );
+  const anyBallotOpen = ballotOpenCount > 0;
+
   const [busyId, setBusyId] = useState<string | null>(null);
   const [resultsOpenId, setResultsOpenId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
-
   const loadCategories = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -372,36 +643,39 @@ export function JudgeBallotAdmin({
   }, [loadCategories]);
 
   async function handleCreate() {
-    if (!createForm.name.trim()) {
-      setError("Award category name is required.");
+    const selected = createForm.vehicleClassRows.filter((row) => row.selected);
+    if (selected.length === 0) {
+      setError("Select at least one vehicle class.");
       return;
     }
     setCreating(true);
     setError("");
     try {
-      const res = await fetch(`/api/events/${eventId}/judge-ballot/categories`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          name: createForm.name.trim(),
-          description: createForm.description.trim() || undefined,
-          votesPerJudge: createForm.votesPerJudge,
-          maxVotesPerJudgePerVehicle: createForm.maxVotesPerJudgePerVehicle,
-          judgeGuidance: createForm.judgeGuidance.trim() || undefined,
-          eligibleEventCategoryIds:
-            createForm.eligibleEventCategoryIds.length > 0
-              ? createForm.eligibleEventCategoryIds
-              : undefined,
-          assignedJudgeUserIds:
-            createForm.assignedJudgeUserIds.length > 0
-              ? createForm.assignedJudgeUserIds
-              : undefined,
-        }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Create failed.");
-      setCreateForm(emptyForm());
+      const shared = {
+        votesPerJudge: createForm.votesPerJudge,
+        maxVotesPerJudgePerVehicle: createForm.maxVotesPerJudgePerVehicle,
+        requiresSpecialJudge: false,
+      };
+
+      for (const row of selected) {
+        const res = await fetch(
+          `/api/events/${eventId}/judge-ballot/categories`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              eventCategoryId: row.eventCategoryId,
+              name: row.label,
+              judgeGuidance: row.judgeGuidance.trim() || undefined,
+              ...shared,
+            }),
+          },
+        );
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error(data.error ?? "Create failed.");
+      }
+
       setShowCreate(false);
       await loadCategories();
     } catch (e) {
@@ -411,9 +685,34 @@ export function JudgeBallotAdmin({
     }
   }
 
+  async function handleBulkBallotVoting(action: "open_all" | "close_all") {
+    setBulkBusy(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/events/${eventId}/judge-ballot/bulk-voting`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ action }),
+        },
+      );
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Bulk action failed.");
+      await loadCategories();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bulk action failed.");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function handleSaveEdit(catId: string) {
+    if (!editForm) return;
     setBusyId(catId);
     setError("");
+    const allJudgeIds = eventJudges.map((j) => j.userId);
     try {
       const res = await fetch(
         `/api/events/${eventId}/judge-ballot/categories/${catId}`,
@@ -422,13 +721,19 @@ export function JudgeBallotAdmin({
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify({
-            name: editForm.name.trim(),
-            description: editForm.description.trim() || null,
             votesPerJudge: editForm.votesPerJudge,
             maxVotesPerJudgePerVehicle: editForm.maxVotesPerJudgePerVehicle,
             judgeGuidance: editForm.judgeGuidance.trim() || null,
-            eligibleEventCategoryIds: editForm.eligibleEventCategoryIds,
-            assignedJudgeUserIds: editForm.assignedJudgeUserIds,
+            requiresSpecialJudge: editForm.requiresSpecialJudge,
+            assignedJudgeUserIds: editForm.requiresSpecialJudge
+              ? []
+              : assignedJudgeIdsForSave(
+                  allJudgeIds,
+                  editForm.participatingJudgeUserIds,
+                ),
+            assignedSpecialJudgeUserIds: editForm.requiresSpecialJudge
+              ? editForm.assignedSpecialJudgeUserIds
+              : [],
           }),
         },
       );
@@ -495,22 +800,6 @@ export function JudgeBallotAdmin({
     }
   }
 
-  function classSummary(cat: BallotCategory): string {
-    if (cat.eligibleClasses.length === 0) return "All vehicle classes";
-    const labels = cat.eligibleClasses
-      .map(
-        (ec) =>
-          vehicleClasses.find((vc) => vc.id === ec.eventCategoryId)?.label,
-      )
-      .filter(Boolean);
-    return labels.length > 0 ? labels.join(", ") : `${cat.eligibleClasses.length} class(es)`;
-  }
-
-  function judgeSummary(cat: BallotCategory): string {
-    if (cat.judgeAssignments.length === 0) return "All event judges";
-    return `${cat.judgeAssignments.length} assigned judge(s)`;
-  }
-
   return (
     <div className="space-y-6">
       {error ? (
@@ -522,7 +811,7 @@ export function JudgeBallotAdmin({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle>Create Award Category</CardTitle>
+            <CardTitle>Add vehicle class voting</CardTitle>
             {!showCreate ? (
               <Button
                 type="button"
@@ -538,26 +827,22 @@ export function JudgeBallotAdmin({
         </CardHeader>
         {showCreate ? (
           <CardContent className="space-y-4">
-            <CategoryFormFields
+            <CreateBallotCategoryForm
               form={createForm}
               setForm={setCreateForm}
-              vehicleClasses={vehicleClasses}
-              eventJudges={eventJudges}
+              disabled={creating}
             />
             <div className="flex gap-2">
               <Button onClick={() => void handleCreate()} disabled={creating}>
                 {creating ? (
                   <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
                 ) : null}
-                Create Award Category
+                Add selected classes
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  setShowCreate(false);
-                  setCreateForm(emptyForm());
-                }}
+                onClick={() => setShowCreate(false)}
               >
                 Cancel
               </Button>
@@ -566,7 +851,8 @@ export function JudgeBallotAdmin({
         ) : (
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Click New to add a judge ballot award category such as Best Paint or Best in Show.
+              Click New to enable judge ballot voting for one or more vehicle
+              classes from your event setup. Each class is its own voting category.
             </p>
           </CardContent>
         )}
@@ -590,11 +876,42 @@ export function JudgeBallotAdmin({
           </CardHeader>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              {ballotOpenCount}/{categories.length} open
+            </p>
+            {anyBallotOpen ? (
+              <Button
+                type="button"
+                size="sm"
+                className={CLOSE_VOTING_BUTTON_CLASS}
+                disabled={bulkBusy || ballotOpenCount === 0}
+                onClick={() => void handleBulkBallotVoting("close_all")}
+              >
+                {bulkBusy ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
+                ) : null}
+                Close all Ballot Voting
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                disabled={bulkBusy || ballotCanOpenCount === 0}
+                onClick={() => void handleBulkBallotVoting("open_all")}
+              >
+                {bulkBusy ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
+                ) : null}
+                Open all Ballot Voting
+              </Button>
+            )}
+          </div>
           {categories.map((cat) => {
             const isEditing = editingId === cat.id;
             const isBusy = busyId === cat.id;
-            const canEdit = cat.status === "DRAFT";
+            const canEdit = cat.status !== "FINALIZED";
             const canOpen =
               cat.status === "DRAFT" || cat.status === "CLOSED";
             const canClose = cat.status === "OPEN";
@@ -602,40 +919,37 @@ export function JudgeBallotAdmin({
               cat.status === "OPEN" || cat.status === "CLOSED";
 
             return (
-              <Card key={cat.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <CardTitle>{cat.name}</CardTitle>
-                      <CardDescription className="mt-1 space-y-0.5">
-                        <span className="block">
-                          {cat.votesPerJudge} votes/judge · max{" "}
-                          {cat.maxVotesPerJudgePerVehicle}/vehicle
-                        </span>
-                        <span className="block">Eligible: {classSummary(cat)}</span>
-                        <span className="block">Judges: {judgeSummary(cat)}</span>
-                        <span className="block">
-                          {cat._count.votes} vote row(s) · {cat._count.allocations}{" "}
-                          allocation(s)
-                        </span>
-                      </CardDescription>
-                    </div>
+              <Card key={cat.id} className="gap-0 py-0">
+                <CardHeader className="gap-1 px-4 py-3 pb-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base">
+                      {categoryDisplayTitle(cat, vehicleClasses)}
+                    </CardTitle>
                     <Badge variant={statusVariant(cat.status)}>
                       {STATUS_LABELS[cat.status]}
                     </Badge>
                   </div>
+                  <CardDescription className="text-xs leading-snug">
+                    {compactCategorySubtitle(
+                      cat,
+                      eventJudges,
+                      eventSpecialJudges,
+                    )}
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {isEditing ? (
-                    <CategoryFormFields
+                <CardContent className="space-y-2 px-4 pb-3 pt-0">
+                  {isEditing && editForm ? (
+                    <EditBallotCategoryForm
                       form={editForm}
                       setForm={setEditForm}
-                      vehicleClasses={vehicleClasses}
+                      categoryLabel={categoryDisplayTitle(cat, vehicleClasses)}
+                      isSpecialAward={Boolean(cat.eventAwardId)}
                       eventJudges={eventJudges}
+                      eventSpecialJudges={eventSpecialJudges}
                       disabled={isBusy}
                     />
                   ) : cat.judgeGuidance ? (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="line-clamp-2 text-xs text-muted-foreground italic">
                       {cat.judgeGuidance}
                     </p>
                   ) : null}
@@ -649,7 +963,7 @@ export function JudgeBallotAdmin({
                         disabled={isBusy}
                         onClick={() => {
                           setEditingId(cat.id);
-                          setEditForm(categoryToForm(cat, vehicleClasses));
+                          setEditForm(categoryToEditForm(cat, eventJudges));
                         }}
                       >
                         Edit
@@ -672,7 +986,10 @@ export function JudgeBallotAdmin({
                           type="button"
                           size="sm"
                           variant="outline"
-                          onClick={() => setEditingId(null)}
+                          onClick={() => {
+                            setEditingId(null);
+                            setEditForm(null);
+                          }}
                         >
                           Cancel
                         </Button>
@@ -685,18 +1002,18 @@ export function JudgeBallotAdmin({
                         disabled={isBusy}
                         onClick={() => void handleAction(cat.id, "open")}
                       >
-                        Open Voting
+                        Open Category Voting
                       </Button>
                     ) : null}
                     {canClose ? (
                       <Button
                         type="button"
                         size="sm"
-                        variant="outline"
+                        className={CLOSE_VOTING_BUTTON_CLASS}
                         disabled={isBusy}
                         onClick={() => void handleAction(cat.id, "close")}
                       >
-                        Close
+                        Close Category Voting
                       </Button>
                     ) : null}
                     {canFinalize ? (

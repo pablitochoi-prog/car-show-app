@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { canManageEvent, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
+import { canManageScoreSheetJudging } from "@/lib/judging/score-sheet-judging-period-auth";
 import { loadOrganizerVehicleScoreSheetDetail } from "@/lib/judging/organizer-score-sheet-vehicle-detail";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -11,10 +12,9 @@ export async function GET(request: Request, { params }: RouteParams) {
   }
 
   const { id: eventId } = await params;
-  const allowed = await canManageEvent(
+  const allowed = await canManageScoreSheetJudging(
     user.id,
     eventId,
-    undefined,
     user.platformRole,
   );
   if (!allowed) {

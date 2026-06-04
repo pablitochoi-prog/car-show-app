@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
+import { getEventStaffList } from "@/lib/event-staff";
+import { loadEventAwardBallotConfigs } from "@/lib/judging/event-award-ballot-link";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -101,16 +103,40 @@ export async function DELETE(req: Request, ctx: Ctx) {
 }
 
 async function refetch(eventId: string) {
-  const rows = await prisma.eventAward.findMany({
-    where: { eventId },
-    include: { specialAward: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "asc" },
+  const [rows, ballotConfigs, staff] = await Promise.all([
+    prisma.eventAward.findMany({
+      where: { eventId },
+      include: { specialAward: { select: { id: true, name: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
+    loadEventAwardBallotConfigs(eventId),
+    getEventStaffList(eventId),
+  ]);
+
+  const configByAwardId = new Map(
+    ballotConfigs.map((c) => [c.eventAwardId, c]),
+  );
+
+  const awards = rows.map((r) => {
+    const cfg = configByAwardId.get(r.id);
+    return {
+      id: r.id,
+      specialAwardId: r.specialAwardId,
+      name: r.specialAward?.name ?? r.customName ?? "Custom Award",
+      isCustom: !r.specialAwardId,
+      requiresSpecialJudge: cfg?.requiresSpecialJudge ?? false,
+      assignedSpecialJudgeUserIds: cfg?.assignedSpecialJudgeUserIds ?? [],
+      ballotCategoryId: cfg?.ballotCategoryId ?? null,
+    };
   });
-  const awards = rows.map((r) => ({
-    id: r.id,
-    specialAwardId: r.specialAwardId,
-    name: r.specialAward?.name ?? r.customName ?? "Custom Award",
-    isCustom: !r.specialAwardId,
-  }));
-  return NextResponse.json({ awards });
+
+  const specialJudgeStaff = staff
+    .filter((m) => m.roles.some((role) => role.slug === "special_judge"))
+    .map((m) => ({
+      userId: m.userId,
+      name: m.name,
+      email: m.email,
+    }));
+
+  return NextResponse.json({ awards, specialJudgeStaff });
 }

@@ -4,19 +4,56 @@ const SETTING_KEY = "default_staff_roles";
 
 type DefaultRole = { slug: string; name: string; sortOrder: number };
 
-const DEFAULTS: DefaultRole[] = [
+/** Built-in staff roles shipped with the app (always available for new events). */
+export const BUILTIN_DEFAULT_STAFF_ROLES: DefaultRole[] = [
   { slug: "organizer", name: "Organizer", sortOrder: 0 },
   { slug: "treasurer", name: "Treasurer", sortOrder: 1 },
   { slug: "registrar", name: "Registrar", sortOrder: 2 },
   { slug: "judge", name: "Judge", sortOrder: 3 },
-  { slug: "marketing", name: "Marketing", sortOrder: 4 },
-  { slug: "volunteer", name: "Volunteer", sortOrder: 5 },
+  { slug: "special_judge", name: "Special Judge", sortOrder: 4 },
+  { slug: "head_judge", name: "Head Judge", sortOrder: 5 },
+  { slug: "marketing", name: "Marketing", sortOrder: 6 },
+  { slug: "volunteer", name: "Volunteer", sortOrder: 7 },
 ];
+
+const DEFAULTS = BUILTIN_DEFAULT_STAFF_ROLES;
+
+function sortDefaultRoles(roles: DefaultRole[]): DefaultRole[] {
+  return [...roles].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+}
+
+/** Ensures every built-in slug exists (e.g. head_judge on older DB templates). */
+export function mergeWithBuiltinDefaultStaffRoles(roles: DefaultRole[]): DefaultRole[] {
+  const bySlug = new Map(roles.map((r) => [r.slug, r]));
+  for (const builtin of BUILTIN_DEFAULT_STAFF_ROLES) {
+    if (!bySlug.has(builtin.slug)) {
+      bySlug.set(builtin.slug, { ...builtin });
+    }
+  }
+  return sortDefaultRoles([...bySlug.values()]);
+}
+
+function storedRolesMissingBuiltins(stored: DefaultRole[]): boolean {
+  return BUILTIN_DEFAULT_STAFF_ROLES.some(
+    (builtin) => !stored.some((r) => r.slug === builtin.slug),
+  );
+}
 
 async function loadRoles(): Promise<DefaultRole[]> {
   const row = await prisma.globalSetting.findUnique({ where: { key: SETTING_KEY } });
-  if (!row) return [...DEFAULTS];
-  return row.value as DefaultRole[];
+  if (!row) {
+    await saveRoles([...DEFAULTS]);
+    return [...DEFAULTS];
+  }
+
+  const stored = row.value as DefaultRole[];
+  if (!storedRolesMissingBuiltins(stored)) {
+    return sortDefaultRoles(stored);
+  }
+
+  const merged = mergeWithBuiltinDefaultStaffRoles(stored);
+  await saveRoles(merged);
+  return merged;
 }
 
 async function saveRoles(roles: DefaultRole[]): Promise<void> {
@@ -29,8 +66,7 @@ async function saveRoles(roles: DefaultRole[]): Promise<void> {
 }
 
 export async function getDefaultRoleTemplate(): Promise<DefaultRole[]> {
-  const roles = await loadRoles();
-  return [...roles].sort((a, b) => a.sortOrder - b.sortOrder);
+  return loadRoles();
 }
 
 export async function addDefaultRole(

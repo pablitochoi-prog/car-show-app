@@ -5,6 +5,11 @@ import {
   jsonWithSupabaseCookies,
 } from "@/lib/supabase/route-handler";
 import { prisma } from "@/lib/db";
+import {
+  buildSmsNotificationsConsentFields,
+  resolveRequestClientMetadata,
+  SMS_NOTIFICATIONS_OPT_IN_SOURCES,
+} from "@/lib/sms-notifications-consent";
 import { signupSchema } from "@/lib/validation/auth";
 
 export async function POST(request: Request) {
@@ -44,8 +49,24 @@ export async function POST(request: Request) {
     );
   }
 
-  const { username, firstName, lastName, email, password, phone } = parsed.data;
+  const {
+    username,
+    firstName,
+    lastName,
+    email,
+    password,
+    phone,
+    smsNotificationsOptIn,
+  } = parsed.data;
   const displayName = `${firstName} ${lastName}`.trim();
+  const clientMeta = resolveRequestClientMetadata(request);
+  const smsConsent = buildSmsNotificationsConsentFields({
+    optIn: smsNotificationsOptIn,
+    phone: phone ?? null,
+    source: SMS_NOTIFICATIONS_OPT_IN_SOURCES.signup,
+    ipAddress: clientMeta.ipAddress,
+    userAgent: clientMeta.userAgent,
+  });
 
   try {
     const usernameTaken = await prisma.user.findUnique({
@@ -130,6 +151,7 @@ export async function POST(request: Request) {
           lastName,
           name: displayName,
           phone: phone || null,
+          ...smsConsent,
         },
       });
     } catch (dbError) {

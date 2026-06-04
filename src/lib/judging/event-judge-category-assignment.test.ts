@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   user: { findUnique: vi.fn() },
   registrationVehicle: { findMany: vi.fn() },
-  eventJudgingClassEligibleCategory: { findFirst: vi.fn() },
+  eventJudgingClass: { findFirst: vi.fn(), findMany: vi.fn() },
   eventJudgingSection: { findMany: vi.fn() },
   eventJudgeCategoryAssignment: {
     findMany: vi.fn(),
@@ -42,6 +42,30 @@ const vehicleId = "rv-1";
 const sectionId = "sec-1";
 const templateId = "tpl-1";
 const classId = "class-1";
+
+function mockEventScorecardSections() {
+  vi.mocked(prisma.eventJudgingSection.findMany).mockResolvedValue([
+    {
+      id: sectionId,
+      name: "Exterior",
+      templateId,
+      template: { eventId, name: "Show scorecard" },
+    },
+  ] as never);
+  vi.mocked(prisma.eventJudgingClass.findFirst).mockImplementation(async (args) => {
+    const where = (args as { where?: Record<string, unknown> })?.where ?? {};
+    if (
+      "eligibleCategories" in where &&
+      where.eventJudgingTemplateId === templateId
+    ) {
+      return { id: classId } as never;
+    }
+    if (where.eventJudgingTemplateId === templateId) {
+      return { id: classId } as never;
+    }
+    return null;
+  });
+}
 
 describe("event judge category assignment", () => {
   beforeEach(() => {
@@ -94,15 +118,7 @@ describe("event judge category assignment", () => {
         eventCategoryId: "cat-1",
       },
     ] as never);
-    vi.mocked(prisma.eventJudgingClassEligibleCategory.findFirst).mockResolvedValue({
-      eventJudgingClass: {
-        id: classId,
-        eventJudgingTemplateId: templateId,
-      },
-    } as never);
-    vi.mocked(prisma.eventJudgingSection.findMany).mockResolvedValue([
-      { id: sectionId, name: "Exterior" },
-    ] as never);
+    mockEventScorecardSections();
     vi.mocked(prisma.eventJudgeCategoryAssignment.findMany).mockResolvedValue([]);
     vi.mocked(prisma.eventJudgeCategoryAssignment.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.eventJudgeCategoryAssignment.create).mockResolvedValue({} as never);
@@ -123,9 +139,43 @@ describe("event judge category assignment", () => {
           status: "NOT_JUDGED",
           judgeUserId: judgeA,
           eventJudgingSectionId: sectionId,
+          eventJudgingTemplateId: templateId,
+          eventJudgingClassId: classId,
         }),
       }),
     );
+  });
+
+  it("rejects vehicle class not linked to the scorecard template", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Judge A" } as never);
+    vi.mocked(prisma.registrationVehicle.findMany).mockResolvedValue([
+      {
+        id: vehicleId,
+        publicVehicleId: "ABC-001",
+        registrationId: "reg-1",
+        eventCategoryId: "cat-1960s",
+      },
+    ] as never);
+    mockEventScorecardSections();
+    vi.mocked(prisma.eventJudgingClass.findFirst).mockImplementation(async (args) => {
+      const where = (args as { where?: Record<string, unknown> })?.where ?? {};
+      if ("eligibleCategories" in where) return null;
+      if (where.eventJudgingTemplateId === templateId) {
+        return { id: classId } as never;
+      }
+      return null;
+    });
+
+    await expect(
+      assignJudgeToVehicleCategories({
+        eventId,
+        assignedByUserId: organizer,
+        judgeUserId: judgeA,
+        registrationVehicleIds: [vehicleId],
+        eventJudgingSectionIds: [sectionId],
+        replaceExisting: false,
+      }),
+    ).rejects.toMatchObject({ code: "MISSING_VEHICLE_CLASS" });
   });
 
   it("blocks reassignment without replaceExisting", async () => {
@@ -138,12 +188,7 @@ describe("event judge category assignment", () => {
         eventCategoryId: "cat-1",
       },
     ] as never);
-    vi.mocked(prisma.eventJudgingClassEligibleCategory.findFirst).mockResolvedValue({
-      eventJudgingClass: { id: classId, eventJudgingTemplateId: templateId },
-    } as never);
-    vi.mocked(prisma.eventJudgingSection.findMany).mockResolvedValue([
-      { id: sectionId, name: "Exterior" },
-    ] as never);
+    mockEventScorecardSections();
     vi.mocked(prisma.eventJudgeCategoryAssignment.findMany).mockResolvedValue([
       {
         registrationVehicleId: vehicleId,
@@ -175,12 +220,7 @@ describe("event judge category assignment", () => {
         eventCategoryId: "cat-1",
       },
     ] as never);
-    vi.mocked(prisma.eventJudgingClassEligibleCategory.findFirst).mockResolvedValue({
-      eventJudgingClass: { id: classId, eventJudgingTemplateId: templateId },
-    } as never);
-    vi.mocked(prisma.eventJudgingSection.findMany).mockResolvedValue([
-      { id: sectionId, name: "Exterior" },
-    ] as never);
+    mockEventScorecardSections();
     vi.mocked(prisma.eventJudgeCategoryAssignment.findMany).mockResolvedValue([]);
     vi.mocked(prisma.eventJudgeCategoryAssignment.findUnique).mockResolvedValue({
       id: "assign-1",
@@ -220,12 +260,7 @@ describe("event judge category assignment", () => {
         eventCategoryId: "cat-1",
       },
     ] as never);
-    vi.mocked(prisma.eventJudgingClassEligibleCategory.findFirst).mockResolvedValue({
-      eventJudgingClass: { id: classId, eventJudgingTemplateId: templateId },
-    } as never);
-    vi.mocked(prisma.eventJudgingSection.findMany).mockResolvedValue([
-      { id: sectionId, name: "Exterior" },
-    ] as never);
+    mockEventScorecardSections();
     vi.mocked(prisma.eventJudgeCategoryAssignment.findMany).mockResolvedValue([
       {
         registrationVehicleId: vehicleId,

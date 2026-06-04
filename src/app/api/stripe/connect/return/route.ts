@@ -63,8 +63,13 @@ export async function GET(request: Request) {
   const dest = new URL(destPath, origin);
   if (!safeReturnTo) {
     dest.searchParams.set("orgId", orgId);
+  } else if (safeReturnTo.includes("/edit")) {
+    dest.searchParams.set("orgId", orgId);
   }
   dest.searchParams.set("stripe", stripeResult);
+  if (safeReturnTo?.includes("/edit") && stripeResult !== "active") {
+    dest.hash = "payment-settings";
+  }
 
   return NextResponse.redirect(dest);
 }

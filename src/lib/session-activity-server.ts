@@ -2,6 +2,7 @@ import type { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
   SESSION_ACTIVITY_COOKIE,
+  SESSION_ACTIVITY_COOKIE_MAX_AGE_SECONDS,
   SESSION_ACTIVITY_DB_THROTTLE_MS,
   SESSION_IDLE_PAUSE_COOKIE,
   SESSION_STRIPE_PAUSE_MINUTES,
@@ -82,12 +83,47 @@ export function setActivityCookie(
   response: NextResponse,
   timestampMs = Date.now(),
 ): void {
-  const maxAgeSeconds = Math.ceil(getIdleTimeoutMs() / 1000) + 60;
   response.cookies.set(
     SESSION_ACTIVITY_COOKIE,
     String(timestampMs),
-    cookieOptions(maxAgeSeconds),
+    cookieOptions(SESSION_ACTIVITY_COOKIE_MAX_AGE_SECONDS),
   );
+}
+
+/** Resolve last activity from cookie, then optional DB fallback — never "now". */
+export function resolveLastActivityAtMs(
+  cookieValue: string | undefined | null,
+  dbLastActivityAt?: Date | null,
+): number | null {
+  const fromCookie = parseActivityTimestamp(cookieValue);
+  if (fromCookie !== null) return fromCookie;
+  const dbMs = dbLastActivityAt?.getTime();
+  return dbMs != null && Number.isFinite(dbMs) && dbMs > 0 ? dbMs : null;
+}
+
+export type SessionActivityStatus =
+  | { kind: "missing" }
+  | { kind: "expired"; lastActivityAtMs: number }
+  | {
+      kind: "active";
+      lastActivityAtMs: number;
+      payload: ReturnType<typeof sessionActivityPayload>;
+    };
+
+export function buildSessionActivityStatus(
+  lastActivityAtMs: number | null,
+  nowMs = Date.now(),
+): SessionActivityStatus {
+  if (lastActivityAtMs === null) {
+    return { kind: "missing" };
+  }
+
+  const payload = sessionActivityPayload(lastActivityAtMs, nowMs);
+  if (payload.msUntilExpiry <= 0) {
+    return { kind: "expired", lastActivityAtMs };
+  }
+
+  return { kind: "active", lastActivityAtMs, payload };
 }
 
 export function clearActivityCookies(response: NextResponse): void {

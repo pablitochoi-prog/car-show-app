@@ -27,6 +27,7 @@ type SavedVehicle = {
   nickname?: string | null;
   vin?: string | null;
   photoUrl?: string | null;
+  notes?: string | null;
 };
 
 export function AddVehicleForm({
@@ -133,6 +134,7 @@ export function AddVehicleForm({
           nickname: saved.nickname ?? (nickname.trim() || null),
           vin: saved.vin ?? (vin.trim() || null),
           photoUrl: saved.photoUrl ?? null,
+          notes: saved.notes ?? (notes.trim() || null),
         });
         setLookup({ year: "", make: "", model: "", trim: "" });
         setNickname("");

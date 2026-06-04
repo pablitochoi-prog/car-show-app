@@ -42,3 +42,11 @@ export function hrefDashboardEvents(
   const q = params.toString();
   return `/dashboard/events${q ? `?${q}` : ""}`;
 }
+
+export type DashboardEventsFlash = "updated" | "created" | "archived" | "deleted";
+
+/** My Events → Managing tab with a status flash (organizer/staff save flows). */
+export function hrefDashboardEventsManagingFlash(flash: DashboardEventsFlash): string {
+  const params = new URLSearchParams({ tab: "managing", [flash]: "1" });
+  return `/dashboard/events?${params.toString()}`;
+}

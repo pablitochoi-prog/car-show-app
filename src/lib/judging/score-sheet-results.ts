@@ -1,6 +1,7 @@
 import type { JudgeScoreSheetStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { calculateScoreFromSnapshot } from "@/lib/judging/calculate-score-from-snapshot";
+import { backfillJudgingClassOnOrphanSheets } from "@/lib/judging/score-sheet-judging-class-link";
 import { resolveRegistrationContact } from "@/lib/registration-contact";
 
 const SCORING_STATUSES: JudgeScoreSheetStatus[] = ["SUBMITTED", "FINALIZED"];
@@ -59,6 +60,90 @@ function categoryLabel(row: {
 } | null): string {
   if (!row) return "—";
   return row.customName?.trim() || row.category?.name || "—";
+}
+
+const registrationVehicleResultSelect = {
+  registrationId: true,
+  publicVehicleId: true,
+  vehicleNickname: true,
+  vehicle: {
+    select: { nickname: true, year: true, make: true, model: true },
+  },
+  eventCategory: {
+    select: {
+      customName: true,
+      category: { select: { name: true } },
+    },
+  },
+} as const;
+
+type RegistrationVehicleResultRow = {
+  registrationId: string;
+  publicVehicleId: string | null;
+  vehicleNickname: string | null;
+  vehicle: {
+    nickname: string | null;
+    year: number;
+    make: string;
+    model: string;
+  };
+  eventCategory: {
+    customName: string | null;
+    category: { name: string } | null;
+  } | null;
+};
+
+async function loadRegistrationVehiclesByEntryCodes(
+  eventId: string,
+  entryCodes: string[],
+): Promise<RegistrationVehicleResultRow[]> {
+  if (entryCodes.length === 0) return [];
+  return prisma.registrationVehicle.findMany({
+    where: {
+      registration: { eventId },
+      publicVehicleId: { in: entryCodes },
+    },
+    select: registrationVehicleResultSelect,
+    orderBy: [{ publicVehicleId: "asc" }],
+  });
+}
+
+/** Vehicles in class categories plus any with score sheets (e.g. category assignment judging). */
+async function loadVehiclesForClassResults(
+  eventId: string,
+  categoryIds: string[],
+  sheetEntryCodes: string[],
+): Promise<RegistrationVehicleResultRow[]> {
+  const categoryEligible =
+    categoryIds.length === 0
+      ? []
+      : await prisma.registrationVehicle.findMany({
+          where: {
+            registration: { eventId },
+            publicVehicleId: { not: null },
+            eventCategoryId: { in: categoryIds },
+          },
+          select: registrationVehicleResultSelect,
+          orderBy: [{ publicVehicleId: "asc" }],
+        });
+
+  const eligibleCodes = new Set(
+    categoryEligible
+      .map((v) => v.publicVehicleId)
+      .filter((code): code is string => !!code),
+  );
+
+  if (categoryEligible.length === 0 && sheetEntryCodes.length > 0) {
+    return loadRegistrationVehiclesByEntryCodes(eventId, sheetEntryCodes);
+  }
+
+  const extraCodes = sheetEntryCodes.filter((code) => !eligibleCodes.has(code));
+  const sheetVehicles = await loadRegistrationVehiclesByEntryCodes(
+    eventId,
+    extraCodes,
+  );
+
+  return [...categoryEligible, ...sheetVehicles];
 }
 
 /** Average official score from per-judge final scores (submitted/finalized only). */
@@ -239,39 +324,20 @@ export async function aggregateScoreSheetResults(
       id: true,
       name: true,
       template: {
-        select: { name: true, totalPoints: true, methodology: true },
+        select: { id: true, name: true, totalPoints: true, methodology: true },
       },
       eligibleCategories: { select: { eventCategoryId: true } },
     },
   });
   if (!judgingClass) return null;
 
+  await backfillJudgingClassOnOrphanSheets({
+    eventId,
+    judgingClassId,
+    eventJudgingTemplateId: judgingClass.template.id,
+  });
+
   const categoryIds = judgingClass.eligibleCategories.map((c) => c.eventCategoryId);
-  const eligibleVehicles =
-    categoryIds.length === 0
-      ? []
-      : await prisma.registrationVehicle.findMany({
-          where: {
-            registration: { eventId },
-            publicVehicleId: { not: null },
-            eventCategoryId: { in: categoryIds },
-          },
-          select: {
-            registrationId: true,
-            publicVehicleId: true,
-            vehicleNickname: true,
-            vehicle: {
-              select: { nickname: true, year: true, make: true, model: true },
-            },
-            eventCategory: {
-              select: {
-                customName: true,
-                category: { select: { name: true } },
-              },
-            },
-          },
-          orderBy: [{ publicVehicleId: "asc" }],
-        });
 
   const sheets = await prisma.judgeScoreSheet.findMany({
     where: { eventId, eventJudgingClassId: judgingClassId },
@@ -284,6 +350,13 @@ export async function aggregateScoreSheetResults(
       finalScore: true,
     },
   });
+
+  const sheetEntryCodes = [...new Set(sheets.map((s) => s.vehicleEntryCode))];
+  const resultVehicles = await loadVehiclesForClassResults(
+    eventId,
+    categoryIds,
+    sheetEntryCodes,
+  );
 
   const scoringSheetIds = sheets
     .filter((s) => SCORING_STATUSES.includes(s.status) && s.finalScore != null)
@@ -345,7 +418,7 @@ export async function aggregateScoreSheetResults(
   }
 
   const registrationIds = [
-    ...new Set(eligibleVehicles.map((v) => v.registrationId)),
+    ...new Set(resultVehicles.map((v) => v.registrationId)),
   ];
   const registrations =
     options?.includeOwnerNames && registrationIds.length > 0
@@ -390,10 +463,11 @@ export async function aggregateScoreSheetResults(
     submittedCount: number;
     finalizedCount: number;
     scoringFinalScores: number[];
+    interimFinalScores: number[];
     sectionAverages: ScoreSheetSectionAverage[];
   };
 
-  const vehicleRows: VehicleBuild[] = eligibleVehicles.map((v) => {
+  const vehicleRows: VehicleBuild[] = resultVehicles.map((v) => {
     const code = v.publicVehicleId ?? "";
     const vehicleSheets = sheetsByVehicle.get(code) ?? [];
     const statusCounts = countByStatus(vehicleSheets);
@@ -401,6 +475,15 @@ export async function aggregateScoreSheetResults(
       .filter(
         (s) =>
           SCORING_STATUSES.includes(s.status) &&
+          s.finalScore != null &&
+          !Number.isNaN(s.finalScore),
+      )
+      .map((s) => s.finalScore as number);
+
+    const interimFinalScores = vehicleSheets
+      .filter(
+        (s) =>
+          s.status === "DRAFT" &&
           s.finalScore != null &&
           !Number.isNaN(s.finalScore),
       )
@@ -420,6 +503,7 @@ export async function aggregateScoreSheetResults(
       submittedCount: statusCounts.submitted,
       finalizedCount: statusCounts.finalized,
       scoringFinalScores,
+      interimFinalScores,
       sectionAverages: averageSectionScores(sectionCalcsByVehicle.get(code) ?? []),
     };
   });
@@ -471,7 +555,12 @@ export async function aggregateScoreSheetResults(
 
   const unrankedDraftOnly: ScoreSheetResultRow[] = vehicleRows
     .filter((v) => v.scoringFinalScores.length === 0)
-    .map((v) => ({
+    .map((v) => {
+      const interim =
+        v.interimFinalScores.length > 0
+          ? computeOfficialScoreAggregate(v.interimFinalScores)
+          : null;
+      return {
       rank: null,
       vehicleEntryCode: v.vehicleEntryCode,
       vehicleNickname: v.vehicleNickname,
@@ -480,7 +569,7 @@ export async function aggregateScoreSheetResults(
       model: v.model,
       vehicleClass: v.vehicleClass,
       ownerName: v.ownerName,
-      officialScore: null,
+      officialScore: interim?.officialScore ?? null,
       judgeCount: 0,
       highScore: null,
       lowScore: null,
@@ -490,10 +579,11 @@ export async function aggregateScoreSheetResults(
       finalizedCount: v.finalizedCount,
       isTied: false,
       sectionAverages: v.sectionAverages,
-    }));
+    };
+    });
 
   const summary: ScoreSheetClassSummary = {
-    eligibleVehicleCount: eligibleVehicles.length,
+    eligibleVehicleCount: resultVehicles.length,
     rankedVehicleCount: ranked.length,
     draftSheetCount: sheets.filter((s) => s.status === "DRAFT").length,
     submittedSheetCount: sheets.filter((s) => s.status === "SUBMITTED").length,

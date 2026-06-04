@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { ensureJudgingClassForTemplate } from "@/lib/judging/event-judging-template-setup";
 
 type DbClient = PrismaClient | Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 
@@ -53,10 +54,17 @@ async function cloneTemplateTree(
 
   let itemCount = 0;
 
+  const sortAgg = await db.eventJudgingTemplate.aggregate({
+    where: { eventId: input.eventId },
+    _max: { sortOrder: true },
+  });
+  const sortOrder = (sortAgg._max.sortOrder ?? -1) + 1;
+
   const eventTemplate = await db.eventJudgingTemplate.create({
     data: {
       eventId: input.eventId,
       sourceTemplateId: source.id,
+      sortOrder,
       name: input.name?.trim() || source.name,
       description: source.description,
       scoringGroup: source.scoringGroup,
@@ -113,8 +121,10 @@ async function cloneTemplateTree(
 export async function cloneJudgingTemplateToEvent(
   input: CloneJudgingTemplateInput,
 ): Promise<CloneJudgingTemplateResult> {
-  return prisma.$transaction((tx) => cloneTemplateTree(tx, input), {
+  const result = await prisma.$transaction((tx) => cloneTemplateTree(tx, input), {
     maxWait: 15_000,
     timeout: 60_000,
   });
+  await ensureJudgingClassForTemplate(input.eventId, result.eventTemplateId);
+  return result;
 }

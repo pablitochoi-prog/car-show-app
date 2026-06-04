@@ -128,19 +128,22 @@ export function RegistrationsFilterSummary({
   totalCount,
   hasActiveFilters,
   onClear,
+  entityLabel = "registration",
 }: {
   visibleCount: number;
   totalCount: number;
   hasActiveFilters: boolean;
   onClear: () => void;
+  entityLabel?: string;
 }) {
   if (!hasActiveFilters) return null;
+
+  const plural = totalCount === 1 ? entityLabel : `${entityLabel}s`;
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <span>
-        Showing {visibleCount} of {totalCount} registration
-        {totalCount === 1 ? "" : "s"}
+        Showing {visibleCount} of {totalCount} {plural}
       </span>
       <Button
         type="button"

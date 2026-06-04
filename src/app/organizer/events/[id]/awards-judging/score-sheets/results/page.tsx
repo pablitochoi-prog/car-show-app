@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, canManageEvent } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
+import { canManageScoreSheetJudging } from "@/lib/judging/score-sheet-judging-period-auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { ScoreSheetResultsAdmin } from "@/components/organizer/awards-judging/score-sheet-results-admin";
+import { loadScoreSheetJudgingPeriod } from "@/lib/judging/score-sheet-judging-period";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,13 +31,23 @@ export default async function ScoreSheetResultsPage({ params }: Props) {
   });
   if (!event) notFound();
 
-  const allowed = await canManageEvent(
+  const allowed = await canManageScoreSheetJudging(
     user.id,
     eventId,
-    event.orgId,
     user.platformRole,
   );
   if (!allowed) notFound();
+
+  let initialPeriod = null;
+  let periodLoadError: string | null = null;
+  try {
+    initialPeriod = await loadScoreSheetJudgingPeriod(eventId);
+  } catch (e) {
+    periodLoadError =
+      e instanceof Error
+        ? e.message
+        : "Could not load judging period status.";
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
@@ -52,7 +64,7 @@ export default async function ScoreSheetResultsPage({ params }: Props) {
         </p>
       </div>
 
-      <EventOrganizerNav eventId={eventId} active="awards-judging" />
+      <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
 
       <div className="flex flex-wrap gap-2">
         <Link
@@ -63,7 +75,11 @@ export default async function ScoreSheetResultsPage({ params }: Props) {
         </Link>
       </div>
 
-      <ScoreSheetResultsAdmin eventId={eventId} />
+      <ScoreSheetResultsAdmin
+        eventId={eventId}
+        initialJudgingPeriod={initialPeriod}
+        initialJudgingPeriodError={periodLoadError}
+      />
 
       <p className="text-center text-sm text-muted-foreground">
         <Link

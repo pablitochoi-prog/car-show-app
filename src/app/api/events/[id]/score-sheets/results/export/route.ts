@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { canManageEvent, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
+import { canManageScoreSheetJudging } from "@/lib/judging/score-sheet-judging-period-auth";
 import {
   aggregateScoreSheetResults,
   buildScoreSheetResultsCsv,
@@ -15,10 +16,9 @@ export async function GET(request: Request, { params }: RouteParams) {
   }
 
   const { id: eventId } = await params;
-  const allowed = await canManageEvent(
+  const allowed = await canManageScoreSheetJudging(
     user.id,
     eventId,
-    undefined,
     user.platformRole,
   );
   if (!allowed) {

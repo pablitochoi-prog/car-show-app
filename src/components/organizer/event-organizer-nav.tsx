@@ -1,6 +1,13 @@
 "use client";
 
-import { Award, ClipboardList, FileBarChart, Mail, Pencil } from "lucide-react";
+import {
+  Award,
+  Car,
+  ClipboardList,
+  FileBarChart,
+  Mail,
+  Pencil,
+} from "lucide-react";
 import {
   PendingLink,
   PendingNavSpinner,
@@ -11,6 +18,7 @@ import { cn } from "@/lib/utils";
 export type EventOrganizerNavTab =
   | "edit"
   | "registrations"
+  | "vehicle-registrations"
   | "reports"
   | "messages"
   | "awards-judging";
@@ -19,6 +27,8 @@ type Props = {
   eventId: string;
   active: EventOrganizerNavTab;
   className?: string;
+  /** When false, hides Vehicle Registrations (organizer / head judge / admin only). */
+  showVehicleRegistrationsTab?: boolean;
 };
 
 const TABS: {
@@ -38,6 +48,12 @@ const TABS: {
     label: "Event Registrations",
     href: (id) => `/organizer/events/${id}/registrations`,
     icon: ClipboardList,
+  },
+  {
+    id: "vehicle-registrations",
+    label: "Vehicle Registrations",
+    href: (id) => `/organizer/events/${id}/vehicle-registrations`,
+    icon: Car,
   },
   {
     id: "awards-judging",
@@ -67,16 +83,25 @@ function TabIcon({ icon: Icon }: { icon: typeof Pencil }) {
   return <Icon className="size-3.5 shrink-0 sm:size-4" aria-hidden />;
 }
 
-export function EventOrganizerNav({ eventId, active, className }: Props) {
+export function EventOrganizerNav({
+  eventId,
+  active,
+  className,
+  showVehicleRegistrationsTab = false,
+}: Props) {
+  const tabs = showVehicleRegistrationsTab
+    ? TABS
+    : TABS.filter((t) => t.id !== "vehicle-registrations");
+
   return (
     <nav
       className={cn(
-        "flex gap-1 overflow-x-auto rounded-lg border bg-card p-1.5 [-webkit-overflow-scrolling:touch]",
+        "grid gap-1.5 rounded-lg border bg-card p-1.5 [grid-template-columns:repeat(auto-fit,minmax(6.5rem,1fr))]",
         className,
       )}
       aria-label="Event organizer sections"
     >
-      {TABS.map(({ id, label, href, icon: Icon }) => {
+      {tabs.map(({ id, label, href, icon: Icon }) => {
         const isActive = id === active;
         return (
           <PendingLink
@@ -84,14 +109,14 @@ export function EventOrganizerNav({ eventId, active, className }: Props) {
             href={href(eventId)}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs transition-colors sm:gap-2 sm:px-4 sm:py-2 sm:text-sm",
+              "flex min-h-14 flex-col items-center justify-center gap-1 rounded-md px-1.5 py-2 text-center text-[0.7rem] leading-snug font-medium transition-colors sm:min-h-[3.75rem] sm:px-2 sm:text-xs",
               isActive
                 ? "bg-primary text-primary-foreground"
                 : "border border-border bg-background hover:bg-muted",
             )}
           >
             <TabIcon icon={Icon} />
-            <span className="font-medium">{label}</span>
+            <span>{label}</span>
           </PendingLink>
         );
       })}

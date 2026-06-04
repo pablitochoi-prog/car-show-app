@@ -31,7 +31,7 @@ export function getSmsVotingWindowStatus(
   if (event.smsVotingStartsAt && now < event.smsVotingStartsAt) {
     return "not_started";
   }
-  if (event.smsVotingEndsAt && now > event.smsVotingEndsAt) return "ended";
+  if (event.smsVotingEndsAt && now >= event.smsVotingEndsAt) return "ended";
   return "open";
 }
 
@@ -86,6 +86,6 @@ export function isCategoryVotingOpen(
 ): boolean {
   if (!eventOpen || !category.isActive) return false;
   if (category.votingStartsAt && now < category.votingStartsAt) return false;
-  if (category.votingEndsAt && now > category.votingEndsAt) return false;
+  if (category.votingEndsAt && now >= category.votingEndsAt) return false;
   return true;
 }

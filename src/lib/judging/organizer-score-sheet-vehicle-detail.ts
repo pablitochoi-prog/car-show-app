@@ -11,6 +11,7 @@ import {
   aggregateScoreSheetResults,
   type ScoreSheetResultRow,
 } from "@/lib/judging/score-sheet-results";
+import { backfillJudgingClassOnOrphanSheets } from "@/lib/judging/score-sheet-judging-class-link";
 import { formatSubmittedAt } from "@/lib/format-submitted-at";
 import { maskContactIfBanned } from "@/lib/mask-banned-user-contact";
 
@@ -250,11 +251,17 @@ export async function loadOrganizerVehicleScoreSheetDetail(
       id: true,
       name: true,
       template: {
-        select: { name: true, totalPoints: true, methodology: true },
+        select: { id: true, name: true, totalPoints: true, methodology: true },
       },
     },
   });
   if (!judgingClass) return null;
+
+  await backfillJudgingClassOnOrphanSheets({
+    eventId,
+    judgingClassId,
+    eventJudgingTemplateId: judgingClass.template.id,
+  });
 
   const classResults = await aggregateScoreSheetResults(eventId, judgingClassId, {
     includeOwnerNames: true,

@@ -21,7 +21,11 @@ type AssignedVehicle = {
   vehicleClass: string;
   judgingClassName: string;
   assignmentStatus: "NOT_JUDGED" | "SAVED_FOR_LATER" | "SUBMITTED";
-  assignedCategories: Array<{ sectionName: string; status: string }>;
+  assignedCategories: Array<{
+    sectionId: string;
+    sectionName: string;
+    status: string;
+  }>;
   sheetStatus: string;
   finalScore: number | null;
 };
@@ -121,10 +125,18 @@ export function JudgeAssignedVehicleList({ eventId }: { eventId: string }) {
                 {group.label}
               </h2>
               <ul className="space-y-2">
-                {group.vehicles.map((v) => (
+                {group.vehicles.map((v) => {
+                  const openCategory =
+                    v.assignedCategories.find((c) => c.status === "NOT_JUDGED") ??
+                    v.assignedCategories.find((c) => c.status === "SAVED_FOR_LATER") ??
+                    v.assignedCategories[0];
+                  const sheetHref = openCategory
+                    ? `/judge/events/${eventId}/score-sheets/${v.sheetId}?section=${encodeURIComponent(openCategory.sectionId)}`
+                    : `/judge/events/${eventId}/score-sheets/${v.sheetId}`;
+                  return (
                   <li key={v.registrationVehicleId}>
                     <Link
-                      href={`/judge/events/${eventId}/score-sheets/${v.sheetId}`}
+                      href={sheetHref}
                       className={cn(
                         buttonVariants({ variant: "outline" }),
                         "flex h-auto w-full justify-between gap-3 px-3 py-3 text-left",
@@ -165,15 +177,23 @@ export function JudgeAssignedVehicleList({ eventId }: { eventId: string }) {
                             <span className="mt-1 block text-xs text-muted-foreground">
                               {v.vehicleClass} · {v.judgingClassName}
                             </span>
-                            <span className="mt-1 block text-xs text-primary">
-                              {v.assignedCategories.map((c) => c.sectionName).join(", ")}
+                            <span className="mt-1 flex flex-wrap gap-1">
+                              {v.assignedCategories.map((c) => (
+                                <span
+                                  key={c.sectionId}
+                                  className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                                >
+                                  {c.sectionName}
+                                </span>
+                              ))}
                             </span>
                           </span>
                         </span>
                         <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
                     </Link>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </section>
           ),

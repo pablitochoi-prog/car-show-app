@@ -38,7 +38,12 @@ export type TemplateDeductionInput = {
 };
 
 export type TemplateValidationWarning = {
-  code: "SECTION_TOTAL_MISMATCH" | "ITEM_TOTAL_MISMATCH" | "EMPTY_SECTION" | "EMPTY_ITEM";
+  code:
+    | "SECTION_TOTAL_MISMATCH"
+    | "ITEM_TOTAL_MISMATCH"
+    | "EMPTY_SECTION"
+    | "EMPTY_ITEM"
+    | "SECTION_MAX_REQUIRED";
   message: string;
   sectionIndex?: number;
   itemIndex?: number;
@@ -60,6 +65,14 @@ export function validateEventJudgingTemplateStructure(input: {
       warnings.push({
         code: "EMPTY_SECTION",
         message: `Category "${section.name}" has no subcategories.`,
+        sectionIndex: si,
+      });
+    }
+
+    if (section.maxSectionPoints == null || section.maxSectionPoints <= 0) {
+      warnings.push({
+        code: "SECTION_MAX_REQUIRED",
+        message: `Category "${section.name}" needs a maximum score.`,
         sectionIndex: si,
       });
     }

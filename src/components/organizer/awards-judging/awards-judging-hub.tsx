@@ -16,33 +16,51 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
+import { EventVotingControls } from "@/components/organizer/awards-judging/event-voting-controls";
+import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control";
+
 export type AwardsJudgingHubStats = {
   publicVotingEnabled: boolean;
   publicVotingCategoryCount: number;
   ballotCategoryCount: number;
   openBallotCategoryCount: number;
   scoreSheetTemplateCount: number;
+  eventVotingFinalized: boolean;
+  trophyCount: number;
 };
 
-const TILES = [
+type JudgingHubTile = {
+  id: string;
+  title: string;
+  votingMethod: string;
+  description: string;
+  href: (eventId: string) => string;
+  resultsHref: (eventId: string) => string;
+  icon: typeof MessageSquare;
+};
+
+const TILES: JudgingHubTile[] = [
   {
     id: "public-voting",
     title: "Public Voting",
     votingMethod: "Public Vote",
     description:
       "Attendee SMS and QR voting. Separate from judge workflows.",
-    href: (eventId: string) =>
+    href: (eventId) =>
       `/organizer/events/${eventId}/awards-judging/public-voting`,
+    resultsHref: (eventId) =>
+      `/organizer/events/${eventId}/awards-judging/public-voting/results`,
     icon: MessageSquare,
   },
   {
     id: "judge-ballot",
-    title: "Judge Ballot Awards",
+    title: "Judge Ballot Voting",
     votingMethod: "Assigned Judge Ballot",
     description:
-      "Judges allocate vote blocks to favorite vehicles per award category (Best Paint, Best in Show, etc.).",
-    href: (eventId: string) =>
-      `/organizer/events/${eventId}/awards-judging/ballot`,
+      "Judges vote for favorite vehicles per award category (Best Paint, President's Choice, etc.).",
+    href: (eventId) => `/organizer/events/${eventId}/awards-judging/ballot`,
+    resultsHref: (eventId) =>
+      `/organizer/events/${eventId}/awards-judging/ballot/results`,
     icon: Trophy,
   },
   {
@@ -51,16 +69,16 @@ const TILES = [
     votingMethod: "Score Sheet Judging",
     description:
       "Structured judge score sheets by vehicle class using event-specific judging templates.",
-    href: (eventId: string) =>
+    href: (eventId) =>
       `/organizer/events/${eventId}/awards-judging/score-sheets`,
-    resultsHref: (eventId: string) =>
+    resultsHref: (eventId) =>
       `/organizer/events/${eventId}/awards-judging/score-sheets/results`,
     icon: ClipboardCheck,
   },
-] as const;
+];
 
 function tileBadge(
-  tileId: (typeof TILES)[number]["id"],
+  tileId: JudgingHubTile["id"],
   stats: AwardsJudgingHubStats,
 ): string | null {
   switch (tileId) {
@@ -86,12 +104,22 @@ function tileBadge(
 export function AwardsJudgingHub({
   eventId,
   stats,
+  initialVotingSnapshot = null,
+  isSiteAdmin = false,
 }: {
   eventId: string;
   stats: AwardsJudgingHubStats;
+  initialVotingSnapshot?: EventVotingControlSnapshot | null;
+  isSiteAdmin?: boolean;
 }) {
   return (
     <div className="space-y-6">
+      <EventVotingControls
+        eventId={eventId}
+        initialSnapshot={initialVotingSnapshot}
+        isSiteAdmin={isSiteAdmin}
+      />
+
       <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
         <p className="font-medium text-foreground">Terminology</p>
         <ul className="mt-2 list-inside list-disc space-y-1">
@@ -100,8 +128,8 @@ export function AwardsJudgingHub({
             — registration category (e.g. Full Classic, Modified)
           </li>
           <li>
-            <span className="font-medium text-foreground">Award Category</span>{" "}
-            — judge-voted award (e.g. Best Paint, Best in Show)
+            <span className="font-medium text-foreground">Judge ballot voting</span>{" "}
+            — one voting category per vehicle class you enable below
           </li>
           <li>
             <span className="font-medium text-foreground">Voting Method</span>{" "}
@@ -109,6 +137,29 @@ export function AwardsJudgingHub({
           </li>
         </ul>
       </div>
+
+      {stats.eventVotingFinalized && stats.trophyCount > 0 ? (
+        <Card className="border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="size-5 text-amber-600" aria-hidden />
+              Awards / Trophy Winners
+            </CardTitle>
+            <CardDescription>
+              Review winners by award, manually exclude a winner to promote the
+              next alternate, and use Show winners only at the ceremony.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter>
+            <Link
+              href={`/organizer/events/${eventId}/awards-judging/trophy-winners`}
+              className={cn(buttonVariants(), "w-full justify-center sm:w-auto")}
+            >
+              Awards / Trophy Winners
+            </Link>
+          </CardFooter>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-3">
         {TILES.map((tile) => {
@@ -139,17 +190,15 @@ export function AwardsJudgingHub({
                 >
                   Configure
                 </Link>
-                {"resultsHref" in tile && tile.resultsHref ? (
-                  <Link
-                    href={tile.resultsHref(eventId)}
-                    className={cn(
-                      buttonVariants({ variant: "outline" }),
-                      "w-full justify-center",
-                    )}
-                  >
-                    View Results
-                  </Link>
-                ) : null}
+                <Link
+                  href={tile.resultsHref(eventId)}
+                  className={cn(
+                    buttonVariants({ variant: "outline" }),
+                    "w-full justify-center",
+                  )}
+                >
+                  View Results
+                </Link>
               </CardFooter>
             </Card>
           );

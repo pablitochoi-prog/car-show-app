@@ -55,7 +55,22 @@ export default async function DashboardEventsPage({
   ]);
 
   const showManagingTab = organizerEventCount > 0;
-  let tab = parseEventsTab(sp.tab);
+
+  const pickQuery = (key: string) => {
+    const v = sp[key];
+    return Array.isArray(v) ? v[0] : v;
+  };
+  const showDeleted = pickQuery("deleted") === "1";
+  const showArchived = pickQuery("archived") === "1";
+  const showCreated = pickQuery("created") === "1";
+  const showUpdated =
+    pickQuery("updated") === "1" && pickQuery("created") !== "1";
+  const staffFlash =
+    showManagingTab &&
+    sp.tab == null &&
+    (showDeleted || showArchived || showCreated || showUpdated);
+
+  let tab = staffFlash ? "managing" : parseEventsTab(sp.tab);
   if (tab === "managing" && !showManagingTab) {
     redirect(hrefDashboardEvents("participating", 1));
   }
@@ -110,16 +125,6 @@ export default async function DashboardEventsPage({
       pageSize,
     );
   }
-
-  const pickQuery = (key: string) => {
-    const v = sp[key];
-    return Array.isArray(v) ? v[0] : v;
-  };
-  const showDeleted = pickQuery("deleted") === "1";
-  const showArchived = pickQuery("archived") === "1";
-  const showCreated = pickQuery("created") === "1";
-  const showUpdated =
-    pickQuery("updated") === "1" && pickQuery("created") !== "1";
 
   let flash: "deleted" | "archived" | "created" | "updated" | null = null;
   if (showDeleted) flash = "deleted";

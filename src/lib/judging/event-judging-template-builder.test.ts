@@ -150,6 +150,91 @@ describe.skipIf(!RUN)("Phase 2D score sheet template builder", () => {
     ).toBe("New deduction");
   });
 
+  it("persists scoring type changes on existing subcategories", async () => {
+    const loaded = await loadEventJudgingTemplate(eventId, eventTemplateId);
+    const interior = loaded!.template.sections.find((s) => s.name === "Interior");
+    expect(interior).toBeDefined();
+    expect(interior!.items.length).toBeGreaterThanOrEqual(4);
+
+    const sectionsPayload = loaded!.template.sections.map((s) => ({
+      id: s.id,
+      name: s.name,
+      sortOrder: s.sortOrder,
+      weightPercent: s.weightPercent,
+      maxSectionPoints: s.maxSectionPoints,
+      judgeGuidance: s.judgeGuidance,
+      isActive: s.isActive,
+      items: s.items.map((item, ii) => {
+        const scoringType =
+          s.id === interior!.id
+            ? ii === 1
+              ? ("LEVELS" as const)
+              : ii === 2
+                ? ("FULL" as const)
+                : ii === 3
+                  ? ("FULL" as const)
+                  : item.scoringType
+            : item.scoringType;
+        const allowMultipleViolations =
+          s.id === interior!.id && ii === 3 ? true : item.allowMultipleViolations;
+        const deductionOptions =
+          scoringType === "DISCRETIONARY"
+            ? []
+            : scoringType === "FULL"
+              ? [
+                  {
+                    label: allowMultipleViolations ? "Per violation" : "If observed",
+                    pointsDeducted: allowMultipleViolations ? 1 : item.maxPoints,
+                    sortOrder: 0,
+                  },
+                ]
+              : scoringType === "LEVELS" && item.scoringType !== "LEVELS"
+                ? [
+                    { label: "Minor", pointsDeducted: 1, sortOrder: 0 },
+                    { label: "Major", pointsDeducted: 3, sortOrder: 1 },
+                    { label: "Critical", pointsDeducted: item.maxPoints, sortOrder: 2 },
+                  ]
+                : item.deductionOptions.map((d) => ({
+                    label: d.label,
+                    pointsDeducted: d.pointsDeducted,
+                    sortOrder: d.sortOrder,
+                    deductionBucket: d.deductionBucket,
+                  }));
+
+        return {
+          id: item.id,
+          label: item.label,
+          sortOrder: item.sortOrder,
+          maxPoints: item.maxPoints,
+          isIndented: item.isIndented,
+          pointType: item.pointType,
+          scoringType,
+          allowMultipleViolations,
+          judgeGuidance: item.judgeGuidance,
+          requiresCommentOnDeduction: item.requiresCommentOnDeduction,
+          isActive: item.isActive,
+          deductionOptions,
+        };
+      }),
+    }));
+
+    await updateEventJudgingTemplateStructure({
+      eventId,
+      templateId: eventTemplateId,
+      sections: sectionsPayload,
+    });
+
+    const reloaded = await loadEventJudgingTemplate(eventId, eventTemplateId);
+    const interiorReloaded = reloaded!.template.sections.find(
+      (s) => s.id === interior!.id,
+    );
+    expect(interiorReloaded!.items[1].scoringType).toBe("LEVELS");
+    expect(interiorReloaded!.items[2].scoringType).toBe("FULL");
+    expect(interiorReloaded!.items[2].allowMultipleViolations).toBe(false);
+    expect(interiorReloaded!.items[3].scoringType).toBe("FULL");
+    expect(interiorReloaded!.items[3].allowMultipleViolations).toBe(true);
+  });
+
   it("blocks structural edits after submitted score sheets exist", async () => {
     const sheet = await snapshotEventTemplateToScoreSheet({
       eventId,

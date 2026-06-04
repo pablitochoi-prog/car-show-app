@@ -30,6 +30,12 @@ describe("getSmsVotingWindowStatus", () => {
     expect(getSmsVotingWindowStatus(baseEvent, now)).toBe("ended");
     expect(isSmsVotingOpenForEvent(baseEvent, now)).toBe(false);
   });
+
+  it("returns ended exactly at smsVotingEndsAt (organizer close-all)", () => {
+    const now = baseEvent.smsVotingEndsAt!;
+    expect(getSmsVotingWindowStatus(baseEvent, now)).toBe("ended");
+    expect(isSmsVotingOpenForEvent(baseEvent, now)).toBe(false);
+  });
 });
 
 describe("buildSmsVotingWindowClosedMessage", () => {

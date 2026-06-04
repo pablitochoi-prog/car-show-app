@@ -1,6 +1,12 @@
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
-import type { StripeAccountStatus } from "@prisma/client";
+import {
+  buildStripeConnectSyncResult,
+  type StripeConnectSyncResult,
+} from "@/lib/stripe-connect-sync";
+
+export type { StripeConnectSyncResult } from "@/lib/stripe-connect-sync";
+export { buildStripeConnectSyncResult } from "@/lib/stripe-connect-sync";
 
 const defaultAppUrl = () =>
   (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
@@ -93,6 +99,9 @@ export async function createAccountLink(
 ) {
   const base = resolveStripeAppOrigin(options?.origin);
   const account = await stripe.accounts.retrieve(stripeAccountId);
+  const currentlyDue = account.requirements?.currently_due ?? [];
+  const pastDue = account.requirements?.past_due ?? [];
+  const disabledReason = account.requirements?.disabled_reason ?? null;
   const returnQuery = new URLSearchParams({ orgId });
   if (options?.returnPath) {
     returnQuery.set("returnTo", options.returnPath);
@@ -103,64 +112,38 @@ export async function createAccountLink(
     refreshQuery.set("returnTo", options.returnPath);
   }
 
+  // Use onboarding when anything is outstanding (including past_due / disabled).
+  const needsOnboardingFlow =
+    !account.details_submitted ||
+    currentlyDue.length > 0 ||
+    pastDue.length > 0 ||
+    disabledReason === "requirements.past_due" ||
+    (disabledReason != null &&
+      !disabledReason.startsWith("rejected.") &&
+      disabledReason !== "requirements.pending_verification" &&
+      disabledReason !== "under_review");
+
   const link = await stripe.accountLinks.create({
     account: stripeAccountId,
     refresh_url: `${base}/api/stripe/connect/create-account-link?${refreshQuery.toString()}`,
     return_url: `${base}/api/stripe/connect/return?${returnQuery.toString()}`,
-    type: account.details_submitted ? "account_update" : "account_onboarding",
+    type: needsOnboardingFlow ? "account_onboarding" : "account_update",
+    ...(needsOnboardingFlow
+      ? {
+          collection_options: {
+            fields:
+              currentlyDue.length > 0 || pastDue.length > 0
+                ? "currently_due"
+                : "eventually_due",
+          },
+        }
+      : {}),
   });
 
   return link.url;
 }
 
-/**
- * Retrieve the latest account status from Stripe and sync to our DB.
- */
-export type StripeConnectSyncResult = {
-  stripeAccountStatus: StripeAccountStatus;
-  stripeChargesEnabled: boolean;
-  stripePayoutsEnabled: boolean;
-  stripeDetailsSubmitted: boolean;
-  /** Submitted to Stripe but charges not active yet (review or processing). */
-  pendingReview: boolean;
-  requirementsCurrentlyDue: string[];
-  requirementsPastDue: string[];
-};
-
-export function buildStripeConnectSyncResult(
-  account: Awaited<ReturnType<typeof stripe.accounts.retrieve>>,
-): StripeConnectSyncResult {
-  const chargesEnabled = account.charges_enabled ?? false;
-  const detailsSubmitted = account.details_submitted ?? false;
-  const currentlyDue = account.requirements?.currently_due ?? [];
-  const pastDue = account.requirements?.past_due ?? [];
-
-  let stripeAccountStatus: StripeAccountStatus = "ONBOARDING";
-  if (chargesEnabled && detailsSubmitted) {
-    stripeAccountStatus = "ACTIVE";
-  } else if (account.requirements?.disabled_reason) {
-    stripeAccountStatus = "DISABLED";
-  } else if (currentlyDue.length > 0 || pastDue.length > 0) {
-    stripeAccountStatus = "RESTRICTED";
-  }
-
-  const pendingReview =
-    detailsSubmitted &&
-    !chargesEnabled &&
-    stripeAccountStatus !== "DISABLED" &&
-    stripeAccountStatus !== "RESTRICTED";
-
-  return {
-    stripeAccountStatus,
-    stripeChargesEnabled: chargesEnabled,
-    stripePayoutsEnabled: account.payouts_enabled ?? false,
-    stripeDetailsSubmitted: detailsSubmitted,
-    pendingReview,
-    requirementsCurrentlyDue: currentlyDue,
-    requirementsPastDue: pastDue,
-  };
-}
-
+/** Retrieve the latest account status from Stripe and sync to our DB. */
 export async function syncAccountStatus(stripeAccountId: string) {
   const account = await stripe.accounts.retrieve(stripeAccountId);
   const sync = buildStripeConnectSyncResult(account);

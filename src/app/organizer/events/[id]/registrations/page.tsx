@@ -13,7 +13,7 @@ import { getPlatformFee } from "@/lib/platform-fee";
 import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
 import { OrganizerRegistrationsClient } from "@/components/organizer/organizer-registrations-client";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { EventSaleInquirySummary } from "@/components/organizer/event-sale-inquiry-summary";
 import { loadEventSaleInquiryStats } from "@/lib/event-sale-inquiry-stats";
 import { withPerfTiming } from "@/lib/perf-timing";
@@ -118,7 +118,7 @@ export default async function EventRegistrationsPage({
       </div>
 
       <div className="space-y-4">
-        <EventOrganizerNav eventId={eventId} active="registrations" />
+        <EventOrganizerNavBar eventId={eventId} active="registrations" user={user} />
       </div>
 
       <div className="page-head flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">

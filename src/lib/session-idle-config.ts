@@ -17,6 +17,9 @@ export const SESSION_ACTIVITY_DB_THROTTLE_MS = 2 * 60 * 1000;
 /** HttpOnly cookie storing last activity (Unix ms). */
 export const SESSION_ACTIVITY_COOKIE = "css_last_activity";
 
+/** Cookie container lifetime — idle enforcement uses the stored timestamp, not maxAge. */
+export const SESSION_ACTIVITY_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
 /** HttpOnly cookie pausing idle enforcement until Unix ms. */
 export const SESSION_IDLE_PAUSE_COOKIE = "css_idle_paused_until";
 

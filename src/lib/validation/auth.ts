@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  addSmsOptInRequiresPhoneRefinement,
+  smsNotificationsOptInFieldSchema,
+} from "@/lib/validation/sms-notifications-consent";
 
 /** Shown in the signup mismatch dialog and returned from the API when confirm fails validation. */
 export const SIGNUP_PASSWORD_MISMATCH_MESSAGE =
@@ -59,10 +63,14 @@ export const signupSchema = z
           ? undefined
           : `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
       ),
+    smsNotificationsOptIn: smsNotificationsOptInFieldSchema,
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: SIGNUP_PASSWORD_MISMATCH_MESSAGE,
     path: ["confirmPassword"],
+  })
+  .superRefine((data, ctx) => {
+    addSmsOptInRequiresPhoneRefinement(data, (d) => d.phone, "phone", ctx);
   });
 
 export const loginSchema = z.object({

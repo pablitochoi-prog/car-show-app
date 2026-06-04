@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { ScoreSheetJudgingAdmin } from "@/components/organizer/awards-judging/score-sheet-judging-admin";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 
@@ -51,7 +51,7 @@ export default async function ScoreSheetJudgingSetupPage({ params }: Props) {
   }));
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
       <div>
         <p className="text-sm text-muted-foreground">
           Show #{formatEventShowNumber(event.showNumber)} · Voting Method: Score Sheet Judging
@@ -64,7 +64,7 @@ export default async function ScoreSheetJudgingSetupPage({ params }: Props) {
         </p>
       </div>
 
-      <EventOrganizerNav eventId={eventId} active="awards-judging" />
+      <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
 
       <ScoreSheetJudgingAdmin eventId={eventId} vehicleClasses={classOptions} />
 

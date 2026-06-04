@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { EventSmsVotingSettings } from "@/components/sms/event-sms-voting-settings";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { parseDailyHours } from "@/lib/daily-hours";
@@ -68,7 +68,7 @@ export default async function PublicVotingSetupPage({ params }: Props) {
         <p className="mt-1 text-muted-foreground">Public Voting (SMS / QR)</p>
       </div>
 
-      <EventOrganizerNav eventId={eventId} active="awards-judging" />
+      <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
 
       <EventSmsVotingSettings eventId={eventId} eventSchedule={eventSchedule} />
 

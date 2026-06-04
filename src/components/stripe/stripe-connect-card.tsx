@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Unlink,
 } from "lucide-react";
+import { describeStripeDisabledReason } from "@/lib/stripe-disabled-reason";
 
 export type StripeConnectInfo = {
   orgId: string;
@@ -27,6 +28,10 @@ export type StripeConnectInfo = {
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
+  requirementsCurrentlyDue?: string[];
+  requirementsPastDue?: string[];
+  disabledReason?: string | null;
+  requirementErrors?: Array<{ code: string; reason: string; requirement: string }>;
 };
 
 export function StripeConnectCard({
@@ -59,6 +64,12 @@ export function StripeConnectCard({
   const needsAction =
     info.stripeAccountStatus === "RESTRICTED" ||
     info.stripeAccountStatus === "DISABLED";
+  const requirementsDue = [
+    ...(info.requirementsPastDue ?? []),
+    ...(info.requirementsCurrentlyDue ?? []),
+  ];
+  const uniqueRequirements = [...new Set(requirementsDue)];
+  const disabledHelp = describeStripeDisabledReason(info.disabledReason);
 
   const stripeBody = () => ({
     orgId: info.orgId,
@@ -142,7 +153,11 @@ export function StripeConnectCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgId: info.orgId }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        error?: string;
+        requirementsCurrentlyDue?: string[];
+        requirementsPastDue?: string[];
+      };
       if (!res.ok) throw new Error(data.error ?? "Failed to refresh");
       window.location.reload();
     } catch (err) {
@@ -186,6 +201,14 @@ export function StripeConnectCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!canDisconnect && isConnected && !isActive && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+            Stripe can only be finished or refreshed by the{" "}
+            <span className="font-medium">club owner</span>. Ask them to complete
+            setup or click Refresh Status on this page.
+          </p>
+        )}
+
         {!isConnected && (
           <p className="rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             After Stripe shows{" "}
@@ -198,6 +221,60 @@ export function StripeConnectCard({
             </span>{" "}
             on that screen so we can sync your account.
           </p>
+        )}
+
+        {needsAction && uniqueRequirements.length > 0 && (
+          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-950 dark:text-red-100">
+            <p className="font-medium">Stripe still needs:</p>
+            <ul className="mt-1 list-inside list-disc text-xs">
+              {uniqueRequirements.slice(0, 6).map((req) => (
+                <li key={req}>{req.replace(/_/g, " ")}</li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs">
+              Click <span className="font-medium">Finish Stripe Setup</span>, complete
+              every step, then choose{" "}
+              <span className="font-medium">Return to CarShowScout.com</span> on
+              Stripe&apos;s last screen.
+            </p>
+          </div>
+        )}
+
+        {needsAction && uniqueRequirements.length === 0 && (
+          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-950 dark:text-red-100">
+            <p className="font-medium">{disabledHelp.title}</p>
+            <p className="mt-1 text-xs">{disabledHelp.detail}</p>
+            {disabledHelp.suggestDisconnectReconnect ? (
+              <p className="mt-2 text-xs">
+                Use <span className="font-medium">Disconnect Stripe</span>, then{" "}
+                <span className="font-medium">Connect Stripe</span> to start with a
+                new application.
+              </p>
+            ) : disabledHelp.recoverableViaLink ? (
+              <p className="mt-2 text-xs">
+                Click <span className="font-medium">Finish Stripe Setup</span>, complete
+                every Stripe step, then{" "}
+                <span className="font-medium">Return to CarShowScout.com</span>.
+              </p>
+            ) : null}
+            {!canDisconnect && (
+              <p className="mt-2 text-xs">
+                Only the <span className="font-medium">club owner</span> can complete
+                or refresh Stripe.
+              </p>
+            )}
+          </div>
+        )}
+
+        {(info.requirementErrors?.length ?? 0) > 0 && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+            <p className="font-medium">Stripe reported an issue:</p>
+            <ul className="mt-1 list-inside list-disc">
+              {info.requirementErrors!.slice(0, 3).map((e) => (
+                <li key={`${e.requirement}-${e.code}`}>{e.reason}</li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {pendingReview && (
@@ -250,7 +327,11 @@ export function StripeConnectCard({
             </Button>
           )}
 
-          {isConnected && !isActive && !pendingReview && (
+          {isConnected &&
+            !isActive &&
+            !pendingReview &&
+            canDisconnect &&
+            disabledHelp.recoverableViaLink && (
             <Button onClick={handleFinishSetup} disabled={loading}>
               {loading ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -268,7 +349,7 @@ export function StripeConnectCard({
             </div>
           )}
 
-          {isConnected && (
+          {isConnected && canDisconnect && (
             <>
               <Button
                 variant="outline"
@@ -283,22 +364,20 @@ export function StripeConnectCard({
                 )}
                 Refresh Status
               </Button>
-              {canDisconnect && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => void handleDisconnect()}
-                  disabled={disconnecting || refreshing}
-                >
-                  {disconnecting ? (
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                  ) : (
-                    <Unlink className="mr-2 size-4" />
-                  )}
-                  Disconnect Stripe
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => void handleDisconnect()}
+                disabled={disconnecting || refreshing}
+              >
+                {disconnecting ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Unlink className="mr-2 size-4" />
+                )}
+                Disconnect Stripe
+              </Button>
             </>
           )}
         </div>

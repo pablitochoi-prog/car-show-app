@@ -483,6 +483,10 @@ function EventRegistrationPageContent({
       ...prev,
       [vehicle.id]: vehicle.nickname?.trim() ?? "",
     }));
+    setVehicleStories((prev) => ({
+      ...prev,
+      [vehicle.id]: vehicle.notes?.trim() ?? "",
+    }));
   }
 
   function saleListingFor(vehicleId: string): VehicleSaleListingFormState {

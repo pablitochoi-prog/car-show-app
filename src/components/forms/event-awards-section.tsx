@@ -9,12 +9,15 @@ import {
   type PickListOption,
 } from "@/components/forms/event-multi-pick-list";
 import { EventSectionEditToolbar } from "@/components/forms/event-section-edit-toolbar";
+import { EventAwardSpecialJudgeControls } from "@/components/forms/event-award-special-judge-controls";
 import {
   EVENT_CATEGORIES_CHANGED,
   buildEventAwardTrophyEntries,
   notifyEventCategoriesChanged,
+  parseAwardTrophyEntryId,
 } from "@/lib/event-awards-trophies";
 import {
+  revalidateEventAwards,
   setEventAwardsCache,
   setEventCategoriesCache,
   useEventAwards,
@@ -22,6 +25,7 @@ import {
   useMasterAwards,
   type EventAwardRow,
   type EventCategoryRow,
+  type SpecialJudgeStaffOption,
 } from "@/hooks/use-event-setup-cache";
 
 type MasterAward = { id: string; name: string };
@@ -43,11 +47,19 @@ export function EventAwardsSection({
     useEventCategories(eventId);
   const { data: masterData } = useMasterAwards();
 
-  const eventAwards =
-    (awardsData as { awards?: EventAwardRow[] } | undefined)?.awards ?? [];
+  const awardsPayload = awardsData as
+    | { awards?: EventAwardRow[]; specialJudgeStaff?: SpecialJudgeStaffOption[] }
+    | undefined;
+  const eventAwards = awardsPayload?.awards ?? [];
+  const specialJudgeStaff = awardsPayload?.specialJudgeStaff ?? [];
   const eventCategories = categoriesData?.categories ?? [];
   const masterList =
     (masterData as { awards?: MasterAward[] } | undefined)?.awards ?? [];
+
+  const awardById = useMemo(
+    () => new Map(eventAwards.map((a) => [a.id, a])),
+    [eventAwards],
+  );
 
   useEffect(() => {
     function onCategoriesChanged(e: Event) {
@@ -79,6 +91,14 @@ export function EventAwardsSection({
     .filter((a) => !addedAwardIds.has(a.id))
     .map((a) => ({ id: a.id, label: a.name }));
 
+  function mergeAwardPatch(awardId: string, patch: Partial<EventAwardRow>) {
+    void setEventAwardsCache(
+      eventId,
+      eventAwards.map((a) => (a.id === awardId ? { ...a, ...patch } : a)),
+      specialJudgeStaff,
+    );
+  }
+
   async function handleAddSelected(specialAwardIds: string[]) {
     setBusy(true);
     setError("");
@@ -89,12 +109,20 @@ export function EventAwardsSection({
         credentials: "same-origin",
         body: JSON.stringify({ specialAwardIds }),
       });
-      const data = (await res.json()) as { awards?: EventAwardRow[]; error?: string };
+      const data = (await res.json()) as {
+        awards?: EventAwardRow[];
+        specialJudgeStaff?: SpecialJudgeStaffOption[];
+        error?: string;
+      };
       if (!res.ok) {
         setError(data.error ?? "Could not add awards.");
         return;
       }
-      await setEventAwardsCache(eventId, data.awards ?? []);
+      await setEventAwardsCache(
+        eventId,
+        data.awards ?? [],
+        data.specialJudgeStaff ?? specialJudgeStaff,
+      );
     } catch {
       setError("Network error.");
     } finally {
@@ -115,6 +143,7 @@ export function EventAwardsSection({
       const data = (await res.json()) as {
         categories?: EventCategoryRow[];
         awards?: EventAwardRow[];
+        specialJudgeStaff?: SpecialJudgeStaffOption[];
         error?: string;
       };
       if (!res.ok) {
@@ -122,7 +151,13 @@ export function EventAwardsSection({
         return;
       }
       if (data.categories) await setEventCategoriesCache(eventId, data.categories);
-      if (data.awards) await setEventAwardsCache(eventId, data.awards);
+      if (data.awards) {
+        await setEventAwardsCache(
+          eventId,
+          data.awards,
+          data.specialJudgeStaff ?? specialJudgeStaff,
+        );
+      }
       notifyEventCategoriesChanged(eventId);
     } catch {
       setError("Network error.");
@@ -145,12 +180,20 @@ export function EventAwardsSection({
         credentials: "same-origin",
         body: JSON.stringify({ customName: customName.trim() }),
       });
-      const data = (await res.json()) as { awards?: EventAwardRow[]; error?: string };
+      const data = (await res.json()) as {
+        awards?: EventAwardRow[];
+        specialJudgeStaff?: SpecialJudgeStaffOption[];
+        error?: string;
+      };
       if (!res.ok) {
         setError(data.error ?? "Could not add award.");
         return;
       }
-      await setEventAwardsCache(eventId, data.awards ?? []);
+      await setEventAwardsCache(
+        eventId,
+        data.awards ?? [],
+        data.specialJudgeStaff ?? specialJudgeStaff,
+      );
       setCustomName("");
     } catch {
       setError("Network error.");
@@ -164,7 +207,10 @@ export function EventAwardsSection({
       <EventSectionEditToolbar
         editing={editing}
         busy={busy}
-        onStartEdit={() => setEditing(true)}
+        onStartEdit={() => {
+          setEditing(true);
+          void revalidateEventAwards(eventId);
+        }}
         onDone={() => {
           setEditing(false);
           setError("");
@@ -175,6 +221,8 @@ export function EventAwardsSection({
       {editing ? (
         <p className="text-xs text-muted-foreground">
           All trophies for this event — category place awards and special awards.
+          For special awards (e.g. President&apos;s Choice), use{" "}
+          <strong>Special Judge award</strong> on that row to limit who can vote.
           Removing a category place trophy lowers that category&apos;s award count
           on the Registration Categories list.
         </p>
@@ -187,24 +235,52 @@ export function EventAwardsSection({
         options={pickOptions}
         busy={busy}
         readOnly={!editing}
-        rows={trophyEntries.map((entry) => ({
-          id: entry.id,
-          label: (
-            <div className="flex flex-wrap items-center gap-2">
-              <Trophy className="size-3.5 shrink-0 text-amber-500" />
-              <span className="font-medium">{entry.label}</span>
-              {entry.kind === "category_place" ? (
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  Category place
-                </span>
-              ) : (
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  Special
-                </span>
-              )}
-            </div>
-          ),
-        }))}
+        rows={trophyEntries.map((entry) => {
+          const parsed = parseAwardTrophyEntryId(entry.id);
+          const award =
+            parsed?.kind === "special"
+              ? awardById.get(parsed.eventAwardId)
+              : undefined;
+
+          const isSpecial = entry.kind === "special";
+
+          return {
+            id: entry.id,
+            label: (
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Trophy className="size-3.5 shrink-0 text-amber-500" />
+                  <span className="font-medium">{entry.label}</span>
+                  {entry.kind === "category_place" ? (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      Category place
+                    </span>
+                  ) : (
+                    <>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        Special
+                      </span>
+                      {!editing && award?.requiresSpecialJudge ? (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                          Special Judge
+                        </span>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+                {editing && isSpecial && award ? (
+                  <EventAwardSpecialJudgeControls
+                    eventId={eventId}
+                    award={award}
+                    specialJudgeStaff={specialJudgeStaff}
+                    busy={busy}
+                    onSaved={(patch) => mergeAwardPatch(award.id, patch)}
+                  />
+                ) : null}
+              </div>
+            ),
+          };
+        })}
         onAddSelected={handleAddSelected}
         onRemoveSelected={handleRemoveSelected}
       />

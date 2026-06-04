@@ -30,7 +30,9 @@ import {
   EyeOff,
   Loader2,
 } from "lucide-react";
+import { suggestClassicCarUsername } from "@/lib/suggest-signup-username";
 import { SIGNUP_PASSWORD_MISMATCH_MESSAGE } from "@/lib/validation/auth";
+import { SignupSmsOptInField } from "@/components/auth/signup-sms-opt-in-field";
 import { UsPhoneInput } from "@/components/inputs/us-phone-input";
 import { cn } from "@/lib/utils";
 
@@ -205,13 +207,14 @@ function PasswordFieldWithToggle({
 
 export default function SignupPage() {
   const [phase, setPhase] = useState<"form" | "success">("form");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => suggestClassicCarUsername());
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
+  const [smsNotificationsOptIn, setSmsNotificationsOptIn] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -245,6 +248,7 @@ export default function SignupPage() {
           password,
           confirmPassword,
           phone: phone.trim() ? phone : undefined,
+          smsNotificationsOptIn,
         }),
       });
 
@@ -376,7 +380,7 @@ export default function SignupPage() {
                 <Input
                   id="username"
                   type="text"
-                  placeholder="e.g., Cool_Driver_42"
+                  placeholder="e.g., mustang_driver_427"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
@@ -386,8 +390,8 @@ export default function SignupPage() {
                   className={authInputClass}
                 />
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  3–30 characters: letters, numbers, and underscores only. Choose a unique username
-                  (example above is not reserved).
+                  3–30 characters: letters, numbers, and underscores only. A classic car themed
+                  username is suggested—you can change it to anything unique.
                 </p>
               </div>
               <div className="space-y-2">
@@ -482,7 +486,17 @@ export default function SignupPage() {
                   disabled={loading}
                   className={authInputClass}
                 />
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Optional. A phone number is only required if you choose SMS
+                  updates below.
+                </p>
               </div>
+              <SignupSmsOptInField
+                id="signup-sms-opt-in"
+                checked={smsNotificationsOptIn}
+                onCheckedChange={setSmsNotificationsOptIn}
+                disabled={loading}
+              />
             </FormSection>
           </CardContent>
           <CardFooter className="flex flex-col gap-5 border-border/60 px-6 pt-2 pb-6 sm:px-8">

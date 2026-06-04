@@ -68,8 +68,8 @@ export function EventSetupListCards({
       <CollapsibleCard title="Awards & Judging" defaultOpen={false}>
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
-            Configure public voting, assigned judge ballot awards, and structured
-            score sheet judging for this event.
+            Configure public voting, judge ballot voting, and structured score
+            sheet judging for this event.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Link

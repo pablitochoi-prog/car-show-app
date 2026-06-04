@@ -1,3 +1,14 @@
+import { SESSION_ACTIVITY_STORAGE_KEY } from "@/lib/session-idle-config";
+
+/** Clear cross-tab idle tracking after login/logout. */
+export function clearSessionActivityLocalStorage(): void {
+  try {
+    localStorage.removeItem(SESSION_ACTIVITY_STORAGE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 /** Pause idle enforcement before redirecting to Stripe checkout (best-effort). */
 export async function pauseSessionForStripeCheckout(): Promise<void> {
   try {

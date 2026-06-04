@@ -79,15 +79,38 @@ export type EventAwardRow = {
   specialAwardId: string | null;
   name: string;
   isCustom: boolean;
+  requiresSpecialJudge?: boolean;
+  assignedSpecialJudgeUserIds?: string[];
+  ballotCategoryId?: string | null;
+};
+
+export type SpecialJudgeStaffOption = {
+  userId: string;
+  name: string;
+  email: string;
+};
+
+export type EventAwardsCachePayload = {
+  awards: EventAwardRow[];
+  specialJudgeStaff?: SpecialJudgeStaffOption[];
 };
 
 export async function setEventAwardsCache(
   eventId: string,
   awards: EventAwardRow[],
+  specialJudgeStaff?: SpecialJudgeStaffOption[],
 ) {
   await globalMutate(
     eventApiKeys.awards(eventId),
-    { awards },
+    (current: EventAwardsCachePayload | undefined) => ({
+      awards,
+      specialJudgeStaff:
+        specialJudgeStaff ?? current?.specialJudgeStaff ?? [],
+    }),
     { revalidate: false },
   );
+}
+
+export async function revalidateEventAwards(eventId: string) {
+  await globalMutate(eventApiKeys.awards(eventId));
 }

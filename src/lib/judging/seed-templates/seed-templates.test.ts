@@ -28,7 +28,7 @@ describe("global judging template seeds (Phase 5C)", () => {
 
   it("PCA Zone 8 has six categories and discretionary subcategories", () => {
     expect(PCA_ZONE8_TEMPLATE.scoringGroup).toBe("PCA");
-    expect(PCA_ZONE8_TEMPLATE.vehicleType).toBe("Auto");
+    expect(PCA_ZONE8_TEMPLATE.vehicleType).toBe("Concours");
     expect(PCA_ZONE8_TEMPLATE.methodology).toBe("DEDUCTION");
     expect(PCA_ZONE8_TEMPLATE.categories).toHaveLength(6);
     const counts = countTemplateNodes(PCA_ZONE8_TEMPLATE);

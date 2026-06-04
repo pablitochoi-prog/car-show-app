@@ -23,6 +23,7 @@ import {
   authPrimaryButtonClass,
 } from "@/lib/auth-ui";
 import { cn } from "@/lib/utils";
+import { clearSessionActivityLocalStorage } from "@/lib/session-idle-client";
 import { AlertCircle, CheckCircle2, Car, Loader2 } from "lucide-react";
 
 function safeRedirect(path: string | undefined): string {
@@ -67,12 +68,14 @@ export function LoginForm({
       const destination = safeRedirect(redirectTo);
 
       if (data.mfaRequired) {
+        clearSessionActivityLocalStorage();
         window.location.assign(
           `/login/mfa?redirect=${encodeURIComponent(destination)}`,
         );
         return;
       }
 
+      clearSessionActivityLocalStorage();
       window.location.assign(destination);
     } catch {
       setError("Something went wrong. Please try again.");

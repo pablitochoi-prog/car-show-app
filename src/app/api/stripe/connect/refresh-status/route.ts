@@ -58,6 +58,9 @@ export async function POST(request: Request) {
       detailsSubmitted: updated.stripeDetailsSubmitted,
       pendingReview: sync.pendingReview,
       requirementsCurrentlyDue: sync.requirementsCurrentlyDue,
+      requirementsPastDue: sync.requirementsPastDue,
+      disabledReason: sync.disabledReason,
+      requirementErrors: sync.requirementErrors,
     });
   } catch (err) {
     console.error("[POST /api/stripe/connect/refresh-status]", err);

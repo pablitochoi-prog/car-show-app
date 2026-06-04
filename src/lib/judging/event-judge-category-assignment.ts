@@ -58,31 +58,67 @@ type ResolvedVehicle = {
   registrationVehicleId: string;
   vehicleEntryCode: string;
   registrationId: string;
-  eventCategoryId: string;
-  judgingClassId: string;
+  eventCategoryId: string | null;
+  judgingClassId: string | null;
   eventJudgingTemplateId: string;
 };
 
-async function resolveJudgingClassForCategory(
+/**
+ * Event scorecard template from selected categories (Exterior, Interior, etc.).
+ * Vehicle class is not used—every vehicle on the show uses the same template categories.
+ */
+async function resolveScorecardForAssignment(
   eventId: string,
-  eventCategoryId: string,
-) {
-  const link = await prisma.eventJudgingClassEligibleCategory.findFirst({
-    where: {
-      eventCategoryId,
-      eventJudgingClass: { eventId, isActive: true },
-    },
-    include: {
-      eventJudgingClass: {
-        select: {
-          id: true,
-          eventJudgingTemplateId: true,
-          template: { select: { id: true, name: true } },
-        },
-      },
+  eventJudgingSectionIds: string[],
+): Promise<{ templateId: string; judgingClassId: string | null }> {
+  if (eventJudgingSectionIds.length === 0) {
+    throw new EventJudgeAssignmentError(
+      "NO_CATEGORIES",
+      "Select a scorecard category.",
+    );
+  }
+
+  const sections = await prisma.eventJudgingSection.findMany({
+    where: { id: { in: eventJudgingSectionIds }, isActive: true },
+    select: {
+      id: true,
+      templateId: true,
+      template: { select: { eventId: true, name: true } },
     },
   });
-  return link?.eventJudgingClass ?? null;
+
+  if (sections.length !== eventJudgingSectionIds.length) {
+    throw new EventJudgeAssignmentError(
+      "INVALID_CATEGORIES",
+      "One or more scorecard categories are invalid or inactive.",
+    );
+  }
+
+  for (const section of sections) {
+    if (section.template.eventId !== eventId) {
+      throw new EventJudgeAssignmentError(
+        "INVALID_CATEGORIES",
+        "One or more categories do not belong to this event scorecard.",
+      );
+    }
+  }
+
+  const templateIds = [...new Set(sections.map((s) => s.templateId))];
+  if (templateIds.length !== 1) {
+    throw new EventJudgeAssignmentError(
+      "INVALID_CATEGORIES",
+      "Selected categories must belong to the same event scorecard template.",
+    );
+  }
+
+  const templateId = templateIds[0]!;
+  const judgingClass = await prisma.eventJudgingClass.findFirst({
+    where: { eventId, eventJudgingTemplateId: templateId, isActive: true },
+    select: { id: true },
+    orderBy: [{ sortOrder: "asc" }],
+  });
+
+  return { templateId, judgingClassId: judgingClass?.id ?? null };
 }
 
 export async function listEventAssigneeJudges(eventId: string): Promise<EventJudgeOption[]> {
@@ -101,17 +137,31 @@ export async function listEventAssigneeJudges(eventId: string): Promise<EventJud
   }));
 }
 
-/** Scorecard categories for a vehicle class (registration EventCategory). */
+/** Registration vehicle classes for the assign-judges UI (all event categories). */
+export async function listAssignmentVehicleClasses(eventId: string) {
+  const rows = await prisma.eventCategory.findMany({
+    where: { eventId },
+    select: {
+      id: true,
+      customName: true,
+      category: { select: { name: true, sortOrder: true } },
+    },
+    orderBy: [{ createdAt: "asc" }],
+  });
+  return rows
+    .map((c) => ({
+      id: c.id,
+      name: c.customName?.trim() || c.category?.name || "Vehicle class",
+      sortOrder: c.category?.sortOrder ?? 0,
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+}
+
+/** Scorecard categories for the template linked to this vehicle class. */
 export async function listEventScorecardCategoriesForVehicleClass(
   eventId: string,
   eventCategoryId: string,
-): Promise<{
-  judgingClassId: string;
-  judgingClassName: string;
-  templateId: string;
-  templateName: string;
-  categories: EventScorecardCategoryOption[];
-}> {
+): Promise<EventScorecardCategoriesPayload> {
   const judgingClass = await prisma.eventJudgingClass.findFirst({
     where: {
       eventId,
@@ -122,19 +172,93 @@ export async function listEventScorecardCategoriesForVehicleClass(
       id: true,
       name: true,
       eventJudgingTemplateId: true,
-      template: { select: { id: true, name: true } },
+      template: {
+        select: {
+          id: true,
+          name: true,
+          sections: {
+            where: { isActive: true },
+            orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+            select: {
+              id: true,
+              name: true,
+              sortOrder: true,
+              maxSectionPoints: true,
+            },
+          },
+        },
+      },
     },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
+
   if (!judgingClass) {
-    throw new EventJudgeAssignmentError(
-      "NO_JUDGING_CLASS",
-      "No active judging class is mapped to this vehicle class.",
-    );
+    return {
+      judgingClassId: null,
+      judgingClassName: "Unassigned",
+      templateId: null,
+      templateName: "No score sheet for this vehicle class",
+      categories: [],
+    };
+  }
+
+  return {
+    judgingClassId: judgingClass.id,
+    judgingClassName: judgingClass.name,
+    templateId: judgingClass.template.id,
+    templateName: judgingClass.template.name,
+    categories: judgingClass.template.sections.map((s) => ({
+      sectionId: s.id,
+      name: s.name,
+      sortOrder: s.sortOrder,
+      maxSectionPoints: s.maxSectionPoints,
+    })),
+  };
+}
+
+export type EventScorecardCategoriesPayload = {
+  judgingClassId: string | null;
+  judgingClassName: string;
+  templateId: string | null;
+  templateName: string;
+  categories: EventScorecardCategoryOption[];
+};
+
+/** All active scorecard categories for the event (for vehicle registrations grid assign). */
+export async function listEventScorecardCategoriesForEvent(
+  eventId: string,
+): Promise<EventScorecardCategoriesPayload> {
+  const [judgingClasses, eventTemplates] = await Promise.all([
+    prisma.eventJudgingClass.findMany({
+      where: { eventId, isActive: true },
+      select: { eventJudgingTemplateId: true },
+    }),
+    prisma.eventJudgingTemplate.findMany({
+      where: { eventId },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const templateIds = [
+    ...new Set([
+      ...judgingClasses.map((j) => j.eventJudgingTemplateId),
+      ...eventTemplates.map((t) => t.id),
+    ]),
+  ];
+
+  if (templateIds.length === 0) {
+    return {
+      judgingClassId: null,
+      judgingClassName: "Event",
+      templateId: null,
+      templateName: "No scorecard template",
+      categories: [],
+    };
   }
 
   const sections = await prisma.eventJudgingSection.findMany({
-    where: { templateId: judgingClass.eventJudgingTemplateId, isActive: true },
-    orderBy: { sortOrder: "asc" },
+    where: { templateId: { in: templateIds }, isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
       name: true,
@@ -143,18 +267,40 @@ export async function listEventScorecardCategoriesForVehicleClass(
     },
   });
 
-  return {
-    judgingClassId: judgingClass.id,
-    judgingClassName: judgingClass.name,
-    templateId: judgingClass.template.id,
-    templateName: judgingClass.template.name,
-    categories: sections.map((s) => ({
+  const seen = new Set<string>();
+  const categories: EventScorecardCategoryOption[] = [];
+  for (const s of sections) {
+    if (seen.has(s.id)) continue;
+    seen.add(s.id);
+    categories.push({
       sectionId: s.id,
       name: s.name,
       sortOrder: s.sortOrder,
       maxSectionPoints: s.maxSectionPoints,
-    })),
+    });
+  }
+
+  const names = eventTemplates
+    .filter((t) => templateIds.includes(t.id))
+    .map((t) => t.name);
+  const templateName =
+    names.length === 1 ? names[0]! : `${names.length} scorecard templates`;
+
+  return {
+    judgingClassId: null,
+    judgingClassName: "All vehicle classes",
+    templateId: templateIds.length === 1 ? templateIds[0]! : null,
+    templateName,
+    categories,
   };
+}
+
+/** Categories for the scorecard template shared by the selected vehicles. */
+export async function listScorecardCategoriesForSelectedVehicles(
+  eventId: string,
+  _registrationVehicleIds: string[],
+): Promise<EventScorecardCategoriesPayload> {
+  return listEventScorecardCategoriesForEvent(eventId);
 }
 
 export async function listVehiclesForAssignment(
@@ -226,9 +372,36 @@ export async function listVehiclesForAssignment(
   }));
 }
 
+async function resolveJudgingClassForVehicleCategory(
+  eventId: string,
+  eventCategoryId: string | null,
+  templateId: string,
+): Promise<string | null> {
+  if (!eventCategoryId) {
+    throw new EventJudgeAssignmentError(
+      "MISSING_VEHICLE_CLASS",
+      "Vehicle is missing a registration class.",
+    );
+  }
+
+  const judgingClass = await prisma.eventJudgingClass.findFirst({
+    where: {
+      eventId,
+      isActive: true,
+      eventJudgingTemplateId: templateId,
+      eligibleCategories: { some: { eventCategoryId } },
+    },
+    select: { id: true },
+    orderBy: [{ sortOrder: "asc" }],
+  });
+
+  return judgingClass?.id ?? null;
+}
+
 async function resolveVehiclesForAssign(
   eventId: string,
   registrationVehicleIds: string[],
+  eventJudgingSectionIds: string[] = [],
 ): Promise<ResolvedVehicle[]> {
   if (registrationVehicleIds.length === 0) {
     throw new EventJudgeAssignmentError(
@@ -258,6 +431,11 @@ async function resolveVehiclesForAssign(
     );
   }
 
+  const { templateId } = await resolveScorecardForAssignment(
+    eventId,
+    eventJudgingSectionIds,
+  );
+
   const resolved: ResolvedVehicle[] = [];
   for (const row of rows) {
     if (!row.publicVehicleId) {
@@ -266,35 +444,27 @@ async function resolveVehiclesForAssign(
         "All selected vehicles need a public entry code.",
       );
     }
-    if (!row.eventCategoryId) {
+
+    const judgingClassId = await resolveJudgingClassForVehicleCategory(
+      eventId,
+      row.eventCategoryId,
+      templateId,
+    );
+    if (!judgingClassId) {
       throw new EventJudgeAssignmentError(
         "MISSING_VEHICLE_CLASS",
-        "All selected vehicles must have a vehicle class assigned.",
+        "One or more vehicles use a class that is not linked to this scorecard category’s template. Map the class under Awards & Judging → Score Sheet Templates.",
       );
     }
-    const judgingClass = await resolveJudgingClassForCategory(eventId, row.eventCategoryId);
-    if (!judgingClass) {
-      throw new EventJudgeAssignmentError(
-        "NO_JUDGING_CLASS",
-        "A selected vehicle has no judging class mapped for its vehicle class.",
-      );
-    }
+
     resolved.push({
       registrationVehicleId: row.id,
       vehicleEntryCode: row.publicVehicleId,
       registrationId: row.registrationId,
       eventCategoryId: row.eventCategoryId,
-      judgingClassId: judgingClass.id,
-      eventJudgingTemplateId: judgingClass.eventJudgingTemplateId,
+      judgingClassId,
+      eventJudgingTemplateId: templateId,
     });
-  }
-
-  const templateIds = new Set(resolved.map((r) => r.eventJudgingTemplateId));
-  if (templateIds.size > 1) {
-    throw new EventJudgeAssignmentError(
-      "MIXED_TEMPLATES",
-      "Select vehicles from one vehicle class at a time (they must share the same scorecard template).",
-    );
   }
 
   return resolved;
@@ -350,6 +520,7 @@ export async function previewJudgeCategoryAssignmentConflicts(input: {
   const vehicles = await resolveVehiclesForAssign(
     input.eventId,
     input.registrationVehicleIds,
+    input.eventJudgingSectionIds,
   );
   const templateId = vehicles[0]!.eventJudgingTemplateId;
   const sections = await assertSectionsForTemplate(
@@ -413,6 +584,7 @@ export async function assignJudgeToVehicleCategories(input: {
   const vehicles = await resolveVehiclesForAssign(
     input.eventId,
     input.registrationVehicleIds,
+    input.eventJudgingSectionIds,
   );
   const templateId = vehicles[0]!.eventJudgingTemplateId;
   await assertSectionsForTemplate(templateId, input.eventJudgingSectionIds);

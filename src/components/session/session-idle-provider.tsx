@@ -12,6 +12,7 @@ import {
   SESSION_ACTIVITY_CHANNEL,
   SESSION_ACTIVITY_STORAGE_KEY,
 } from "@/lib/session-idle-config";
+import { clearSessionActivityLocalStorage } from "@/lib/session-idle-client";
 import { getIdleTimeoutMs, getIdleWarningMs } from "@/lib/session-idle";
 import { SessionIdleWarningModal } from "@/components/session/session-idle-warning-modal";
 
@@ -60,6 +61,7 @@ export function SessionIdleProvider({
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastSyncAtRef = useRef(0);
   const syncInFlightRef = useRef(false);
+  const bootstrapAttemptedRef = useRef(false);
 
   const clearExpiryTimer = useCallback(() => {
     if (expiryTimerRef.current) {
@@ -71,6 +73,7 @@ export function SessionIdleProvider({
   const performIdleLogout = useCallback(async () => {
     clearExpiryTimer();
     setWarningOpen(false);
+    clearSessionActivityLocalStorage();
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
@@ -168,7 +171,39 @@ export function SessionIdleProvider({
         if (!res.ok) return;
         const data = (await res.json()) as SessionActivityState & {
           ok?: boolean;
+          cookieMissing?: boolean;
         };
+
+        if (data.cookieMissing || data.lastActivityAt == null) {
+          if (!bootstrapAttemptedRef.current) {
+            bootstrapAttemptedRef.current = true;
+            const bootstrap = await fetch("/api/auth/session-activity", {
+              method: "POST",
+              credentials: "same-origin",
+            });
+            if (bootstrap.status === 401) {
+              const bootData = (await bootstrap.json()) as {
+                sessionExpired?: boolean;
+              };
+              if (bootData.sessionExpired) {
+                await performIdleLogout();
+              }
+              return;
+            }
+            if (bootstrap.ok) {
+              const boot = (await bootstrap.json()) as SessionActivityState;
+              applyActivity(
+                boot.lastActivityAt ?? Date.now(),
+                boot.msUntilExpiry,
+              );
+              lastSyncAtRef.current = Date.now();
+            }
+          }
+          return;
+        }
+
+        bootstrapAttemptedRef.current = false;
+
         if (data.lastActivityAt) {
           applyActivity(data.lastActivityAt, data.msUntilExpiry);
         }
@@ -285,6 +320,7 @@ export function SessionIdleProvider({
 
     if (!sessionInitializedRef.current) {
       sessionInitializedRef.current = true;
+      applyActivityRef.current(activityRef.current);
       void syncFromServerRef.current({ force: true });
     }
 

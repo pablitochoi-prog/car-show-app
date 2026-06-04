@@ -5,7 +5,7 @@ export const PCA_ZONE8_TEMPLATE: GlobalTemplateSeed = {
   slug: "pca",
   name: "PCA Zone 8 Concours Starter",
   scoringGroup: "PCA",
-  vehicleType: "Auto",
+  vehicleType: "Concours",
   description:
     "Starter scorecard based on the provided PCA Zone 8 Concours score sheet sample. Event organizers should review and customize for their event.",
   methodology: "DEDUCTION",

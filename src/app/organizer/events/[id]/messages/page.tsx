@@ -6,7 +6,7 @@ import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { getEventStaffList } from "@/lib/event-staff";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { OrganizerMessagesClient } from "@/components/messages/organizer-messages-client";
-import { EventOrganizerNav } from "@/components/organizer/event-organizer-nav";
+import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 
@@ -69,7 +69,7 @@ export default async function OrganizerEventMessagesPage({
       </div>
 
       <div className="space-y-4">
-        <EventOrganizerNav eventId={eventId} active="messages" />
+        <EventOrganizerNavBar eventId={eventId} active="messages" user={user} />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">

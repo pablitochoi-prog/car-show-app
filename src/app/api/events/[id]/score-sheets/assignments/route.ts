@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
-import { canManageEvent, getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
+import { canManageVehicleRegistrations } from "@/lib/vehicle-registrations-auth";
 import {
   assertEventHasScorecardTemplate,
   assignJudgeToVehicleCategories,
   EventJudgeAssignmentError,
+  listAssignmentVehicleClasses,
   listEventAssigneeJudges,
+  listEventScorecardCategoriesForEvent,
   listEventScorecardCategoriesForVehicleClass,
+  listScorecardCategoriesForSelectedVehicles,
   listVehiclesForAssignment,
 } from "@/lib/judging/event-judge-category-assignment";
 
@@ -19,10 +22,9 @@ export async function GET(request: Request, { params }: RouteParams) {
   }
 
   const { id: eventId } = await params;
-  const allowed = await canManageEvent(
+  const allowed = await canManageVehicleRegistrations(
     user.id,
     eventId,
-    undefined,
     user.platformRole,
   );
   if (!allowed) {
@@ -31,40 +33,48 @@ export async function GET(request: Request, { params }: RouteParams) {
 
   const url = new URL(request.url);
   const eventCategoryId = url.searchParams.get("eventCategoryId")?.trim() || null;
+  const registrationVehicleIds = url.searchParams
+    .get("registrationVehicleIds")
+    ?.split(",")
+    .map((id) => id.trim())
+    .filter(Boolean) ?? [];
 
+  let templateWarning: string | null = null;
   try {
     await assertEventHasScorecardTemplate(eventId);
+  } catch (err) {
+    if (
+      err instanceof EventJudgeAssignmentError &&
+      err.code === "NO_TEMPLATE"
+    ) {
+      templateWarning = err.message;
+    } else if (err instanceof EventJudgeAssignmentError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+    } else {
+      throw err;
+    }
+  }
 
+  try {
     const judges = await listEventAssigneeJudges(eventId);
 
-    const vehicleClassesRaw = await prisma.eventCategory.findMany({
-      where: {
-        eventId,
-        judgingClassEligible: { eventJudgingClass: { isActive: true } },
-      },
-      select: {
-        id: true,
-        customName: true,
-        category: { select: { name: true, sortOrder: true } },
-      },
-      orderBy: [{ createdAt: "asc" }],
-    });
-    const vehicleClasses = vehicleClassesRaw
-      .map((c) => ({
-        id: c.id,
-        name: c.customName?.trim() || c.category?.name || "Vehicle class",
-        sortOrder: c.category?.sortOrder ?? 0,
-      }))
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    const vehicleClasses = await listAssignmentVehicleClasses(eventId);
 
     let scorecardCategories = null;
     let vehicles = null;
-    if (eventCategoryId) {
+    if (registrationVehicleIds.length > 0) {
+      scorecardCategories = await listScorecardCategoriesForSelectedVehicles(
+        eventId,
+        registrationVehicleIds,
+      );
+    } else if (eventCategoryId) {
       scorecardCategories = await listEventScorecardCategoriesForVehicleClass(
         eventId,
         eventCategoryId,
       );
       vehicles = await listVehiclesForAssignment(eventId, eventCategoryId);
+    } else {
+      scorecardCategories = await listEventScorecardCategoriesForEvent(eventId);
     }
 
     return NextResponse.json({
@@ -72,6 +82,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       vehicleClasses,
       scorecardCategories,
       vehicles,
+      templateWarning,
     });
   } catch (err) {
     if (err instanceof EventJudgeAssignmentError) {
@@ -89,10 +100,9 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const { id: eventId } = await params;
-  const allowed = await canManageEvent(
+  const allowed = await canManageVehicleRegistrations(
     user.id,
     eventId,
-    undefined,
     user.platformRole,
   );
   if (!allowed) {

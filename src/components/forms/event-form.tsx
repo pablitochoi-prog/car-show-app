@@ -20,6 +20,10 @@ import {
 } from "@/components/ui/card";
 import { Copy, Loader2, Minus, Plus, Search, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  hrefDashboardEvents,
+  hrefDashboardEventsManagingFlash,
+} from "@/lib/dashboard-events-url";
 import { UsPhoneInput } from "@/components/inputs/us-phone-input";
 import { CurrencyDollarsInput } from "@/components/inputs/currency-dollars-input";
 import { splitLegacyContact } from "@/lib/contact-display";
@@ -291,7 +295,7 @@ function FormPrimaryActions({
   return (
     <div className="flex flex-wrap items-center gap-3">
       <Link
-        href="/dashboard/events"
+        href={hrefDashboardEvents("managing", 1)}
         className={cn(
           buttonVariants({ variant: "outline" }),
           "min-w-[10rem] inline-flex justify-center"
@@ -1048,9 +1052,9 @@ export function EventForm({
       }
 
       if (isEdit && initial) {
-        window.location.assign("/dashboard/events?updated=1");
+        window.location.assign(hrefDashboardEventsManagingFlash("updated"));
       } else {
-        window.location.assign("/dashboard/events?created=1");
+        window.location.assign(hrefDashboardEventsManagingFlash("created"));
       }
     } catch {
       setError("Something went wrong.");
@@ -1082,7 +1086,7 @@ export function EventForm({
         setArchiveDialogOpen(false);
         return;
       }
-      window.location.assign("/dashboard/events?archived=1");
+      window.location.assign(hrefDashboardEventsManagingFlash("archived"));
     } catch {
       setError("Something went wrong.");
       setArchiveDialogOpen(false);
@@ -1143,7 +1147,7 @@ export function EventForm({
         setDeleteDialogOpen(false);
         return;
       }
-      window.location.assign("/dashboard/events?deleted=1");
+      window.location.assign(hrefDashboardEventsManagingFlash("deleted"));
     } catch {
       setError("Something went wrong.");
       setDeleteDialogOpen(false);

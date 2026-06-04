@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { JudgeAssignedScorecardScreen } from "@/components/judge/judge-assigned-scorecard-screen";
 
 type Props = { params: Promise<{ id: string; sheetId: string }> };
@@ -14,7 +15,13 @@ export default async function JudgeScoreSheetDetailPage({ params }: Props) {
       >
         Back to score sheets
       </Link>
-      <JudgeAssignedScorecardScreen eventId={eventId} sheetId={sheetId} />
+      <Suspense
+        fallback={
+          <p className="py-12 text-sm text-muted-foreground">Loading score sheet…</p>
+        }
+      >
+        <JudgeAssignedScorecardScreen eventId={eventId} sheetId={sheetId} />
+      </Suspense>
     </div>
   );
 }

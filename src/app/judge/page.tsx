@@ -17,7 +17,7 @@ export default function JudgeAssignmentsPage() {
           My Judging
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Judge ballot awards and assigned scorecard categories — select an event
+          Judge ballot voting and assigned scorecard categories — select an event
         </p>
       </div>
       <JudgeAssignmentsList />

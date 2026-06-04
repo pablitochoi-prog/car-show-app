@@ -41,31 +41,20 @@ export default async function StripeReturnPage({ searchParams }: Props) {
 
   let sync: Awaited<ReturnType<typeof syncAccountStatus>>["sync"] | null = null;
 
-  if (stripeParam) {
-    sync = {
-      stripeAccountStatus: updated.stripeAccountStatus,
-      stripeChargesEnabled: updated.stripeChargesEnabled,
-      stripePayoutsEnabled: updated.stripePayoutsEnabled,
-      stripeDetailsSubmitted: updated.stripeDetailsSubmitted,
-      pendingReview:
-        updated.stripeDetailsSubmitted &&
-        !updated.stripeChargesEnabled &&
-        updated.stripeAccountStatus !== "RESTRICTED" &&
-        updated.stripeAccountStatus !== "DISABLED",
-      requirementsCurrentlyDue: [],
-      requirementsPastDue: [],
-    };
-  } else {
+  try {
     const result = await syncAccountStatus(updated.stripeAccountId);
     updated = result.org;
     sync = result.sync;
+  } catch (err) {
+    console.error("[StripeReturnPage] sync failed", err);
   }
 
   const isComplete =
     updated.stripeChargesEnabled && updated.stripeDetailsSubmitted;
   const pendingReview =
-    sync?.pendingReview ?? stripeParam === "pending";
+    sync?.pendingReview ?? (stripeParam === "pending" && !isComplete);
   const needsMoreInfo = (sync?.requirementsCurrentlyDue.length ?? 0) > 0;
+  const requirementsCurrentlyDue = sync?.requirementsCurrentlyDue ?? [];
 
   return (
     <div className="page-shell flex min-h-[50vh] items-start justify-center pt-12">
@@ -142,7 +131,7 @@ export default async function StripeReturnPage({ searchParams }: Props) {
                 Still required
               </p>
               <ul className="mt-1 list-inside list-disc text-muted-foreground">
-                {sync.requirementsCurrentlyDue.slice(0, 5).map((req) => (
+                {requirementsCurrentlyDue.slice(0, 5).map((req) => (
                   <li key={req} className="text-xs">
                     {req.replace(/_/g, " ")}
                   </li>

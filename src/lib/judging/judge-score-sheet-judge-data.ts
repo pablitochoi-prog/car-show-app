@@ -18,6 +18,7 @@ const JUDGE_SCORE_SHEET_ACCESS_ERROR_CODES = new Set([
   "MISSING_CLASS",
   "NOT_ELIGIBLE",
   "CLASS_MISMATCH",
+  "JUDGING_CLOSED",
 ]);
 
 export class JudgeScoreSheetAccessError extends Error {

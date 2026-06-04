@@ -19,7 +19,12 @@ import {
 } from "@/lib/step-up-session";
 import { writeStepUpAuditLog } from "@/lib/step-up-audit";
 
-const STAFF_STEP_UP_ROLES = new Set(["ORGANIZER", "REGISTRAR", "TREASURER"]);
+const STAFF_STEP_UP_ROLES = new Set([
+  "ORGANIZER",
+  "REGISTRAR",
+  "TREASURER",
+  "HEAD_JUDGE",
+]);
 
 /** Site admins satisfy sensitive access via AAL2 only — never email OTP. */
 export async function adminSensitiveAccessSatisfied(

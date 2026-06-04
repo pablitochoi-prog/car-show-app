@@ -6,6 +6,8 @@ import { Download, Loader2 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { ScoreSheetJudgingPeriodControls } from "@/components/organizer/awards-judging/score-sheet-judging-period-controls";
+import type { ScoreSheetJudgingPeriodSnapshot } from "@/lib/judging/score-sheet-judging-period";
 import type {
   ScoreSheetClassResults,
   ScoreSheetResultRow,
@@ -115,7 +117,20 @@ function ResultRow({
         <td className="py-2 pr-3 align-top">{row.vehicleClass}</td>
         <td className="py-2 pr-3 align-top">{row.ownerName ?? "—"}</td>
         <td className="py-2 pr-3 align-top font-medium">
-          {row.officialScore != null ? row.officialScore : "—"}
+          {row.officialScore != null ? (
+            <>
+              {row.officialScore}
+              {row.rank == null &&
+              row.draftCount > 0 &&
+              row.submittedCount === 0 ? (
+                <span className="ml-1 text-xs font-normal text-amber-700 dark:text-amber-400">
+                  (interim)
+                </span>
+              ) : null}
+            </>
+          ) : (
+            "—"
+          )}
         </td>
         <td className="py-2 pr-3 align-top">{row.judgeCount || "—"}</td>
         <td className="py-2 pr-3 align-top">
@@ -163,7 +178,15 @@ function ResultRow({
   );
 }
 
-export function ScoreSheetResultsAdmin({ eventId }: { eventId: string }) {
+export function ScoreSheetResultsAdmin({
+  eventId,
+  initialJudgingPeriod = null,
+  initialJudgingPeriodError = null,
+}: {
+  eventId: string;
+  initialJudgingPeriod?: ScoreSheetJudgingPeriodSnapshot | null;
+  initialJudgingPeriodError?: string | null;
+}) {
   const [classes, setClasses] = useState<JudgingClassOption[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [results, setResults] = useState<ScoreSheetClassResults | null>(null);
@@ -244,21 +267,40 @@ export function ScoreSheetResultsAdmin({ eventId }: { eventId: string }) {
 
   if (classes.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No active judging classes. Configure classes on the{" "}
-        <Link
-          href={`/organizer/events/${eventId}/awards-judging/score-sheets`}
-          className="font-medium text-primary underline-offset-4 hover:underline"
-        >
-          Score Sheet setup
-        </Link>{" "}
-        page first.
-      </p>
+      <div className="space-y-4">
+        <ScoreSheetJudgingPeriodControls
+          eventId={eventId}
+          initialPeriod={initialJudgingPeriod}
+          initialLoadError={initialJudgingPeriodError}
+        />
+        <p className="text-sm text-muted-foreground">
+          No active judging classes. Configure classes on the{" "}
+          <Link
+            href={`/organizer/events/${eventId}/awards-judging/score-sheets`}
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Score Sheet setup
+          </Link>{" "}
+          page first.
+        </p>
+      </div>
     );
   }
 
+  const refreshResults = () => {
+    if (selectedClassId) void loadResults(selectedClassId);
+  };
+
   return (
     <div className="space-y-6">
+      <ScoreSheetJudgingPeriodControls
+        eventId={eventId}
+        initialPeriod={initialJudgingPeriod}
+        initialLoadError={initialJudgingPeriodError}
+        onPeriodChange={refreshResults}
+        layout="banner"
+      />
+
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[12rem] flex-1">
           <label htmlFor="judging-class" className="text-sm font-medium">
@@ -314,7 +356,7 @@ export function ScoreSheetResultsAdmin({ eventId }: { eventId: string }) {
               </span>
             </p>
             <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
-              <li>{results.summary.eligibleVehicleCount} eligible vehicles</li>
+              <li>{results.summary.eligibleVehicleCount} vehicles with score sheets</li>
               <li>{results.summary.rankedVehicleCount} ranked</li>
               <li>{results.summary.draftSheetCount} draft sheets</li>
               <li>{results.summary.submittedSheetCount} submitted</li>
@@ -340,7 +382,13 @@ export function ScoreSheetResultsAdmin({ eventId }: { eventId: string }) {
 
           {results.unrankedDraftOnly.length > 0 ? (
             <div className="space-y-2">
-              <h2 className="text-lg font-semibold">Draft only (unranked)</h2>
+              <h2 className="text-lg font-semibold">
+                In progress / save for later (unranked)
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Interim scores from draft score sheets. Official rankings use
+                submitted sheets only.
+              </p>
               <ResultsTable
                 eventId={eventId}
                 judgingClassId={selectedClassId}

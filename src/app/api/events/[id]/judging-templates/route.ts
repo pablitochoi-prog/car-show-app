@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import { canManageEvent, getCurrentUser } from "@/lib/auth";
+import { listEventJudgingTemplatesForOrganizer } from "@/lib/judging/event-judging-template-setup";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -21,14 +21,6 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const templates = await prisma.eventJudgingTemplate.findMany({
-    where: { eventId },
-    orderBy: { createdAt: "asc" },
-    include: {
-      sourceTemplate: { select: { id: true, slug: true, name: true } },
-      _count: { select: { sections: true, scoreSheets: true } },
-    },
-  });
-
+  const templates = await listEventJudgingTemplatesForOrganizer(eventId);
   return NextResponse.json({ templates });
 }

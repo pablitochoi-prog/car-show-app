@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { StaffMember } from "@/lib/event-staff";
 import type { RoleDefinitionOption } from "@/components/forms/staff-role-multi-select";
@@ -63,6 +63,25 @@ export function EventStaffManager({
   const [transferEmail, setTransferEmail] = useState("");
   const [transferBusy, setTransferBusy] = useState(false);
 
+  const refreshRoleDefinitions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/staff/roles`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { roles?: RoleDefinitionOption[] };
+      if (Array.isArray(data.roles) && data.roles.length > 0) {
+        setRoleDefinitions(data.roles);
+      }
+    } catch {
+      // Keep SSR seed if refresh fails
+    }
+  }, [eventId]);
+
+  useEffect(() => {
+    void refreshRoleDefinitions();
+  }, [refreshRoleDefinitions]);
+
   function resetFormDefaults() {
     setFirstName("");
     setLastName("");
@@ -76,9 +95,10 @@ export function EventStaffManager({
     );
   }
 
-  function openAddSheet() {
+  async function openAddSheet() {
     setSheetMode("add");
     setEditUserId(null);
+    await refreshRoleDefinitions();
     resetFormDefaults();
     setSheetOpen(true);
   }
@@ -93,6 +113,7 @@ export function EventStaffManager({
     setSelectedRoleIds(member.roles.map((r) => r.id));
     setError(null);
     setSuccess(null);
+    void refreshRoleDefinitions();
     setSheetOpen(true);
   }
 
@@ -301,7 +322,7 @@ export function EventStaffManager({
           onClick={() => {
             setError(null);
             setSuccess(null);
-            openAddSheet();
+            void openAddSheet();
           }}
         >
           <Plus className="size-4" aria-hidden />

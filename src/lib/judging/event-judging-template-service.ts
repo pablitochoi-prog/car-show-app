@@ -8,6 +8,8 @@ import type {
 import { validateEventJudgingTemplateStructure } from "@/lib/judging/event-judging-template-validation";
 import { formatScorecardValidationError } from "@/lib/judging/scorecard-template-validation";
 import { validateStructurePayload } from "@/lib/judging/scorecard-template-mapper";
+import { syncJudgingClassNameForTemplate } from "@/lib/judging/event-judging-template-setup";
+import { syncEventJudgingTemplateStructure } from "@/lib/judging/sync-event-judging-template-structure";
 
 export const eventJudgingTemplateInclude = {
   sourceTemplate: { select: { id: true, slug: true, name: true } },
@@ -113,7 +115,7 @@ export async function updateEventJudgingTemplateMetadata(input: {
     throw new Error("Cannot switch an event template to originality/condition scoring.");
   }
 
-  return prisma.eventJudgingTemplate.update({
+  const updated = await prisma.eventJudgingTemplate.update({
     where: { id: input.templateId },
     data: {
       ...(input.name != null ? { name: input.name.trim() } : {}),
@@ -129,79 +131,16 @@ export async function updateEventJudgingTemplateMetadata(input: {
     },
     include: eventJudgingTemplateInclude,
   });
-}
 
-async function replaceTemplateStructure(
-  templateId: string,
-  sections: TemplateSectionInput[],
-) {
-  await prisma.$transaction(async (tx) => {
-    const sectionIds = (
-      await tx.eventJudgingSection.findMany({
-        where: { templateId },
-        select: { id: true },
-      })
-    ).map((s) => s.id);
+  if (input.name != null) {
+    await syncJudgingClassNameForTemplate(
+      input.eventId,
+      input.templateId,
+      input.name,
+    );
+  }
 
-    if (sectionIds.length > 0) {
-      const itemIds = (
-        await tx.eventJudgingItem.findMany({
-          where: { sectionId: { in: sectionIds } },
-          select: { id: true },
-        })
-      ).map((i) => i.id);
-
-      if (itemIds.length > 0) {
-        await tx.eventJudgingDeductionOption.deleteMany({
-          where: { itemId: { in: itemIds } },
-        });
-        await tx.eventJudgingItem.deleteMany({ where: { id: { in: itemIds } } });
-      }
-      await tx.eventJudgingSection.deleteMany({ where: { templateId } });
-    }
-
-    for (const section of sections) {
-      await tx.eventJudgingSection.create({
-        data: {
-          templateId,
-          name: section.name.trim(),
-          sortOrder: section.sortOrder,
-          weightPercent: section.weightPercent ?? null,
-          maxSectionPoints: section.maxSectionPoints ?? null,
-          judgeGuidance: section.judgeGuidance ?? null,
-          isActive: section.isActive !== false,
-          items: {
-            create: section.items.map((item) => ({
-              label: item.label.trim(),
-              sortOrder: item.sortOrder,
-              maxPoints: item.maxPoints,
-              isIndented: item.isIndented ?? false,
-              pointType: item.pointType ?? null,
-              scoringType: item.scoringType ?? "LEVELS",
-              allowMultipleViolations:
-                item.scoringType === "DISCRETIONARY"
-                  ? false
-                  : (item.allowMultipleViolations ?? false),
-              judgeGuidance: item.judgeGuidance ?? null,
-              requiresCommentOnDeduction: item.requiresCommentOnDeduction ?? false,
-              isActive: item.isActive !== false,
-              deductionOptions: {
-                create: (item.scoringType === "DISCRETIONARY"
-                  ? []
-                  : item.deductionOptions
-                ).map((opt) => ({
-                  label: opt.label.trim(),
-                  pointsDeducted: opt.pointsDeducted,
-                  sortOrder: opt.sortOrder,
-                  deductionBucket: opt.deductionBucket ?? null,
-                })),
-              },
-            })),
-          },
-        },
-      });
-    }
-  });
+  return updated;
 }
 
 export async function updateEventJudgingTemplateStructure(input: {
@@ -257,7 +196,7 @@ export async function updateEventJudgingTemplateStructure(input: {
     },
   });
 
-  await replaceTemplateStructure(input.templateId, input.sections);
+  await syncEventJudgingTemplateStructure(input.templateId, input.sections);
   return { warnings };
 }
 
