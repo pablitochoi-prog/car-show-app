@@ -1358,6 +1358,34 @@ Three **separate** award workflows (additive, no breaking changes):
 - [x] Auto-save via existing PUT votes endpoint; read-only when CLOSED/FINALIZED
 - [x] Client + integration tests
 
+### Phase Ballot Special Judge — schema, auth, mobile vehicle ballot
+- [x] `special_judge` event staff role (builtin default)
+- [x] `requiresSpecialJudge` + `JudgeBallotSpecialJudge` on ballot categories
+- [x] `JudgeBallotVoteStatus` (DRAFT/SUBMITTED) + `starRating` on votes
+- [x] Max votes per judge per category (default 10) on organizer ballot config
+- [x] Server-side authorization for normal vs Special Judge categories
+- [x] Mobile vehicle ballot: `/judge/events/[id]/ballot/vote?code=` (up to 5 categories, 1–5 stars, Save for Later / Submit)
+- [x] My Judging: Vehicle ID + Vote quick entry per event
+- [x] Unit tests `judge-ballot-special-judge.test.ts`
+
+#### Phase Ballot Special Judge — manual QA checklist
+- [ ] Add Special Judge staff member on event staffing
+- [ ] Create President's Choice (or similar) ballot award category
+- [ ] Mark category as Special Judge; assign one or more Special Judges
+- [ ] Set max votes per judge to 10 (default); save limit on OPEN category if needed
+- [ ] Normal judge: category hidden / cannot vote (API returns forbidden)
+- [ ] Assigned Special Judge: can see and vote for that category
+- [ ] Special Judge cannot exceed 10 votes for that category (error message shown)
+- [ ] Special Judge can still vote other assigned/eligible categories within their limits
+- [ ] My Judging → Enter Vehicle ID → Vote navigates to mobile ballot page
+- [ ] Invalid vehicle ID shows clear error
+- [ ] Select up to 5 categories; sixth selection blocked with message
+- [ ] Selected category defaults to 1 star; can set 1–5 stars
+- [ ] Save for Later persists draft; Submit finalizes
+- [ ] Organizer ballot results reflect submitted votes only
+- [ ] Existing non-special ballot voting still works
+- [ ] Scorecard judging (Phase 5A–5E) unchanged
+
 ### Phase 2D — Structured Score Sheet Organizer UI
 - [x] `/organizer/events/[id]/awards-judging/score-sheets` — template builder UI
 - [x] Clone global templates → event `EventJudgingTemplate`
