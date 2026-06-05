@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
   PendingLink,
@@ -7,7 +8,7 @@ import {
   usePendingNav,
 } from "@/components/navigation/pending-navigation";
 import {
-  EVENT_REPORT_TYPES,
+  navigableReportTypes,
   type EventReportTypeId,
 } from "@/lib/event-reports/report-types";
 
@@ -16,38 +17,43 @@ type Props = {
   activeReport: EventReportTypeId;
 };
 
-const tabClassName =
-  "flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-center text-sm transition-colors";
-
 export function EventReportsNav({ eventId, activeReport }: Props) {
+  const tabs = navigableReportTypes();
+
   return (
     <nav
-      className="flex gap-2 overflow-x-auto rounded-lg border bg-card p-2"
+      className="grid gap-1.5 rounded-lg border bg-card p-1.5 [grid-template-columns:repeat(auto-fit,minmax(6.5rem,1fr))]"
       aria-label="Report types"
     >
-      {EVENT_REPORT_TYPES.map((report) => {
+      <PendingLink
+        href={`/organizer/events/${eventId}/reports?report=home`}
+        scroll={false}
+        aria-current={activeReport === "home" ? "page" : undefined}
+        className={cn(
+          "flex min-h-10 flex-col items-center justify-center rounded-md px-1 py-1.5 text-center text-[0.7rem] leading-snug font-medium transition-colors sm:text-xs",
+          activeReport === "home"
+            ? "bg-primary text-primary-foreground"
+            : "border border-border bg-background hover:bg-muted",
+        )}
+      >
+        <ReportTabLabel label="All" />
+      </PendingLink>
+      {tabs.map((report) => {
         const isActive = report.id === activeReport;
+        const href = `/organizer/events/${eventId}/reports?report=${report.id}`;
 
-        if (!report.available) {
+        if (report.comingSoon) {
           return (
             <div
               key={report.id}
-              className={cn(
-                tabClassName,
-                "flex-col gap-0.5 border border-dashed opacity-50",
-              )}
-              aria-disabled="true"
-              title="Coming soon"
+              className="flex min-h-10 flex-col items-center justify-center rounded-md border border-dashed px-1 py-1.5 text-center text-[0.65rem] leading-snug opacity-60"
+              title={report.comingSoonNote ?? "Coming soon"}
             >
-              <span className="font-medium leading-tight">{report.label}</span>
-              <span className="text-xs leading-tight text-muted-foreground">
-                Coming soon
-              </span>
+              <span>{report.label}</span>
+              <span className="text-[0.6rem] text-muted-foreground">Soon</span>
             </div>
           );
         }
-
-        const href = `/organizer/events/${eventId}/reports?report=${report.id}`;
 
         return (
           <PendingLink
@@ -56,10 +62,10 @@ export function EventReportsNav({ eventId, activeReport }: Props) {
             scroll={false}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              tabClassName,
+              "flex min-h-10 flex-col items-center justify-center rounded-md px-1 py-1.5 text-center text-[0.7rem] leading-snug font-medium transition-colors sm:text-xs",
               isActive
-                ? "bg-primary font-medium text-primary-foreground"
-                : "border border-border bg-background font-medium hover:bg-muted",
+                ? "bg-primary text-primary-foreground"
+                : "border border-border bg-background hover:bg-muted",
             )}
           >
             <ReportTabLabel label={report.label} />
@@ -74,9 +80,9 @@ function ReportTabLabel({ label }: { label: string }) {
   const navigating = usePendingNav();
 
   return (
-    <span className="flex items-center justify-center gap-1.5 leading-tight">
-      {navigating && <PendingNavSpinner className="size-3.5" />}
-      {label}
+    <span className="flex items-center justify-center gap-1">
+      {navigating && <PendingNavSpinner className="size-3 shrink-0" />}
+      <span>{label}</span>
     </span>
   );
 }

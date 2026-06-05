@@ -4,20 +4,23 @@ import {
   registrationTierWriteSchema,
 } from "@/lib/validation/registration";
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 describe("registrationTierPatchSchema", () => {
   it("accepts a future tier window on PATCH", () => {
+    const now = Date.now();
     const result = registrationTierPatchSchema.safeParse({
       name: "Early Bird",
       priceCents: 2000,
-      opensAt: "2026-06-01T22:15:00.000Z",
-      closesAt: "2026-06-13T07:00:00.000Z",
+      opensAt: new Date(now + 30 * MS_PER_DAY).toISOString(),
+      closesAt: new Date(now + 60 * MS_PER_DAY).toISOString(),
     });
     expect(result.success).toBe(true);
   });
 
   it("rejects past tier open dates", () => {
     const result = registrationTierPatchSchema.safeParse({
-      opensAt: "2020-01-01T12:00:00.000Z",
+      opensAt: new Date(Date.now() - 365 * MS_PER_DAY).toISOString(),
     });
     expect(result.success).toBe(false);
     if (!result.success) {

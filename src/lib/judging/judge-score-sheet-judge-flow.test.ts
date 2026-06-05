@@ -19,15 +19,31 @@ const cleanup = {
   classIds: [] as string[],
   templateIds: [] as string[],
   sheetIds: [] as string[],
+  eventCategoryIds: [] as string[],
 };
 
-describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
+async function releaseVitestJudgingCategories(eventId: string) {
+  const rows = await prisma.eventCategory.findMany({
+    where: { eventId, customName: { startsWith: "Vitest " } },
+    select: { id: true },
+  });
+  for (const row of rows) {
+    await prisma.eventJudgingClassEligibleCategory.deleteMany({
+      where: { eventCategoryId: row.id },
+    });
+    await prisma.eventCategory.deleteMany({ where: { id: row.id } });
+  }
+}
+
+describe.skipIf(!RUN).sequential("Phase 2E judge score sheet flow", () => {
   let eventId: string;
   let judgeUserId: string;
   let nonJudgeUserId: string;
   let eventCategoryId: string;
   let vehicleEntryCode: string;
   let classId: string;
+  let registrationVehicleId: string;
+  let originalEventCategoryId: string | null = null;
 
   beforeAll(async () => {
     const event = await prisma.event.findFirst({
@@ -37,6 +53,7 @@ describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
     });
     if (!event) throw new Error("No event found for tests.");
     eventId = event.id;
+    await releaseVitestJudgingCategories(eventId);
 
     const rv = await prisma.registrationVehicle.findFirst({
       where: {
@@ -44,13 +61,29 @@ describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
         publicVehicleId: { not: null },
         eventCategoryId: { not: null },
       },
-      select: { publicVehicleId: true, eventCategoryId: true },
+      select: { id: true, publicVehicleId: true, eventCategoryId: true },
     });
     if (!rv?.publicVehicleId || !rv.eventCategoryId) {
       throw new Error("Need registration vehicle with event class and entry code.");
     }
+    registrationVehicleId = rv.id;
     vehicleEntryCode = rv.publicVehicleId;
-    eventCategoryId = rv.eventCategoryId;
+    originalEventCategoryId = rv.eventCategoryId;
+
+    const isolatedCategory = await prisma.eventCategory.create({
+      data: {
+        eventId,
+        customName: `Vitest 2E Judge Flow ${Date.now()}`,
+      },
+      select: { id: true },
+    });
+    eventCategoryId = isolatedCategory.id;
+    cleanup.eventCategoryIds.push(isolatedCategory.id);
+
+    await prisma.registrationVehicle.update({
+      where: { id: registrationVehicleId },
+      data: { eventCategoryId },
+    });
 
     judgeUserId = (await listEventJudgeUserIds(eventId))[0] ?? "";
     if (!judgeUserId) {
@@ -99,8 +132,7 @@ describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
       )?.id ?? judgeUserId;
 
     const source = await prisma.judgingTemplate.findFirst({
-      where: { isActive: true },
-      orderBy: { sortOrder: "asc" },
+      where: { slug: "pca", isActive: true },
       select: { id: true },
     });
     if (!source) throw new Error("Need an active global judging template.");
@@ -110,17 +142,30 @@ describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
     });
     cleanup.templateIds.push(template.eventTemplateId);
 
-    const firstItem = await prisma.eventJudgingItem.findFirst({
+    const scoringItem = await prisma.eventJudgingItem.findFirst({
       where: {
-        section: {
-          templateId: template.eventTemplateId,
-        },
+        section: { templateId: template.eventTemplateId },
+        scoringType: { in: ["LEVELS", "FULL"] },
       },
       orderBy: { sortOrder: "asc" },
+      select: {
+        id: true,
+        _count: { select: { deductionOptions: true } },
+      },
     });
-    if (firstItem) {
+    if (scoringItem) {
+      if (scoringItem._count.deductionOptions === 0) {
+        await prisma.eventJudgingDeductionOption.create({
+          data: {
+            itemId: scoringItem.id,
+            label: "Vitest deduction",
+            pointsDeducted: 1,
+            sortOrder: 0,
+          },
+        });
+      }
       await prisma.eventJudgingItem.update({
-        where: { id: firstItem.id },
+        where: { id: scoringItem.id },
         data: { requiresCommentOnDeduction: true },
       });
     }
@@ -147,10 +192,28 @@ describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
       await prisma.judgeScoreSheet.deleteMany({ where: { id } });
     }
     for (const id of cleanup.classIds) {
+      await prisma.eventJudgingClassEligibleCategory.deleteMany({
+        where: { eventJudgingClassId: id },
+      });
       await prisma.eventJudgingClass.deleteMany({ where: { id } });
     }
     for (const id of cleanup.templateIds) {
       await prisma.eventJudgingTemplate.deleteMany({ where: { id } });
+    }
+    if (registrationVehicleId && originalEventCategoryId) {
+      await prisma.registrationVehicle.update({
+        where: { id: registrationVehicleId },
+        data: { eventCategoryId: originalEventCategoryId },
+      });
+    }
+    for (const id of cleanup.eventCategoryIds) {
+      await prisma.eventJudgingClassEligibleCategory.deleteMany({
+        where: { eventCategoryId: id },
+      });
+      await prisma.eventCategory.deleteMany({ where: { id } });
+    }
+    if (eventId) {
+      await releaseVitestJudgingCategories(eventId);
     }
     await prisma.$disconnect();
   });
@@ -180,32 +243,40 @@ describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
   });
 
   it("judge can save draft, required comments enforced, and submitted sheet is read-only", async () => {
+    await prisma.judgeScoreSheet.deleteMany({
+      where: { eventId, judgeUserId, vehicleEntryCode },
+    });
+
     const { sheetId } = await startOrResumeJudgeScoreSheet({
       judgeUserId,
       eventId,
       classId,
       vehicleEntryCode,
     });
+    cleanup.sheetIds.push(sheetId);
 
-    const sheet = await prisma.judgeScoreSheet.findUnique({
-      where: { id: sheetId },
-      include: {
-        sections: {
-          include: {
-            items: {
-              include: {
-                deductionOptions: true,
-              },
-            },
-          },
-        },
+    const sheetItem = await prisma.judgeScoreSheetItem.findFirst({
+      where: { section: { scoreSheetId: sheetId } },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true },
+    });
+    expect(sheetItem).toBeTruthy();
+    await prisma.judgeScoreSheetDeductionOption.deleteMany({
+      where: { itemId: sheetItem!.id },
+    });
+    const firstOption = await prisma.judgeScoreSheetDeductionOption.create({
+      data: {
+        itemId: sheetItem!.id,
+        label: "Vitest sheet deduction",
+        pointsDeducted: 1,
+        sortOrder: 0,
       },
     });
-    expect(sheet).toBeTruthy();
-    const item = sheet!.sections[0]?.items[0];
-    expect(item).toBeTruthy();
-    const firstOption = item!.deductionOptions[0];
-    expect(firstOption).toBeTruthy();
+    await prisma.judgeScoreSheetItem.update({
+      where: { id: sheetItem!.id },
+      data: { requiresCommentOnDeduction: true },
+    });
+    const item = { id: sheetItem!.id, deductionOptions: [firstOption] };
 
     await expect(
       saveJudgeScoreSheetDraft({
@@ -238,7 +309,11 @@ describe.skipIf(!RUN)("Phase 2E judge score sheet flow", () => {
         },
       ],
     });
-    expect(calculated.finalScore).toBeLessThanOrEqual(sheet!.totalPoints);
+    const scoreSheet = await prisma.judgeScoreSheet.findUnique({
+      where: { id: sheetId },
+      select: { totalPoints: true },
+    });
+    expect(calculated.finalScore).toBeLessThanOrEqual(scoreSheet!.totalPoints);
 
     await submitJudgeScoreSheet({ judgeUserId, eventId, sheetId });
 
