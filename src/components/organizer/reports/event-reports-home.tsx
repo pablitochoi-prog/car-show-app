@@ -4,11 +4,14 @@ import {
   EVENT_REPORT_GROUPS,
   getReportsHomeSummary,
   reportsByGroup,
+  reportsForHomeCardsForEvent,
   type EventReportDefinition,
+  type EventReportVotingSetup,
 } from "@/lib/event-reports/report-types";
 
 type Props = {
   eventId: string;
+  votingSetup: EventReportVotingSetup;
 };
 
 function ReportCapabilityBadges({ report }: { report: EventReportDefinition }) {
@@ -88,8 +91,10 @@ function ReportCard({
   );
 }
 
-export function EventReportsHome({ eventId }: Props) {
-  const summary = getReportsHomeSummary();
+export function EventReportsHome({ eventId, votingSetup }: Props) {
+  const visibleReports = reportsForHomeCardsForEvent(votingSetup);
+  const visibleIds = new Set(visibleReports.map((r) => r.id));
+  const summary = getReportsHomeSummary(visibleReports);
 
   return (
     <div className="space-y-8">
@@ -129,7 +134,9 @@ export function EventReportsHome({ eventId }: Props) {
       </div>
 
       {EVENT_REPORT_GROUPS.map((group) => {
-        const cards = reportsByGroup(group.id);
+        const cards = reportsByGroup(group.id).filter((r) =>
+          visibleIds.has(r.id),
+        );
         if (cards.length === 0) return null;
         return (
           <section key={group.id} className="space-y-3">

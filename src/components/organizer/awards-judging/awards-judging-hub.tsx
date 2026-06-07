@@ -17,7 +17,17 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 import { EventVotingControls } from "@/components/organizer/awards-judging/event-voting-controls";
+import { EventVotingEnabledTag } from "@/components/organizer/awards-judging/event-voting-enabled-tag";
+import { ReportVotingStatusTag } from "@/components/organizer/reports/report-voting-status-tag";
 import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control";
+import {
+  ballotVotingReportStatus,
+  isVotingMethodEnabledForEvent,
+  publicVotingReportStatus,
+  scoreSheetReportStatus,
+  type EventVotingMethodId,
+  type ReportVotingMethodStatus,
+} from "@/lib/event-reports/voting-method-status";
 
 export type AwardsJudgingHubStats = {
   publicVotingEnabled: boolean;
@@ -76,6 +86,31 @@ const TILES: JudgingHubTile[] = [
     icon: ClipboardCheck,
   },
 ];
+
+function tileEnabledForEvent(
+  tileId: JudgingHubTile["id"],
+  snapshot: EventVotingControlSnapshot | null,
+): boolean {
+  if (!snapshot) return false;
+  return isVotingMethodEnabledForEvent(tileId as EventVotingMethodId, snapshot);
+}
+
+function tileVotingStatus(
+  tileId: JudgingHubTile["id"],
+  snapshot: EventVotingControlSnapshot | null,
+): ReportVotingMethodStatus {
+  if (!snapshot) return "not_started";
+  switch (tileId) {
+    case "public-voting":
+      return publicVotingReportStatus(snapshot.publicVoting);
+    case "judge-ballot":
+      return ballotVotingReportStatus(snapshot.ballot);
+    case "score-sheets":
+      return scoreSheetReportStatus(snapshot.scoreSheet);
+    default:
+      return "not_started";
+  }
+}
 
 function tileBadge(
   tileId: JudgingHubTile["id"],
@@ -165,15 +200,30 @@ export function AwardsJudgingHub({
         {TILES.map((tile) => {
           const Icon = tile.icon;
           const badge = tileBadge(tile.id, stats);
+          const votingStatus = tileVotingStatus(tile.id, initialVotingSnapshot);
+          const enabledForEvent = tileEnabledForEvent(
+            tile.id,
+            initialVotingSnapshot,
+          );
           return (
             <Card key={tile.id} className="flex flex-col">
               <CardHeader>
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="flex items-center gap-2">
-                    <Icon className="size-5 shrink-0" aria-hidden />
-                    {tile.title}
-                  </CardTitle>
-                  {badge ? <Badge variant="secondary">{badge}</Badge> : null}
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="flex items-center gap-2">
+                      <Icon className="size-5 shrink-0" aria-hidden />
+                      {tile.title}
+                    </CardTitle>
+                    {badge ? (
+                      <Badge variant="secondary" className="shrink-0">
+                        {badge}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <EventVotingEnabledTag enabled={enabledForEvent} />
+                    <ReportVotingStatusTag status={votingStatus} />
+                  </div>
                 </div>
                 <CardDescription>
                   <span className="not-italic font-medium text-foreground/80">

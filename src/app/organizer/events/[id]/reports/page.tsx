@@ -1,7 +1,7 @@
 import type { User } from "@prisma/client";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
@@ -11,30 +11,19 @@ import { EventReportsNav } from "@/components/organizer/reports/event-reports-na
 import { EventReportsHome } from "@/components/organizer/reports/event-reports-home";
 import { EventReportShell } from "@/components/organizer/reports/event-report-shell";
 import { ComingSoonReport } from "@/components/organizer/reports/coming-soon-report";
-import { FinancialSummaryReport } from "@/components/organizer/reports/financial-summary-report";
-import { RegistrationDetailReport } from "@/components/organizer/reports/registration-detail-report";
-import { StaffingListReport } from "@/components/organizer/reports/staffing-list-report";
-import { PublicVotingResultsReport } from "@/components/organizer/reports/public-voting-results-report";
-import { JudgeBallotResultsReport } from "@/components/organizer/reports/judge-ballot-results-report";
-import { AwardsWinnersReportView } from "@/components/organizer/reports/awards-winners-report";
-import { JudgeProgressReportView } from "@/components/organizer/reports/judge-progress-report";
-import { ScorecardsSummaryReportView } from "@/components/organizer/reports/scorecards-summary-report";
+import { EventReportContent } from "@/components/organizer/reports/event-report-content";
+import { ReportContentLoading } from "@/components/organizer/reports/report-content-loading";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import {
   defaultEventReportType,
   getEventReportDefinition,
+  isVotingResultsReportVisible,
   normalizeReportParam,
   type EventReportTypeId,
+  type EventReportVotingSetup,
 } from "@/lib/event-reports/report-types";
-import { loadFinancialSummaryReport } from "@/lib/event-reports/financial-summary";
-import { loadRegistrationDetailReport } from "@/lib/event-reports/registration-detail";
-import { loadStaffingListReport } from "@/lib/event-reports/staffing-list";
-import { loadPublicVotingResultsReport } from "@/lib/event-reports/public-voting-results";
-import { loadJudgeBallotResultsReport } from "@/lib/event-reports/judge-ballot-results";
-import { loadAwardsWinnersReport } from "@/lib/event-reports/awards-winners";
-import { loadJudgeProgressReport } from "@/lib/event-reports/judge-progress";
-import { loadScorecardsSummaryReport } from "@/lib/event-reports/scorecards-summary";
+import { loadEventReportVotingSetup } from "@/lib/event-reports/voting-method-status";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -59,10 +48,20 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
     search: sp.report ? `?report=${encodeURIComponent(sp.report)}` : undefined,
   });
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: { id: true, name: true, showNumber: true, orgId: true },
-  });
+  const reportParam = sp.report?.trim();
+  if (!reportParam) {
+    redirect(
+      `/organizer/events/${eventId}/reports?report=${defaultEventReportType()}`,
+    );
+  }
+
+  const [event, votingSetup] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, name: true, showNumber: true, orgId: true },
+    }),
+    loadEventReportVotingSetup(eventId),
+  ]);
   if (!event) notFound();
 
   const allowed = await canManageEvent(
@@ -72,13 +71,6 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
     user.platformRole,
   );
   if (!allowed) notFound();
-
-  const reportParam = sp.report?.trim();
-  if (!reportParam) {
-    redirect(
-      `/organizer/events/${eventId}/reports?report=${defaultEventReportType()}`,
-    );
-  }
 
   const activeReport = normalizeReportParam(reportParam);
   const reportMeta = getEventReportDefinition(activeReport);
@@ -98,6 +90,7 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
         eventLabel={eventLabel}
         user={user}
         activeReport={activeReport}
+        votingSetup={votingSetup}
       >
         <EventReportShell eventId={eventId} report={reportMeta}>
           <ComingSoonReport report={reportMeta} />
@@ -107,6 +100,15 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
   }
 
   if (!reportMeta.available && activeReport !== "home") {
+    redirect(
+      `/organizer/events/${eventId}/reports?report=${defaultEventReportType()}`,
+    );
+  }
+
+  if (
+    activeReport !== "home" &&
+    !isVotingResultsReportVisible(activeReport, votingSetup)
+  ) {
     redirect(
       `/organizer/events/${eventId}/reports?report=${defaultEventReportType()}`,
     );
@@ -122,79 +124,13 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
         eventLabel={eventLabel}
         user={user}
         activeReport={activeReport}
+        votingSetup={votingSetup}
       >
         <EventReportShell eventId={eventId} report={reportMeta}>
-          <EventReportsHome eventId={eventId} />
+          <EventReportsHome eventId={eventId} votingSetup={votingSetup} />
         </EventReportShell>
       </ReportsPageLayout>
     );
-  }
-
-  let generatedAt: string | undefined;
-  let body: ReactNode;
-
-  switch (activeReport) {
-    case "financial": {
-      const data = await loadFinancialSummaryReport(eventId);
-      generatedAt = data.generatedAt;
-      body = <FinancialSummaryReport data={data} />;
-      break;
-    }
-    case "registrations": {
-      const page = parseInt(sp.page ?? "1", 10);
-      const data = await loadRegistrationDetailReport(eventId, {
-        search: sp.q,
-        page: Number.isFinite(page) ? page : 1,
-      });
-      generatedAt = data.generatedAt;
-      body = <RegistrationDetailReport eventId={eventId} data={data} />;
-      break;
-    }
-    case "staffing": {
-      const data = await loadStaffingListReport(eventId);
-      generatedAt = data.generatedAt;
-      body = <StaffingListReport data={data} />;
-      break;
-    }
-    case "public-voting": {
-      const data = await loadPublicVotingResultsReport(eventId, {
-        showAll: sp.showAll === "1",
-      });
-      generatedAt = data.generatedAt;
-      body = <PublicVotingResultsReport eventId={eventId} data={data} />;
-      break;
-    }
-    case "judge-ballots": {
-      const data = await loadJudgeBallotResultsReport(eventId, {
-        showAll: sp.showAll === "1",
-      });
-      generatedAt = data.generatedAt;
-      body = <JudgeBallotResultsReport eventId={eventId} data={data} />;
-      break;
-    }
-    case "awards": {
-      const data = await loadAwardsWinnersReport(eventId);
-      if (!data) notFound();
-      generatedAt = data.generatedAt;
-      body = <AwardsWinnersReportView data={data} />;
-      break;
-    }
-    case "judge-progress": {
-      const data = await loadJudgeProgressReport(eventId);
-      generatedAt = data.generatedAt;
-      body = <JudgeProgressReportView data={data} />;
-      break;
-    }
-    case "scorecards": {
-      const data = await loadScorecardsSummaryReport(eventId);
-      generatedAt = data.generatedAt;
-      body = <ScorecardsSummaryReportView data={data} />;
-      break;
-    }
-    default:
-      redirect(
-        `/organizer/events/${eventId}/reports?report=${defaultEventReportType()}`,
-      );
   }
 
   return (
@@ -204,14 +140,19 @@ export default async function EventReportsPage({ params, searchParams }: Props) 
       eventLabel={eventLabel}
       user={user}
       activeReport={activeReport}
+      votingSetup={votingSetup}
     >
-      <EventReportShell
-        eventId={eventId}
-        report={reportMeta}
-        generatedAt={generatedAt}
+      <Suspense
+        fallback={
+          <ReportContentLoading eventId={eventId} report={reportMeta} />
+        }
       >
-        {body}
-      </EventReportShell>
+        <EventReportContent
+          eventId={eventId}
+          report={reportMeta}
+          searchParams={sp}
+        />
+      </Suspense>
     </ReportsPageLayout>
   );
 }
@@ -222,6 +163,7 @@ function ReportsPageLayout({
   eventLabel,
   user,
   activeReport,
+  votingSetup,
   children,
 }: {
   eventId: string;
@@ -229,6 +171,7 @@ function ReportsPageLayout({
   eventLabel: string;
   user: Pick<User, "id" | "platformRole">;
   activeReport: EventReportTypeId;
+  votingSetup: EventReportVotingSetup;
   children: ReactNode;
 }) {
   return (
@@ -256,7 +199,20 @@ function ReportsPageLayout({
           </div>
           <ContactSiteAdminButton eventId={eventId} eventLabel={eventLabel} />
         </div>
-        <EventReportsNav eventId={eventId} activeReport={activeReport} />
+        <Suspense
+          fallback={
+            <div
+              className="h-[4.5rem] animate-pulse rounded-lg border bg-muted/30"
+              aria-hidden
+            />
+          }
+        >
+          <EventReportsNav
+            eventId={eventId}
+            activeReport={activeReport}
+            votingSetup={votingSetup}
+          />
+        </Suspense>
       </div>
 
       {children}

@@ -46,7 +46,7 @@ export default async function ScoreSheetVehicleDetailPage({
   if (!allowed) notFound();
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-4 py-8 print:max-w-none print:py-4">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 print:max-w-none print:py-4">
       <div className="print:hidden">
         <p className="text-sm text-muted-foreground">
           Show #{formatEventShowNumber(event.showNumber)} · Score Sheet Judging · Judge

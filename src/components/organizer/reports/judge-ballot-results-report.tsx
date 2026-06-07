@@ -1,9 +1,6 @@
 import Link from "next/link";
 import type { JudgeBallotResultsReport } from "@/lib/event-reports/judge-ballot-results";
-import {
-  REPORT_EMPTY_MESSAGES,
-  reportHasRankedRows,
-} from "@/lib/event-reports/report-types";
+import { judgeBallotEmptyStateMessage } from "@/lib/event-reports/judge-ballot-empty-state";
 import { ReportEmptyState } from "@/components/organizer/reports/report-empty-state";
 
 type Props = {
@@ -12,22 +9,16 @@ type Props = {
 };
 
 export function JudgeBallotResultsReport({ eventId, data }: Props) {
-  if (data.categories.length === 0) {
-    return (
-      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.judgeBallotNoCategories} />
-    );
-  }
-
-  if (!reportHasRankedRows(data.categories)) {
-    return (
-      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.judgeBallotNoVotes} />
-    );
-  }
-
   const base = `/organizer/events/${eventId}/reports?report=judge-ballots`;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {data.emptyState ? (
+        <ReportEmptyState
+          message={judgeBallotEmptyStateMessage(data.emptyState)}
+        />
+      ) : (
+        <div className="space-y-8">
       {!data.showAll ? (
         <p className="text-sm text-muted-foreground">
           Showing top {data.categories[0]?.topN ?? 25} per category.{" "}
@@ -102,6 +93,8 @@ export function JudgeBallotResultsReport({ eventId, data }: Props) {
           )}
         </section>
       ))}
+        </div>
+      )}
     </div>
   );
 }

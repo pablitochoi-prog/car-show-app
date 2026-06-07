@@ -6,6 +6,11 @@ import {
 import { loadVehicleEntryMetaMap } from "@/lib/event-reports/vehicle-entry-meta";
 import { applyTopN, REPORT_TOP_N } from "@/lib/event-reports/format";
 import { csvRow } from "@/lib/event-reports/csv";
+import { loadEventVotingControl } from "@/lib/judging/event-voting-control";
+import {
+  publicVotingReportStatus,
+  type ReportVotingMethodStatus,
+} from "@/lib/event-reports/voting-method-status";
 
 export type PublicVotingResultRow = {
   rank: number;
@@ -37,6 +42,7 @@ export type PublicVotingCategoryResults = {
 export type PublicVotingResultsReport = {
   generatedAt: string;
   showAll: boolean;
+  votingStatus: ReportVotingMethodStatus;
   categories: PublicVotingCategoryResults[];
 };
 
@@ -137,15 +143,21 @@ export async function loadPublicVotingResultsReport(
   options?: { showAll?: boolean },
 ): Promise<PublicVotingResultsReport> {
   const showAll = options?.showAll ?? false;
-  const [tabulation, metaMap, lastByCategory] = await Promise.all([
+  const [tabulation, metaMap, lastByCategory, votingControl] = await Promise.all([
     loadEventVotingTabulation(eventId),
     loadVehicleEntryMetaMap(eventId),
     loadLastVoteAtByCategory(eventId),
+    loadEventVotingControl(eventId),
   ]);
+
+  const votingStatus = votingControl
+    ? publicVotingReportStatus(votingControl.publicVoting)
+    : "not_started";
 
   return {
     generatedAt: tabulation.generatedAt,
     showAll,
+    votingStatus,
     categories: tabulation.categories.map((cat) =>
       enrichCategory(
         cat,

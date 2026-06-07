@@ -9,8 +9,11 @@ import {
   getReportsHomeSummary,
   isCsvExportReportId,
   isEventReportTypeId,
+  isVotingResultsReportVisible,
   navigableReportTypes,
+  navigableReportTypesForEvent,
   normalizeReportParam,
+  reportsForHomeCardsForEvent,
   reportHasRankedRows,
   reportSupportsCsvExport,
   reportsForHomeCards,
@@ -65,7 +68,11 @@ describe("event report types", () => {
     expect(ids).toEqual(EVENT_REPORT_NAV_ORDER);
     expect(ids.at(-1)).toBe("awards");
     expect(ids.indexOf("judge-progress")).toBeLessThan(ids.indexOf("awards"));
+    expect(ids.indexOf("judge-progress")).toBeLessThan(
+      ids.indexOf("public-voting"),
+    );
     expect(ids.indexOf("public-voting")).toBeLessThan(ids.indexOf("judge-ballots"));
+    expect(ids.indexOf("judge-ballots")).toBeLessThan(ids.indexOf("scorecards"));
   });
 
   it("orders home cards the same way as nav tabs", () => {
@@ -95,12 +102,54 @@ describe("event report types", () => {
     expect(reportHasRankedRows([{ rows: [] }])).toBe(false);
   });
 
+  it("hides voting results reports when that method is not configured", () => {
+    const noneConfigured = {
+      publicVotingConfigured: false,
+      judgeBallotConfigured: false,
+      scoreSheetConfigured: false,
+    };
+    const allConfigured = {
+      publicVotingConfigured: true,
+      judgeBallotConfigured: true,
+      scoreSheetConfigured: true,
+    };
+
+    expect(isVotingResultsReportVisible("public-voting", noneConfigured)).toBe(
+      false,
+    );
+    expect(isVotingResultsReportVisible("judge-ballots", noneConfigured)).toBe(
+      false,
+    );
+    expect(isVotingResultsReportVisible("scorecards", noneConfigured)).toBe(
+      false,
+    );
+    expect(isVotingResultsReportVisible("financial", noneConfigured)).toBe(true);
+
+    const navIds = navigableReportTypesForEvent(noneConfigured).map((r) => r.id);
+    expect(navIds).not.toContain("public-voting");
+    expect(navIds).not.toContain("judge-ballots");
+    expect(navIds).not.toContain("scorecards");
+    expect(navIds).toContain("financial");
+
+    const homeIds = reportsForHomeCardsForEvent(allConfigured).map((r) => r.id);
+    expect(homeIds).toContain("public-voting");
+    expect(homeIds).toContain("scorecards");
+  });
+
+  it("renames scorecard results for organizers", () => {
+    const scorecards = EVENT_REPORT_TYPES.find((r) => r.id === "scorecards");
+    expect(scorecards?.label).toBe("Judged Scorecard Results");
+  });
+
   it("documents empty-state copy for separate data sources", () => {
     expect(REPORT_EMPTY_MESSAGES.publicVotingNoVotes).toContain(
       "not score sheet",
     );
     expect(REPORT_EMPTY_MESSAGES.judgeBallotNoVotes).toContain(
       "informal judge ballot",
+    );
+    expect(REPORT_EMPTY_MESSAGES.judgeBallotWinnersWithoutVoteDetail).toContain(
+      "Awards",
     );
   });
 });

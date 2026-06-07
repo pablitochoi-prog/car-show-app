@@ -13,23 +13,18 @@ type Props = {
 
 export function PublicVotingResultsReport({ eventId, data }: Props) {
   const hasVotes = reportHasRankedRows(data.categories);
-
-  if (data.categories.length === 0) {
-    return (
-      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.publicVotingNoCategories} />
-    );
-  }
-
-  if (!hasVotes) {
-    return (
-      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.publicVotingNoVotes} />
-    );
-  }
-
   const base = `/organizer/events/${eventId}/reports?report=public-voting`;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {data.categories.length === 0 ? (
+        <ReportEmptyState
+          message={REPORT_EMPTY_MESSAGES.publicVotingNoCategories}
+        />
+      ) : !hasVotes ? (
+        <ReportEmptyState message={REPORT_EMPTY_MESSAGES.publicVotingNoVotes} />
+      ) : (
+        <div className="space-y-8">
       {!data.showAll ? (
         <p className="text-sm text-muted-foreground">
           Showing top {data.categories[0]?.topN ?? 25} per category.{" "}
@@ -104,6 +99,8 @@ export function PublicVotingResultsReport({ eventId, data }: Props) {
           )}
         </section>
       ))}
+        </div>
+      )}
     </div>
   );
 }
