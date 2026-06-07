@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CSV_EXPORT_REPORT_IDS,
+  EVENT_REPORT_NAV_ORDER,
   EVENT_REPORT_TYPES,
+  REPORT_EMPTY_MESSAGES,
   buildReportCsvHref,
   defaultEventReportType,
   getReportsHomeSummary,
@@ -9,6 +11,7 @@ import {
   isEventReportTypeId,
   navigableReportTypes,
   normalizeReportParam,
+  reportHasRankedRows,
   reportSupportsCsvExport,
   reportsForHomeCards,
 } from "./report-types";
@@ -57,6 +60,19 @@ describe("event report types", () => {
     expect(isCsvExportReportId("home")).toBe(false);
   });
 
+  it("orders navigable reports by event lifecycle", () => {
+    const ids = navigableReportTypes().map((r) => r.id);
+    expect(ids).toEqual(EVENT_REPORT_NAV_ORDER);
+    expect(ids.at(-1)).toBe("awards");
+    expect(ids.indexOf("judge-progress")).toBeLessThan(ids.indexOf("awards"));
+    expect(ids.indexOf("public-voting")).toBeLessThan(ids.indexOf("judge-ballots"));
+  });
+
+  it("orders home cards the same way as nav tabs", () => {
+    const homeIds = reportsForHomeCards().map((r) => r.id);
+    expect(homeIds).toEqual(EVENT_REPORT_NAV_ORDER);
+  });
+
   it("summarizes home cards", () => {
     const summary = getReportsHomeSummary();
     expect(summary.total).toBe(reportsForHomeCards().length);
@@ -70,5 +86,21 @@ describe("event report types", () => {
     expect(ids).toContain("geography");
     expect(ids).toContain("check-in");
     expect(ids).not.toContain("home");
+  });
+
+  it("detects ranked rows across sections", () => {
+    expect(reportHasRankedRows([{ rows: [] }, { rows: [{ id: 1 }] }])).toBe(
+      true,
+    );
+    expect(reportHasRankedRows([{ rows: [] }])).toBe(false);
+  });
+
+  it("documents empty-state copy for separate data sources", () => {
+    expect(REPORT_EMPTY_MESSAGES.publicVotingNoVotes).toContain(
+      "not score sheet",
+    );
+    expect(REPORT_EMPTY_MESSAGES.judgeBallotNoVotes).toContain(
+      "informal judge ballot",
+    );
   });
 });

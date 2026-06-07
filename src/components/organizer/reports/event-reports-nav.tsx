@@ -3,11 +3,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
-  PendingLink,
-  PendingNavSpinner,
-  usePendingNav,
-} from "@/components/navigation/pending-navigation";
-import {
   navigableReportTypes,
   type EventReportTypeId,
 } from "@/lib/event-reports/report-types";
@@ -25,7 +20,7 @@ export function EventReportsNav({ eventId, activeReport }: Props) {
       className="grid gap-1.5 rounded-lg border bg-card p-1.5 [grid-template-columns:repeat(auto-fit,minmax(6.5rem,1fr))]"
       aria-label="Report types"
     >
-      <PendingLink
+      <Link
         href={`/organizer/events/${eventId}/reports?report=home`}
         scroll={false}
         aria-current={activeReport === "home" ? "page" : undefined}
@@ -36,15 +31,15 @@ export function EventReportsNav({ eventId, activeReport }: Props) {
             : "border border-border bg-background hover:bg-muted",
         )}
       >
-        <ReportTabLabel label="All" />
-      </PendingLink>
+        All
+      </Link>
       {tabs.map((report) => {
         const isActive = report.id === activeReport;
         const href = `/organizer/events/${eventId}/reports?report=${report.id}`;
 
         if (report.comingSoon) {
           return (
-            <PendingLink
+            <Link
               key={report.id}
               href={href}
               scroll={false}
@@ -59,12 +54,12 @@ export function EventReportsNav({ eventId, activeReport }: Props) {
             >
               <span>{report.label}</span>
               <span className="text-[0.6rem] text-muted-foreground">Soon</span>
-            </PendingLink>
+            </Link>
           );
         }
 
         return (
-          <PendingLink
+          <Link
             key={report.id}
             href={href}
             scroll={false}
@@ -76,21 +71,10 @@ export function EventReportsNav({ eventId, activeReport }: Props) {
                 : "border border-border bg-background hover:bg-muted",
             )}
           >
-            <ReportTabLabel label={report.label} />
-          </PendingLink>
+            {report.label}
+          </Link>
         );
       })}
     </nav>
-  );
-}
-
-function ReportTabLabel({ label }: { label: string }) {
-  const navigating = usePendingNav();
-
-  return (
-    <span className="flex items-center justify-center gap-1">
-      {navigating && <PendingNavSpinner className="size-3 shrink-0" />}
-      <span>{label}</span>
-    </span>
   );
 }

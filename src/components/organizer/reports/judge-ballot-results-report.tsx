@@ -1,5 +1,9 @@
 import Link from "next/link";
 import type { JudgeBallotResultsReport } from "@/lib/event-reports/judge-ballot-results";
+import {
+  REPORT_EMPTY_MESSAGES,
+  reportHasRankedRows,
+} from "@/lib/event-reports/report-types";
 import { ReportEmptyState } from "@/components/organizer/reports/report-empty-state";
 
 type Props = {
@@ -10,7 +14,13 @@ type Props = {
 export function JudgeBallotResultsReport({ eventId, data }: Props) {
   if (data.categories.length === 0) {
     return (
-      <ReportEmptyState message="No judge ballot categories are configured for this event yet." />
+      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.judgeBallotNoCategories} />
+    );
+  }
+
+  if (!reportHasRankedRows(data.categories)) {
+    return (
+      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.judgeBallotNoVotes} />
     );
   }
 
