@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { canManageEventRegistrations } from "@/lib/organizer-registrations-auth";
 import { loadDashCardModelsForRegistrations } from "@/lib/dash-cards-for-registrations";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { DashCardPreview } from "@/components/dash-card/dash-card-preview";
 import { DashCardPrintButton } from "@/components/dash-card/dash-card-print-button";
 import { prisma } from "@/lib/db";
@@ -66,6 +67,7 @@ export default async function OrganizerDashCardsPage({
               showNumber={event.showNumber}
             />
           </h1>
+          <ContextualHelpLink slug="print-dash-cards" className="mt-2" />
         </div>
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-6 text-sm">
           <p className="font-medium text-amber-950 dark:text-amber-100">
@@ -122,6 +124,7 @@ export default async function OrganizerDashCardsPage({
             card{cards.length === 1 ? "" : "s"}. Each card prints on one US Letter
             sheet (8.5&quot; × 11&quot;) in landscape.
           </p>
+          <ContextualHelpLink slug="print-dash-cards" className="mt-2" />
         </div>
         <DashCardPrintButton cardCount={cards.length} />
       </div>

@@ -15,6 +15,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 
 import { EventVotingControls } from "@/components/organizer/awards-judging/event-voting-controls";
 import { EventVotingEnabledTag } from "@/components/organizer/awards-judging/event-voting-enabled-tag";
@@ -86,6 +87,12 @@ const TILES: JudgingHubTile[] = [
     icon: ClipboardCheck,
   },
 ];
+
+const TILE_HELP_SLUGS: Partial<Record<JudgingHubTile["id"], string>> = {
+  "public-voting": "setup-public-voting",
+  "judge-ballot": "setup-judge-ballot-voting",
+  "score-sheets": "setup-score-sheet-judging",
+};
 
 function tileEnabledForEvent(
   tileId: JudgingHubTile["id"],
@@ -249,6 +256,12 @@ export function AwardsJudgingHub({
                 >
                   View Results
                 </Link>
+                {TILE_HELP_SLUGS[tile.id] ? (
+                  <ContextualHelpLink
+                    slug={TILE_HELP_SLUGS[tile.id]!}
+                    className="pt-1 text-center"
+                  />
+                ) : null}
               </CardFooter>
             </Card>
           );

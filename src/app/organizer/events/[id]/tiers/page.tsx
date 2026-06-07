@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEventAndLoad } from "@/lib/auth";
 import { TierManager } from "@/components/forms/tier-manager";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 export default async function EventTiersPage({
@@ -46,13 +47,14 @@ export default async function EventTiersPage({
         >
           ← My events
         </Link>
-        <h1 className="mt-4 mb-6 text-2xl font-bold">
+        <h1 className="mt-4 text-2xl font-bold">
           Registration tiers —{" "}
           <EventNameWithNumber
             name={event.name}
             showNumber={event.showNumber}
           />
         </h1>
+        <ContextualHelpLink slug="setup-registration-tiers" className="mt-2 mb-6" />
       </div>
       <TierManager eventId={id} initialTiers={initialTiers} />
     </div>

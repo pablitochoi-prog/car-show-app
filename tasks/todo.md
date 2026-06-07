@@ -3335,3 +3335,348 @@ After approval, implementation starts at **Phase 1** and proceeds in order; upda
 | Migration host | `events.carshowscout.com` still works when set via env — no forced redirect in app |
 | A2P | `/sms`, `/privacy`, `/terms` defaults + homepage SMS disclosure |
 
+---
+
+# Knowledge Repository / Help Center — Plan
+
+## Summary
+
+Build a structured, chatbot-ready knowledge article library for carshowscout.com. Phase 1 stores articles as typed TypeScript seed data in the repo (no CMS). Public `/help` routes provide search, audience/category filters, and article rendering. Later phases add contextual help links, the full 27-article starter library, and a chatbot export utility. Phase 3 (future) can move articles to DB/admin CMS — design mirrors `legal-policies.ts` pattern.
+
+**Reference patterns in codebase:**
+- Article registry → `src/lib/event-reports/report-types.ts`
+- Seed data split by domain → `src/lib/judging/seed-templates/index.ts`
+- Public content pages → `src/app/sms/page.tsx`, `src/app/privacy/page.tsx`
+- Search/filter UI → `src/components/events/events-search-form.tsx` (GET + `searchParams`)
+- DB-backed CMS path (Phase 3) → `src/lib/legal-policies.ts` + `admin-legal-policy-editor.tsx`
+
+---
+
+## Architecture
+
+```
+src/lib/help/
+  help-types.ts              # Audience, category, visibility, article shape
+  help-categories.ts         # Category labels + sort order
+  help-articles/             # One file per article (or grouped by audience)
+    index.ts                 # Barrel: HELP_ARTICLES registry
+    create-account.ts        # Example article modules
+    ...
+  help-registry.ts           # Lookup: by slug, by id, filter, search
+  help-search.ts             # Search scoring across title/desc/keywords/body
+  help-chatbot-export.ts     # Phase 2: export published articles for AI/RAG
+  help-registry.test.ts      # Unit tests for search, filters, export
+
+src/components/help/
+  help-search-form.tsx       # GET form: q, audience, category
+  help-article-card.tsx      # Card for landing grid
+  help-article-body.tsx      # Renders sections (steps, FAQ, related)
+  help-audience-badge.tsx    # Small audience label
+  help-category-nav.tsx      # Category sidebar/chips
+  contextual-help-link.tsx   # Phase 2: "Need help? Read: …"
+
+src/app/help/
+  page.tsx                   # Landing: search, filters, featured, popular
+  [slug]/page.tsx            # Article detail + related articles + metadata
+
+src/app/organizer/events/[id]/help/
+  page.tsx                   # Phase 2 (optional): contextual organizer help hub
+```
+
+**Routes (all public — no middleware changes):**
+- `/help` — help center landing
+- `/help/[slug]` — individual article (e.g. `/help/set-up-public-voting`)
+- `/organizer/events/[id]/help` — optional Phase 2 contextual hub
+
+---
+
+## Data Model (`help-types.ts`)
+
+```ts
+type HelpAudience =
+  | "REGISTRANT" | "ORGANIZER" | "JUDGE" | "SPECTATOR" | "ADMIN" | "GENERAL";
+
+type HelpCategory =
+  | "getting-started" | "account-profile" | "event-registration"
+  | "vehicle-registration" | "my-garage" | "dash-cards" | "event-setup"
+  | "organizer-dashboard" | "stripe-setup" | "payments-fees"
+  | "staff-roles" | "awards-judging" | "score-sheet-judging"
+  | "judge-ballot-voting" | "public-voting" | "reports"
+  | "buyer-inquiries" | "sms-notifications" | "troubleshooting"
+  | "privacy-security";
+
+type HelpVisibility = "public" | "authenticated" | "organizerOnly" | "adminOnly";
+
+type HelpArticle = {
+  id: string;
+  slug: string;
+  title: string;
+  shortDescription: string;
+  audience: HelpAudience;
+  category: HelpCategory;
+  keywords: string[];
+  relatedWebsitePages: string[];   // e.g. "/organizer/events/[id]/edit"
+  relatedFeatures: string[];       // e.g. "public-voting", "dash-cards"
+  relatedArticleIds: string[];     // Phase 2
+  whoThisIsFor: string;
+  whatThisHelpsYouDo: string;
+  beforeYouStart: string[];
+  stepByStepInstructions: { title: string; body: string }[];
+  whatHappensNext: string;
+  frequentlyAskedQuestions: { question: string; answer: string }[];
+  articleBody: string;             // Optional prose between sections
+  chatbotSummary: string;
+  chatbotKeywords: string[];
+  lastReviewedAt: string;          // ISO date
+  published: boolean;
+  sortOrder: number;
+  visibility: HelpVisibility;      // Default "public" for all starters
+};
+```
+
+**Future DB migration path:** Add `globalSetting` key `help_articles` (JSON array) with seed fallback from `HELP_ARTICLES`, same as `legal-policies.ts`. Slug-based lookup checks DB first, then registry.
+
+---
+
+## Phase 1 — Foundation (implement first after approval)
+
+### Todos
+
+- [x] **1.1** Create `src/lib/help/help-types.ts` — audiences, categories, visibility, `HelpArticle` type
+- [x] **1.2** Create `src/lib/help/help-categories.ts` — category metadata (label, description, sortOrder)
+- [x] **1.3** Create `src/lib/help/help-articles/` — article modules + `index.ts` barrel registry
+- [x] **1.4** Create `src/lib/help/help-registry.ts` — `getArticleBySlug`, `getPublishedArticles`, `filterArticles`, `getFeaturedArticles`, `getPopularByAudience`
+- [x] **1.5** Create `src/lib/help/help-search.ts` — search across title, shortDescription, category, keywords, articleBody, chatbotSummary
+- [x] **1.6** Create `src/components/help/` — search form, article card, article body renderer, audience badge
+- [x] **1.7** Create `src/app/help/page.tsx` — landing with search box, audience/category filters, featured + popular sections
+- [x] **1.8** Create `src/app/help/[slug]/page.tsx` — article page with all sections + `generateStaticParams` for published slugs
+- [x] **1.9** Write **8 starter articles** (see list below) with full content per writing-style template
+- [x] **1.10** Add footer link "Help Center" → `/help` in `src/components/layout/footer.tsx`
+- [x] **1.11** Add `src/lib/help/help-registry.test.ts` — search, filter, slug lookup, published-only
+- [x] **1.12** Run `npm run build` + focused vitest
+
+### Phase 1 starter articles (8 minimum)
+
+| # | Slug | Title | Audience |
+|---|------|-------|----------|
+| 1 | `create-account` | How to create your CarShowScout account | REGISTRANT |
+| 2 | `register-for-car-show` | How to register for a car show | REGISTRANT |
+| 3 | `create-and-publish-event` | How to create and publish an event | ORGANIZER |
+| 4 | `connect-stripe` | How to connect Stripe for event payments | ORGANIZER |
+| 5 | `set-up-public-voting` | How to set up public voting | ORGANIZER |
+| 6 | `how-public-voting-works` | How public voting works | SPECTATOR |
+| 7 | `how-dash-card-works` | How your vehicle dash card works | REGISTRANT |
+| 8 | `use-event-reports` | How to use event reports | ORGANIZER |
+
+### Phase 1 files to add
+
+| File | Purpose |
+|------|---------|
+| `src/lib/help/help-types.ts` | Core types |
+| `src/lib/help/help-categories.ts` | Category catalog |
+| `src/lib/help/help-registry.ts` | Lookup + filter helpers |
+| `src/lib/help/help-search.ts` | Search scoring |
+| `src/lib/help/help-articles/index.ts` | Article barrel |
+| `src/lib/help/help-articles/*.ts` | 8 article content modules |
+| `src/lib/help/help-registry.test.ts` | Unit tests |
+| `src/components/help/help-search-form.tsx` | GET search + filters |
+| `src/components/help/help-article-card.tsx` | Landing card |
+| `src/components/help/help-article-body.tsx` | Article section renderer |
+| `src/components/help/help-audience-badge.tsx` | Audience label |
+| `src/app/help/page.tsx` | Help center landing |
+| `src/app/help/[slug]/page.tsx` | Article detail |
+
+### Phase 1 files to modify
+
+| File | Change |
+|------|--------|
+| `src/components/layout/footer.tsx` | Add "Help Center" nav link |
+
+**No middleware changes** — `/help` is public like `/privacy`, `/sms`.
+
+---
+
+## Phase 2 — Full library + contextual help + chatbot export
+
+### Todos
+
+- [x] **2.1** Add remaining **19 starter articles** (articles 9–27 from requirements)
+- [x] **2.2** Create `src/lib/help/help-chatbot-export.ts` — `exportChatbotKnowledgeBase()` returning `ChatbotArticleExport[]`
+- [x] **2.3** Create `src/lib/help/help-chatbot-export.test.ts` — export shape + published-only + plainTextContent
+- [x] **2.4** Create `src/components/help/contextual-help-link.tsx` — small non-intrusive link component
+- [x] **2.5** Wire `relatedArticleIds` on article pages (related articles section) — done in Phase 1 article body
+- [x] **2.6** Add contextual help links — Phase 2B first batch (12 links, 10 files)
+- [ ] **2.7** (Optional) Create `src/app/organizer/events/[id]/help/page.tsx` — organizer contextual hub filtered to ORGANIZER + GENERAL articles
+- [ ] **2.8** Run build + tests
+
+### Remaining articles (Phase 2)
+
+| # | Slug | Title | Audience |
+|---|------|-------|----------|
+| 9 | `add-vehicle-from-garage` | How to add a vehicle from My Garage | REGISTRANT |
+| 10 | `edit-registered-vehicle` | How to edit your registered vehicle information | REGISTRANT |
+| 11 | `buyer-inquiries` | How buyer inquiries work | REGISTRANT |
+| 12 | `sms-notifications` | How SMS notifications work | REGISTRANT |
+| 13 | `registration-tiers` | How to set up registration tiers | ORGANIZER |
+| 14 | `manage-registrations` | How to manage event registrations | ORGANIZER |
+| 15 | `print-dash-cards` | How to print dash cards | ORGANIZER |
+| 16 | `set-up-judge-ballot` | How to set up judge ballot voting | ORGANIZER |
+| 17 | `set-up-score-sheet-judging` | How to set up score sheet judging | ORGANIZER |
+| 18 | `assign-judges` | How to assign judges | ORGANIZER |
+| 19 | `review-awards-winners` | How to review awards and winners | ORGANIZER |
+| 20 | `judge-access-events` | How judges access their assigned events | JUDGE |
+| 21 | `submit-judge-ballot-votes` | How to submit judge ballot votes | JUDGE |
+| 22 | `complete-score-sheet-judging` | How to complete score sheet judging | JUDGE |
+| 23 | `scan-dash-card-qr` | How to scan a dash card QR code | SPECTATOR |
+| 24 | `no-confirmation-email` | I did not receive my confirmation email | Troubleshooting / GENERAL |
+| 25 | `payment-did-not-go-through` | My payment did not go through | Troubleshooting / GENERAL |
+| 26 | `cannot-access-event-dashboard` | I cannot access my event dashboard | Troubleshooting / ORGANIZER |
+| 27 | `cannot-submit-vote` | I cannot submit my vote | Troubleshooting / SPECTATOR |
+
+### Contextual help link placements (Phase 2)
+
+| Page / component | Article slugs to link |
+|------------------|----------------------|
+| `src/app/organizer/events/new/page.tsx` | `create-and-publish-event` |
+| `src/app/organizer/events/[id]/edit/page.tsx` | `create-and-publish-event`, `registration-tiers`, `connect-stripe` |
+| `src/app/organizer/events/[id]/tiers/page.tsx` | `registration-tiers` |
+| `src/app/organizer/events/[id]/staff/page.tsx` | `assign-judges` |
+| `src/app/organizer/events/[id]/dash-cards/page.tsx` | `print-dash-cards`, `how-dash-card-works` |
+| `src/app/organizer/events/[id]/reports/page.tsx` | `use-event-reports` |
+| `src/components/organizer/awards-judging/awards-judging-hub.tsx` | `set-up-public-voting`, `set-up-judge-ballot`, `set-up-score-sheet-judging`, `review-awards-winners` |
+| `src/app/(public)/events/[id]/page.tsx` | `register-for-car-show` |
+| `src/app/dashboard/vehicles/page.tsx` | `add-vehicle-from-garage` |
+| `src/app/dashboard/profile/page.tsx` | `sms-notifications` |
+| `src/app/judge/page.tsx` | `judge-access-events` |
+| `src/app/judge/events/[id]/ballot/page.tsx` | `submit-judge-ballot-votes` |
+| `src/app/judge/events/[id]/score-sheets/page.tsx` | `complete-score-sheet-judging` |
+| `src/app/v/[vehicleEntryCode]/page.tsx` | `scan-dash-card-qr`, `how-public-voting-works` |
+
+Link format: `Need help? Read: [article title](/help/slug)` via `ContextualHelpLink`.
+
+### Chatbot export shape (`help-chatbot-export.ts`)
+
+```ts
+type ChatbotArticleExport = {
+  articleId: string;
+  title: string;
+  slug: string;
+  audience: HelpAudience;
+  category: HelpCategory;
+  keywords: string[];
+  relatedWebsitePages: string[];
+  plainTextContent: string;  // flattened steps + FAQ + body
+  chatbotSummary: string;
+  lastReviewedAt: string;
+};
+```
+
+Optional Phase 2 API route (not required for MVP): `GET /api/help/chatbot-export` returning JSON for future RAG ingestion.
+
+---
+
+## Phase 3 — Future (not in scope until requested)
+
+- [ ] DB-backed articles via `globalSetting` or dedicated `HelpArticle` Prisma model
+- [ ] Admin editor on `/admin` (mirror `admin-legal-policy-editor.tsx`)
+- [ ] Chatbot UI integration consuming `exportChatbotKnowledgeBase()`
+- [ ] Vector DB indexing pipeline
+- [ ] `organizerOnly` / `adminOnly` visibility enforcement in page + export
+
+---
+
+## UI / UX notes
+
+- **Landing (`/help`):** `page-shell max-w-4xl`; hero + search; audience chips (All, Registrants, Organizers, Judges, Spectators); category dropdown; "Featured" (sortOrder top 3–4); "Popular for organizers" / "Popular for registrants" sections
+- **Article (`/help/[slug]`):** `max-w-2xl`; breadcrumb `Help Center → Category → Title`; sections in order: who/what/before/steps/next/FAQ/related pages/related articles; "Last reviewed" footer
+- **Styling:** Reuse existing tokens (`.page-shell`, shadcn `Card`, `Badge`, `Input`); no new design system
+- **SEO:** `generateMetadata` per article; sitemap entry for `/help` routes (optional Phase 2)
+
+---
+
+## Access control
+
+| Visibility | Phase 1 behavior |
+|------------|------------------|
+| `public` | Visible to all (default for all 27 starters) |
+| `authenticated` | Page checks `getCurrentUser()`; redirect to login if absent |
+| `organizerOnly` | Page checks staff/organizer role (Phase 3 enforcement) |
+| `adminOnly` | Page checks site admin (Phase 3 enforcement) |
+
+Phase 1: all starters use `visibility: "public"`. Type + registry support future gating without schema changes.
+
+---
+
+## Test plan
+
+| Module | Tests |
+|--------|-------|
+| `help-registry.ts` | slug lookup, published filter, audience filter, category filter |
+| `help-search.ts` | matches title/keywords/body; empty query returns all |
+| `help-chatbot-export.ts` | export count, plainTextContent includes steps, unpublished excluded |
+
+---
+
+## Open decisions (need approval)
+
+1. **Article storage:** One file per article (`help-articles/create-account.ts`) vs grouped by audience (`help-articles/registrant.ts`)? **Recommendation:** one file per article for easier editing and git blame.
+2. **Slug style:** kebab-case short slugs (`create-account`) vs descriptive (`how-to-create-your-carshowscout-account`)? **Recommendation:** short kebab slugs; title carries full description.
+3. **Search:** Server-side GET params only (like events search) vs client-side filter on landing? **Recommendation:** server GET for shareable URLs (`/help?q=stripe&audience=ORGANIZER`).
+4. **Organizer contextual `/organizer/events/[id]/help`:** Include in Phase 1 or defer to Phase 2? **Recommendation:** Phase 2 optional.
+5. **Chatbot export API route:** Add in Phase 2 or keep as lib-only until chatbot exists? **Recommendation:** lib-only + tests in Phase 2; API route when chatbot integration starts.
+
+---
+
+## Review gate
+
+**STOP — no implementation code until you approve this plan.**
+
+Reply with: **approved as-is**, or note changes to phases, article list, file structure, or open decisions.
+
+After approval, implementation starts at **Phase 1** and proceeds in order; update checkboxes in this section as work completes.
+
+### Review (planning phase)
+
+| Item | Notes |
+|------|-------|
+| Date | 2026-05-31 |
+| New routes | `/help`, `/help/[slug]` (public) |
+| Pattern | Typed TS registry (like `report-types.ts`), not CMS |
+| Middleware | No changes needed |
+| Footer | Add Help Center link |
+| Phase 1 scope | Types + registry + 8 articles + search/filters + pages |
+| Phase 2 scope | 19 more articles + contextual links + chatbot export |
+| Phase 3 scope | DB/admin CMS + chatbot UI (future) |
+
+### Review — Phase 2B (completed 2026-05-31)
+
+| Area | Change |
+|------|--------|
+| Component | `ContextualHelpLink` + `resolveContextualHelpLink()` |
+| Links | 12 contextual links across 10 files (approved batch only) |
+| Tests | 4 new tests in `contextual-help-link.test.ts` (25 total help tests) |
+| Build | `npm run build` passed |
+
+### Review — Phase 2A (completed 2026-05-31)
+
+| Area | Change |
+|------|--------|
+| Articles | 19 new modules → **27 total** published articles |
+| Slugs | All short kebab-case per plan (e.g. `setup-registration-tiers`, `judge-access-assigned-events`) |
+| Export | `help-chatbot-export.ts` — `exportChatbotKnowledgeBase()`, `buildPlainTextContent()` (lib-only) |
+| Tests | 21 passing (`help-registry.test.ts` + `help-chatbot-export.test.ts`) |
+| Build | `npm run build` passed |
+
+### Review — Phase 1 (completed 2026-05-31)
+
+| Area | Change |
+|------|--------|
+| Data layer | `help-types`, `help-categories`, `help-registry`, `help-search`, 8 article modules |
+| Routes | `/help` (GET search: `q`, `audience`, `category`), `/help/[slug]` with static params |
+| UI | Search form, article cards, article body renderer, audience badges |
+| Articles | `create-account`, `register-for-event`, `create-and-publish-event`, `connect-stripe`, `setup-public-voting`, `public-voting`, `dash-cards`, `event-reports` |
+| Footer | Help Center link added |
+| Tests | 13 passing in `help-registry.test.ts` |
+| Build | `npm run build` passed |
+| Deferred | Organizer `/help` hub, chatbot API route, contextual links → Phase 2 |
+

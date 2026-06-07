@@ -11,6 +11,7 @@ import { EventNameWithNumber } from "@/components/events/event-name-with-number"
 import { formatEventShowNumber } from "@/lib/event-show-number";
 import { getPlatformFee } from "@/lib/platform-fee";
 import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { OrganizerRegistrationsClient } from "@/components/organizer/organizer-registrations-client";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
 import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
@@ -135,6 +136,10 @@ export default async function EventRegistrationsPage({
               ? `${registrationsPage.totalCount} matching registrant${registrationsPage.totalCount === 1 ? "" : "s"} (${registrationsPage.eventTotalCount} total)`
               : `${registrationsPage.eventTotalCount} registrant${registrationsPage.eventTotalCount === 1 ? "" : "s"}`}
           </p>
+          <ContextualHelpLink
+            slug="manage-event-registrations"
+            className="mt-2"
+          />
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <ContactSiteAdminButton

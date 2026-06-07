@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Scale } from "lucide-react";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { JudgeAssignmentsList } from "@/components/judge/judge-assignments-list";
 
 export default function JudgeAssignmentsPage() {
@@ -19,6 +20,7 @@ export default function JudgeAssignmentsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Judge ballot voting and assigned scorecard categories — select an event
         </p>
+        <ContextualHelpLink slug="judge-access-assigned-events" className="mt-2" />
       </div>
       <JudgeAssignmentsList />
     </div>
