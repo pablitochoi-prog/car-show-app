@@ -17,7 +17,7 @@ export function EventReportShell({
   children,
 }: Props) {
   const showToolbar =
-    report.id !== "home" && (report.supportsCsv || report.supportsPrint);
+    report.id !== "home" && (!!report.supportsCsv || !!report.supportsPrint);
 
   return (
     <main
@@ -37,12 +37,7 @@ export function EventReportShell({
           ) : null}
         </div>
         {showToolbar ? (
-          <ReportToolbar
-            eventId={eventId}
-            reportId={report.id}
-            supportsCsv={report.supportsCsv}
-            supportsPrint={report.supportsPrint}
-          />
+          <ReportToolbar eventId={eventId} report={report} />
         ) : null}
       </div>
       {children}

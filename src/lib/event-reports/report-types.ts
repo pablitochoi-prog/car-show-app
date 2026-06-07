@@ -202,3 +202,37 @@ export type CsvExportReportId = (typeof CSV_EXPORT_REPORT_IDS)[number];
 export function isCsvExportReportId(value: string): value is CsvExportReportId {
   return (CSV_EXPORT_REPORT_IDS as readonly string[]).includes(value);
 }
+
+/** CSV download path for reports that support export (matches API route). */
+export function buildReportCsvHref(
+  eventId: string,
+  reportId: CsvExportReportId,
+): string {
+  return `/api/events/${eventId}/reports/${reportId}/csv`;
+}
+
+/** True when UI should show the Export CSV toolbar action. */
+export function reportSupportsCsvExport(
+  report: Pick<EventReportDefinition, "id" | "supportsCsv">,
+): report is EventReportDefinition & { id: CsvExportReportId } {
+  return !!report.supportsCsv && isCsvExportReportId(report.id);
+}
+
+export type ReportsHomeSummary = {
+  total: number;
+  available: number;
+  comingSoon: number;
+  withCsv: number;
+  withPrint: number;
+};
+
+export function getReportsHomeSummary(): ReportsHomeSummary {
+  const cards = reportsForHomeCards();
+  return {
+    total: cards.length,
+    available: cards.filter((r) => r.available && !r.comingSoon).length,
+    comingSoon: cards.filter((r) => r.comingSoon).length,
+    withCsv: cards.filter((r) => r.supportsCsv).length,
+    withPrint: cards.filter((r) => r.supportsPrint).length,
+  };
+}

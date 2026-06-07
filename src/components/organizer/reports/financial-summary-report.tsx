@@ -1,11 +1,21 @@
 import type { FinancialSummaryReport } from "@/lib/event-reports/financial-summary";
 import { formatCents } from "@/lib/event-reports/format";
+import { ReportEmptyState } from "@/components/organizer/reports/report-empty-state";
 
 type Props = {
   data: FinancialSummaryReport;
 };
 
 export function FinancialSummaryReport({ data }: Props) {
+  const totalRegs = data.metrics.find((m) => m.label === "Total registrations")
+    ?.value;
+
+  if (totalRegs === "0") {
+    return (
+      <ReportEmptyState message="No registrations yet. Financial metrics will appear once people register for this event." />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2">
