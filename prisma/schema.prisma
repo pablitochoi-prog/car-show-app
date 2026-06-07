@@ -252,6 +252,8 @@ model User {
   judgeBallotSpecialJudgeAssignments JudgeBallotSpecialJudge[]
   judgeBallotAllocations JudgeBallotAllocation[]
   judgeBallotVotes JudgeBallotVote[]
+  knowledgeArticlesCreated KnowledgeArticle[] @relation("KnowledgeArticleCreatedBy")
+  knowledgeArticlesUpdated KnowledgeArticle[] @relation("KnowledgeArticleUpdatedBy")
 
   @@map("users")
 }
@@ -995,6 +997,49 @@ model SpecialAward {
   eventAwards EventAward[]
 
   @@map("special_awards")
+}
+
+/// Admin-managed Help Center / Knowledge Repository articles.
+model KnowledgeArticle {
+  id                     String    @id @default(uuid())
+  slug                   String    @unique
+  title                  String
+  shortDescription       String    @db.Text
+  audience               String
+  category               String
+  visibility             String    @default("public")
+  keywords               String[]  @default([])
+  relatedWebsitePages    String[]  @default([])
+  relatedFeatures        String[]  @default([])
+  relatedArticleIds      String[]  @default([])
+  whoThisIsFor           String    @db.Text
+  whatThisHelpsYouDo     String    @db.Text
+  beforeYouStart         String[]  @default([])
+  stepByStepInstructions Json
+  whatHappensNext        String    @db.Text
+  frequentlyAskedQuestions Json
+  articleBody            String    @db.Text
+  chatbotSummary         String    @db.Text
+  chatbotKeywords        String[]  @default([])
+  sortOrder              Int       @default(0)
+  featured               Boolean   @default(false)
+  popular                Boolean   @default(false)
+  published              Boolean   @default(false)
+  lastReviewedAt         DateTime
+  archivedAt             DateTime?
+  createdByUserId        String?
+  updatedByUserId        String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  createdBy User? @relation("KnowledgeArticleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("KnowledgeArticleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([category, sortOrder])
+  @@index([audience])
+  @@index([published])
+  @@index([archivedAt])
+  @@map("knowledge_articles")
 }
 
 /// Key-value store for site-wide admin settings (tier templates, staff roles, etc.).

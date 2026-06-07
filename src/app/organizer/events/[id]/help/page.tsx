@@ -9,11 +9,12 @@ import { HelpArticleCard } from "@/components/help/help-article-card";
 import { HelpSearchForm } from "@/components/help/help-search-form";
 import { HELP_CATEGORIES } from "@/lib/help/help-categories";
 import {
-  queryHelpArticles,
+  queryHelpArticlesAsync,
   type HelpArticleFilters,
 } from "@/lib/help/help-registry";
 import {
   isHelpCategory,
+  type HelpArticle,
   type HelpCategory,
 } from "@/lib/help/help-types";
 
@@ -25,7 +26,7 @@ type Props = {
   }>;
 };
 
-function groupByCategory(articles: ReturnType<typeof queryHelpArticles>) {
+function groupByCategory(articles: HelpArticle[]) {
   const grouped = new Map<HelpCategory, typeof articles>();
   for (const article of articles) {
     const list = grouped.get(article.category) ?? [];
@@ -84,7 +85,7 @@ export default async function OrganizerEventHelpPage({
     query: q,
     category,
   };
-  const articles = queryHelpArticles(filters);
+  const articles = await queryHelpArticlesAsync(filters);
   const hasActiveFilters = Boolean(q || category);
   const grouped = groupByCategory(articles);
   const helpBasePath = `/organizer/events/${eventId}/help`;

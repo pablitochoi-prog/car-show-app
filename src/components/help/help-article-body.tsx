@@ -1,18 +1,16 @@
 import Link from "next/link";
 import { getHelpCategoryLabel } from "@/lib/help/help-categories";
-import {
-  formatHelpArticleReviewDate,
-  getRelatedHelpArticles,
-} from "@/lib/help/help-registry";
+import { formatHelpArticleReviewDate } from "@/lib/help/help-registry";
 import type { HelpArticle } from "@/lib/help/help-types";
 import { HelpAudienceBadge } from "./help-audience-badge";
 
 type Props = {
   article: HelpArticle;
+  relatedArticles?: HelpArticle[];
 };
 
-export function HelpArticleBody({ article }: Props) {
-  const related = getRelatedHelpArticles(article);
+export function HelpArticleBody({ article, relatedArticles = [] }: Props) {
+  const related = relatedArticles;
 
   return (
     <article className="space-y-8 text-base leading-relaxed">
