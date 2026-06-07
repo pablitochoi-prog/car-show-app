@@ -207,6 +207,20 @@ export default async function AdminDashboardPage() {
                 publicPath="/privacy"
               />
             </CollapsibleCard>
+
+            <CollapsibleCard title="Knowledge Repository" defaultOpen={false}>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Manage Help Center articles, categories, publish status, and CSV
+                export for batch editing. File-based starter articles remain as
+                fallback until seeded into the database.
+              </p>
+              <Link
+                href="/admin/knowledge"
+                className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                Open Knowledge Repository →
+              </Link>
+            </CollapsibleCard>
           </div>
         </CollapsibleCard>
       </div>

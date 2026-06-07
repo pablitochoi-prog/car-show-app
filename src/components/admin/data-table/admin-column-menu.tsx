@@ -19,6 +19,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { AdminSortDir } from "@/lib/admin-table/types";
+import {
+  encodeTextFilter,
+  parseTextFilter,
+  TEXT_FILTER_MODES,
+  TEXT_FILTER_MODE_LABELS,
+  type TextFilterMode,
+} from "@/lib/admin-table/text-filter";
 
 export function AdminColumnMenu({
   label,
@@ -36,6 +43,7 @@ export function AdminColumnMenu({
   onClearFilter,
   onHide,
   canHide = true,
+  textMatchModes,
 }: {
   label: string;
   columnId: string;
@@ -47,16 +55,21 @@ export function AdminColumnMenu({
   filterValue?: string;
   filterValueTo?: string;
   dateRange?: boolean;
+  textMatchModes?: readonly TextFilterMode[];
   onSort: (dir: AdminSortDir) => void;
   onFilter: (value: string, valueTo?: string) => void;
   onClearFilter: () => void;
   onHide?: () => void;
   canHide?: boolean;
 }) {
+  const parsed = parseTextFilter(filterValue ?? "");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [draft, setDraft] = useState(filterValue ?? "");
+  const [draftMode, setDraftMode] = useState<TextFilterMode>(parsed.mode);
+  const [draft, setDraft] = useState(parsed.value);
   const [draftTo, setDraftTo] = useState(filterValueTo ?? "");
   const hasFilter = Boolean(filterValue?.trim() || filterValueTo?.trim());
+  const modes = textMatchModes ?? TEXT_FILTER_MODES;
+  const useAdvancedTextFilter = Boolean(textMatchModes?.length);
 
   return (
     <DropdownMenu>
@@ -89,7 +102,54 @@ export function AdminColumnMenu({
         {filterable ? (
           filterOpen ? (
             <div className="space-y-2 p-2" onClick={(e) => e.stopPropagation()}>
-              {filterType === "enum" && enumOptions ? (
+              {useAdvancedTextFilter ? (
+                <>
+                  <select
+                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                    value={draftMode}
+                    aria-label={`Match type for ${label}`}
+                    onChange={(e) => setDraftMode(e.target.value as TextFilterMode)}
+                  >
+                    {modes.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {TEXT_FILTER_MODE_LABELS[mode]}
+                      </option>
+                    ))}
+                  </select>
+                  {filterType === "enum" &&
+                  enumOptions &&
+                  draftMode === "equals" ? (
+                    <select
+                      className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                      value={draft}
+                      aria-label={`Filter ${label}`}
+                      onChange={(e) => setDraft(e.target.value)}
+                    >
+                      <option value="">Select…</option>
+                      {enumOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      type="text"
+                      value={draft}
+                      aria-label={`Filter ${label}`}
+                      placeholder="Value…"
+                      className="h-8 text-sm"
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          onFilter(encodeTextFilter(draftMode, draft));
+                          setFilterOpen(false);
+                        }
+                      }}
+                    />
+                  )}
+                </>
+              ) : filterType === "enum" && enumOptions ? (
                 <select
                   className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"
                   value={draft}
@@ -148,7 +208,11 @@ export function AdminColumnMenu({
                   size="sm"
                   className="h-7 flex-1 text-xs"
                   onClick={() => {
-                    onFilter(draft, dateRange ? draftTo : undefined);
+                    if (useAdvancedTextFilter) {
+                      onFilter(encodeTextFilter(draftMode, draft));
+                    } else {
+                      onFilter(draft, dateRange ? draftTo : undefined);
+                    }
                     setFilterOpen(false);
                   }}
                 >
@@ -164,6 +228,7 @@ export function AdminColumnMenu({
                     onClick={() => {
                       setDraft("");
                       setDraftTo("");
+                      setDraftMode("contains");
                       onClearFilter();
                       setFilterOpen(false);
                     }}
@@ -175,7 +240,14 @@ export function AdminColumnMenu({
             </div>
           ) : (
             <>
-              <DropdownMenuItem onClick={() => setFilterOpen(true)}>
+              <DropdownMenuItem
+                onClick={() => {
+                  const next = parseTextFilter(filterValue ?? "");
+                  setDraftMode(next.mode);
+                  setDraft(next.value);
+                  setFilterOpen(true);
+                }}
+              >
                 <Filter className="mr-2 size-3.5" />
                 Filter this column
               </DropdownMenuItem>
@@ -184,6 +256,7 @@ export function AdminColumnMenu({
                   onClick={() => {
                     setDraft("");
                     setDraftTo("");
+                    setDraftMode("contains");
                     onClearFilter();
                   }}
                 >

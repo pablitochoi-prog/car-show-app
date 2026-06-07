@@ -65,7 +65,10 @@ describe("help registry", () => {
   it("resolves related articles by id", () => {
     const article = getHelpArticleBySlug("register-for-event");
     expect(article).toBeDefined();
-    const related = getRelatedHelpArticles(article!);
+    const related = getRelatedHelpArticles(
+      article!,
+      getPublicPublishedArticles(),
+    );
     expect(related.some((a) => a.slug === "create-account")).toBe(true);
   });
 

@@ -2,6 +2,7 @@
 
 import { AdminColumnMenu } from "./admin-column-menu";
 import type { AdminSortDir } from "@/lib/admin-table/types";
+import type { TextFilterMode } from "@/lib/admin-table/text-filter";
 
 export function AdminTableHeaderCell({
   label,
@@ -24,6 +25,7 @@ export function AdminTableHeaderCell({
   onClearFilter,
   onHide,
   canHide = true,
+  textMatchModes,
 }: {
   label: string;
   columnId: string;
@@ -45,6 +47,7 @@ export function AdminTableHeaderCell({
   onClearFilter: () => void;
   onHide?: () => void;
   canHide?: boolean;
+  textMatchModes?: readonly TextFilterMode[];
 }) {
   const showMenu = sortable || filterable || (canHide && onHide);
 
@@ -91,6 +94,7 @@ export function AdminTableHeaderCell({
             onClearFilter={onClearFilter}
             onHide={onHide}
             canHide={canHide}
+            textMatchModes={textMatchModes}
           />
         ) : null}
       </div>

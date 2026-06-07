@@ -3,9 +3,9 @@ import Link from "next/link";
 import { HelpArticleCard } from "@/components/help/help-article-card";
 import { HelpSearchForm } from "@/components/help/help-search-form";
 import {
-  getFeaturedHelpArticles,
-  getPopularHelpArticlesByAudience,
-  queryHelpArticles,
+  getFeaturedHelpArticlesAsync,
+  getPopularHelpArticlesByAudienceAsync,
+  queryHelpArticlesAsync,
 } from "@/lib/help/help-registry";
 import {
   isHelpAudience,
@@ -41,10 +41,13 @@ export default async function HelpCenterPage({ searchParams }: PageProps) {
     : undefined;
 
   const hasActiveFilters = Boolean(q || audience || category);
-  const results = queryHelpArticles({ query: q, audience, category });
-  const featured = getFeaturedHelpArticles(4);
-  const popularOrganizer = getPopularHelpArticlesByAudience("ORGANIZER", 4);
-  const popularRegistrant = getPopularHelpArticlesByAudience("REGISTRANT", 4);
+  const [results, featured, popularOrganizer, popularRegistrant] =
+    await Promise.all([
+      queryHelpArticlesAsync({ query: q, audience, category }),
+      getFeaturedHelpArticlesAsync(4),
+      getPopularHelpArticlesByAudienceAsync("ORGANIZER", 4),
+      getPopularHelpArticlesByAudienceAsync("REGISTRANT", 4),
+    ]);
 
   return (
     <div className="page-shell max-w-4xl py-10 md:py-14">

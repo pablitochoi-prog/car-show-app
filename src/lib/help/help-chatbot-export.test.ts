@@ -34,13 +34,13 @@ describe("help article library integrity", () => {
 });
 
 describe("chatbot export", () => {
-  it("includes only published public articles", () => {
-    const exported = exportChatbotKnowledgeBase();
+  it("includes only published public articles", async () => {
+    const exported = await exportChatbotKnowledgeBase();
     expect(exported).toHaveLength(27);
     expect(exported.every((e) => e.articleId && e.slug)).toBe(true);
   });
 
-  it("returns plain text content with steps and FAQs", () => {
+  it("returns plain text content with steps and FAQs", async () => {
     const article = getPublishedHelpArticles().find(
       (a) => a.slug === "create-account",
     )!;
@@ -49,7 +49,7 @@ describe("chatbot export", () => {
     expect(plain).toContain("Step-by-step instructions:");
     expect(plain).toContain("Common questions:");
 
-    const exported = exportChatbotKnowledgeBase().find(
+    const exported = (await exportChatbotKnowledgeBase()).find(
       (e) => e.slug === "create-account",
     )!;
     expect(exported.plainTextContent.length).toBeGreaterThan(200);
@@ -58,8 +58,8 @@ describe("chatbot export", () => {
     expect(exported.lastReviewedAt).toBe(article.lastReviewedAt);
   });
 
-  it("maps export fields for chatbot ingestion", () => {
-    const entry = exportChatbotKnowledgeBase().find(
+  it("maps export fields for chatbot ingestion", async () => {
+    const entry = (await exportChatbotKnowledgeBase()).find(
       (e) => e.slug === "connect-stripe",
     )!;
     expect(entry.title).toContain("Stripe");

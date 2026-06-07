@@ -3576,13 +3576,425 @@ Optional Phase 2 API route (not required for MVP): `GET /api/help/chatbot-export
 
 ---
 
-## Phase 3 — Future (not in scope until requested)
+## Phase 3 — Knowledge Repository (Admin CMS)
 
-- [ ] DB-backed articles via `globalSetting` or dedicated `HelpArticle` Prisma model
-- [ ] Admin editor on `/admin` (mirror `admin-legal-policy-editor.tsx`)
-- [ ] Chatbot UI integration consuming `exportChatbotKnowledgeBase()`
+**Status:** 📋 **PLAN — awaiting approval. No implementation code until approved.**
+
+**Goal:** Admin-managed Help Center articles in a database-backed **Knowledge Repository**, editable from **Admin → Global Settings**, without removing the existing 27 file-based seed articles.
+
+**UI name:** Knowledge Repository
+
+---
+
+### Architecture decisions (proposed)
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Storage | Dedicated Prisma model `KnowledgeArticle` | Unique slug constraint, pagination, audit fields, CSV round-trip; not a `GlobalSetting` JSON blob |
+| File articles | Keep `src/lib/help/help-articles/*` unchanged | Seed/fallback only; git remains source of truth for defaults |
+| Public source of truth | DB when table has ≥1 non-archived row; else files | Safe rollout: Help Center works with zero DB rows |
+| DB read errors | Catch + log + fall back to file articles | Avoid public outage if DB unavailable |
+| `featured` / `popular` | New DB booleans (not in file `HelpArticle` today) | Admin grid columns; update `getFeaturedHelpArticles` / popular helpers to prefer flags when DB active |
+| Category / audience / visibility | `String` columns + Zod validation against `help-types` unions | Avoid large Prisma enum migrations when categories evolve |
+| Structured fields | `Json` for steps + FAQs; `String[]` for simple arrays | Matches existing `HelpArticleStep` / `HelpArticleFaq` shapes |
+| Admin route | `/admin/knowledge` (+ edit sub-routes) | Matches `/admin/categories`, `/admin/awards`; no `/admin/site-settings` route exists today |
+| Global Settings entry | Link card under **Global Settings** on `/admin` | “Knowledge Repository →” opens `/admin/knowledge` |
+| Admin table | Extend `admin-table` stack + checkbox bulk pattern from `admin-sale-inquiries-list.tsx` | Server sort/filter/pagination + multi-select |
+| `/help/[slug]` rendering | `dynamic = "force-dynamic"` + `revalidatePath` on admin save | DB slugs can change without rebuild; drop build-time-only static params when DB active |
+| Contextual help links | New async server wrapper `ContextualHelpLinkServer` | Client `ContextualHelpLink` cannot call Prisma; server resolves title/href |
+| CSV import | **Phase 3B only (plan)** | Export format designed for future Excel round-trip |
+| Chatbot UI / vector DB | **Phase 3C (future)** | Out of scope for 3A MVP |
+
+---
+
+### Prisma model — `KnowledgeArticle`
+
+**Migration name:** `20260608120000_knowledge_articles`
+
+```prisma
+model KnowledgeArticle {
+  id                    String    @id @default(uuid())
+  slug                  String    @unique
+  title                 String
+  shortDescription      String    @db.Text
+  audience              String    // validated: HelpAudience
+  category              String    // validated: HelpCategory
+  visibility            String    @default("public") // validated: HelpVisibility
+  keywords              String[]  @default([])
+  relatedWebsitePages   String[]  @default([])
+  relatedFeatures       String[]  @default([])
+  relatedArticleIds     String[]  @default([]) // slugs
+  whoThisIsFor          String    @db.Text
+  whatThisHelpsYouDo    String    @db.Text
+  beforeYouStart        String[]  @default([])
+  stepByStepInstructions Json     // HelpArticleStep[]
+  whatHappensNext       String    @db.Text
+  frequentlyAskedQuestions Json   // HelpArticleFaq[]
+  articleBody           String    @db.Text
+  chatbotSummary        String    @db.Text
+  chatbotKeywords       String[]  @default([])
+  sortOrder             Int       @default(0)
+  featured              Boolean   @default(false)
+  popular               Boolean   @default(false)
+  published             Boolean   @default(false)
+  lastReviewedAt        DateTime
+  archivedAt            DateTime?
+  createdByUserId       String?
+  updatedByUserId       String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  createdBy User? @relation("KnowledgeArticleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("KnowledgeArticleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([category, sortOrder])
+  @@index([audience])
+  @@index([published])
+  @@index([archivedAt])
+  @@map("knowledge_articles")
+}
+```
+
+Add inverse relations on `User` model (`knowledgeArticlesCreated`, `knowledgeArticlesUpdated`).
+
+**Archive convention:** Set `archivedAt` (soft hide from admin default list + public). Hard **Delete** only for admin-confirmed permanent removal (optional: restrict to unpublished drafts).
+
+---
+
+### Registry coexistence (DB + file fallback)
+
+New module: `src/lib/help/knowledge-article-store.ts`
+
+| Function | Behavior |
+|----------|----------|
+| `hasDatabaseKnowledgeArticles()` | `count` where `archivedAt IS NULL` > 0 |
+| `loadKnowledgeArticlesFromDb()` | All non-archived, map Prisma row → `HelpArticle` |
+| `mapDbRowToHelpArticle(row)` | Single mapper used by registry, chatbot export, tests |
+| `getHelpArticleSource()` | Returns `"database"` \| `"files"` |
+
+Update `src/lib/help/help-registry.ts`:
+
+1. Add internal `async loadArticles()` with `unstable_cache` (tag: `knowledge-articles`, revalidate 60s or `revalidateTag` on writes).
+2. If DB has rows → use DB articles only (published filter unchanged).
+3. If DB empty → use `HELP_ARTICLES` from files (current behavior).
+4. On DB error → log + fall back to files.
+5. Expose **async** variants: `getHelpArticleBySlugAsync`, `queryHelpArticlesAsync`, etc.
+6. Keep sync functions as thin wrappers around file articles for tests/seed only (or deprecate gradually).
+
+**Public pages** (`/help`, `/help/[slug]`, organizer hub): switch to async registry functions.
+
+**`generateStaticParams`:** When DB mode likely, return `[]` and rely on dynamic rendering; optionally pre-render file slugs at build as fallback.
+
+**Admin writes:** Call `revalidatePath("/help")`, `revalidatePath("/help/[slug]")`, `revalidateTag("knowledge-articles")`.
+
+---
+
+### Seed from file library
+
+**Module:** `src/lib/help/seed-knowledge-articles-from-files.ts`
+
+**Rules:**
+- Iterate `HELP_ARTICLES` (27 articles)
+- `upsert` by `slug`; **skip** if slug already exists (no overwrite by default)
+- Map all fields including steps/FAQs JSON, arrays, `featured`/`popular` defaults (`false` unless we set `featured: sortOrder <= 40` for top 4 — **recommend all `false` on seed; admin toggles**)
+- Preserve `id` = slug (matches file articles)
+- Preserve `sortOrder`, `published`, `visibility`, `lastReviewedAt`
+
+**How to run:**
+1. Admin UI button: **“Seed from file library”** on `/admin/knowledge` (admin-only, confirmation dialog)
+2. API: `POST /api/admin/knowledge-articles/seed` (idempotent)
+3. Document in plan + optional `package.json` script: `"seed:knowledge": "tsx scripts/seed-knowledge-articles.ts"`
+
+---
+
+### Admin route structure
+
+| Route | Purpose |
+|-------|---------|
+| `/admin/knowledge` | Sortable table/grid, filters, bulk actions, CSV export |
+| `/admin/knowledge/new` | Create article |
+| `/admin/knowledge/[id]/edit` | Edit article |
+| Preview | Opens `/help/[slug]` in new tab (public page) |
+
+**Admin hub wiring** (`src/app/admin/page.tsx`):
+- Under **Global Settings**, add collapsible **Knowledge Repository** with short description + link to `/admin/knowledge`
+- Optional: add **Knowledge Repository** to admin layout nav (`src/app/admin/layout.tsx`)
+
+---
+
+### Admin API routes (all `isSiteAdmin` + MFA middleware)
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `GET` | `/api/admin/knowledge-articles` | Paginated table query (q, sort, filters, page) |
+| `POST` | `/api/admin/knowledge-articles` | Create article |
+| `GET` | `/api/admin/knowledge-articles/[id]` | Single article for edit form |
+| `PATCH` | `/api/admin/knowledge-articles/[id]` | Update article |
+| `DELETE` | `/api/admin/knowledge-articles/[id]` | Hard delete (confirm in UI) |
+| `POST` | `/api/admin/knowledge-articles/[id]/archive` | Set `archivedAt` |
+| `POST` | `/api/admin/knowledge-articles/[id]/unarchive` | Clear `archivedAt` |
+| `POST` | `/api/admin/knowledge-articles/[id]/duplicate` | Clone with `-copy` slug suffix |
+| `POST` | `/api/admin/knowledge-articles/bulk` | `publish` \| `unpublish` \| `archive` |
+| `GET` | `/api/admin/knowledge-articles/export` | CSV download (`ids` query or all filtered) |
+| `POST` | `/api/admin/knowledge-articles/seed` | Seed from file library |
+
+**Validation:** Zod schemas in `src/lib/help/knowledge-article-schemas.ts` — slug unique, required title, valid audience/category/visibility, JSON parse for steps/FAQs.
+
+---
+
+### Admin table / grid approach
+
+**Config:** `src/lib/admin-table/knowledge-articles-table-config.ts`  
+**Query builder:** `src/lib/help/knowledge-articles-admin-query.ts` (Prisma `where` + `orderBy`)
+
+**Columns (MVP):**
+
+| Column | Notes |
+|--------|-------|
+| Checkbox | Multi-select |
+| Sort order | Numeric; editable inline or via edit form |
+| Published | Badge |
+| Visibility | Badge |
+| Title | Truncate + link to edit |
+| Slug | Monospace |
+| Audience | Label from `HELP_AUDIENCE_LABELS` |
+| Category | Label from `getHelpCategoryLabel` |
+| Keywords | Truncate count, e.g. “5 keywords” |
+| Featured | Boolean badge |
+| Popular | Boolean badge |
+| Last reviewed | Date |
+| Last updated | `updatedAt` |
+| Actions | Edit, Preview, Duplicate, Publish/Unpublish, Archive |
+
+**Toolbar:**
+- Search (`q` → title, slug, keywords, body, chatbotSummary)
+- Filters: category, audience, published, visibility, archived (default: hide archived)
+- Sort: title, category, audience, sortOrder, updatedAt, lastReviewedAt
+- Pagination via `admin-table` meta
+
+**Bulk actions** (selected IDs):
+- Publish / Unpublish
+- Export selected CSV
+
+**Export all filtered:** `GET /api/admin/knowledge-articles/export?...filters` (no `ids` = all matching filters)
+
+**Select all:** Select all rows **on current page** (document clearly); optional “select all matching filter” in Phase 3B if needed.
+
+**Component:** `src/components/admin/admin-knowledge-repository-section.tsx` (client table)  
+**Page:** `src/app/admin/knowledge/page.tsx` (server shell + auth)
+
+Pattern: `admin-events-section.tsx` (admin-table hooks) + checkbox/bulk from `admin-sale-inquiries-list.tsx`.
+
+---
+
+### Individual article edit form
+
+**Component:** `src/components/admin/admin-knowledge-article-editor.tsx`
+
+**MVP fields (grouped sections):**
+
+1. **Basics:** title, slug (auto-suggest from title on create), shortDescription, audience, category, visibility, published, featured, popular, sortOrder, lastReviewedAt
+2. **Discovery:** keywords (comma-separated → array), relatedWebsitePages, relatedFeatures, relatedArticleIds
+3. **Content:** whoThisIsFor, whatThisHelpsYouDo, beforeYouStart (one item per line), whatHappensNext, articleBody (textarea)
+4. **Steps:** textarea with JSON array `[{"title":"...","body":"..."}]` + helper text
+5. **FAQ:** textarea with JSON array `[{"question":"...","answer":"..."}]` + helper text
+6. **Chatbot:** chatbotSummary, chatbotKeywords (comma-separated)
+
+**No rich text editor in MVP** (unless reusing `RichTextEditor` only for `articleBody` — **recommend plain textarea** for parity with file articles).
+
+**Actions:** Save, Cancel, Preview, Archive, Delete (with dialogs)
+
+---
+
+### CSV export
+
+**Module:** `src/lib/help/knowledge-article-csv.ts`
+
+- Reuse `csvRow` / `csvEscape` from `src/lib/event-reports/csv.ts`
+- **Complex fields as JSON strings:** `stepByStepInstructions`, `frequentlyAskedQuestions`, `beforeYouStart` (JSON array), `keywords`, `relatedWebsitePages`, `relatedFeatures`, `chatbotKeywords`, `relatedArticleIds`
+- **Scalars:** slug, title, shortDescription, audience, category, visibility, published, featured, popular, sortOrder, whoThisIsFor, whatThisHelpsYouDo, whatHappensNext, articleBody, chatbotSummary, lastReviewedAt (ISO)
+
+**Export modes:**
+- Selected IDs (`?ids=id1,id2`)
+- All filtered (same query params as table GET)
+
+Filename: `knowledge-articles-YYYY-MM-DD.csv`
+
+---
+
+### Phase 3B — CSV import (plan only, not in first coding pass)
+
+**Goal:** Batch update articles via Excel after export.
+
+**Proposed flow:**
+1. Admin uploads CSV on `/admin/knowledge/import` (future)
+2. Server parses CSV → validate each row
+3. Show preview diff (create / update / skip / error per slug)
+4. Admin confirms → apply in transaction
+
+**Validation requirements:**
+- `slug` required, unique within file and vs DB (updates vs creates)
+- `title` required
+- `category`, `audience`, `visibility` ∈ allowed values
+- JSON fields parse correctly (steps, FAQs, arrays)
+- No duplicate slugs in upload
+- Preview changes before applying
+- Admin confirmation before overwriting existing articles
+- Unpublish/archive never implicit unless column set
+
+**Export ↔ import column parity:** identical column set from Phase 3A export.
+
+---
+
+### Chatbot export update
+
+Update `src/lib/help/help-chatbot-export.ts`:
+
+- `exportChatbotKnowledgeBase()` becomes **async**
+- Load articles via same source as registry (DB or files)
+- Include only `published` + `visibility === "public"` (unchanged rule)
+- Unpublished / archived excluded
+
+---
+
+### Contextual help link fix
+
+| File | Change |
+|------|--------|
+| `src/components/help/contextual-help-link-server.tsx` | **New** async server component: resolves slug via async registry |
+| `src/components/help/contextual-help-link.tsx` | Keep for client-only contexts; accept optional `title`/`href` props |
+| All server pages using `ContextualHelpLink` | Switch to `ContextualHelpLinkServer` |
+
+---
+
+### Files to add
+
+| File | Purpose |
+|------|---------|
+| `prisma/migrations/20260608120000_knowledge_articles/migration.sql` | Create table |
+| `src/lib/help/knowledge-article-store.ts` | DB load, mapper, cache helpers |
+| `src/lib/help/knowledge-article-schemas.ts` | Zod create/update/bulk |
+| `src/lib/help/knowledge-articles-admin-query.ts` | Admin table Prisma query |
+| `src/lib/help/knowledge-article-csv.ts` | Build CSV rows |
+| `src/lib/help/knowledge-article-csv.test.ts` | CSV formatting tests |
+| `src/lib/help/seed-knowledge-articles-from-files.ts` | Idempotent seed |
+| `src/lib/help/knowledge-article-store.test.ts` | Mapper, fallback, validation |
+| `src/lib/admin-table/knowledge-articles-table-config.ts` | Column/sort config |
+| `src/app/admin/knowledge/page.tsx` | List page |
+| `src/app/admin/knowledge/new/page.tsx` | Create page |
+| `src/app/admin/knowledge/[id]/edit/page.tsx` | Edit page |
+| `src/app/api/admin/knowledge-articles/route.ts` | GET list, POST create |
+| `src/app/api/admin/knowledge-articles/[id]/route.ts` | GET/PATCH/DELETE |
+| `src/app/api/admin/knowledge-articles/[id]/archive/route.ts` | Archive |
+| `src/app/api/admin/knowledge-articles/[id]/duplicate/route.ts` | Duplicate |
+| `src/app/api/admin/knowledge-articles/bulk/route.ts` | Bulk publish/unpublish/archive |
+| `src/app/api/admin/knowledge-articles/export/route.ts` | CSV export |
+| `src/app/api/admin/knowledge-articles/seed/route.ts` | Seed from files |
+| `src/components/admin/admin-knowledge-repository-section.tsx` | Table UI |
+| `src/components/admin/admin-knowledge-article-editor.tsx` | Create/edit form |
+| `src/components/help/contextual-help-link-server.tsx` | Server resolver |
+
+---
+
+### Files to modify
+
+| File | Change |
+|------|--------|
+| `prisma/schema.prisma` | `KnowledgeArticle` model + `User` relations |
+| `src/lib/help/help-types.ts` | Optional `featured?`, `popular?` on `HelpArticle` |
+| `src/lib/help/help-registry.ts` | Async DB-first loading + fallback |
+| `src/lib/help/help-registry.test.ts` | Fallback + DB mapper tests (mock Prisma) |
+| `src/lib/help/help-chatbot-export.ts` | Async + DB source |
+| `src/lib/help/help-chatbot-export.test.ts` | Unpublished excluded, DB path |
+| `src/app/help/page.tsx` | Async article loading |
+| `src/app/help/[slug]/page.tsx` | Dynamic rendering, async lookup |
+| `src/app/organizer/events/[id]/help/page.tsx` | Async registry |
+| `src/components/help/contextual-help-link.tsx` | Optional resolved props |
+| `src/app/admin/page.tsx` | Global Settings → Knowledge Repository link |
+| `src/app/admin/layout.tsx` | Optional nav link |
+| ~16 contextual help consumer pages | `ContextualHelpLink` → `ContextualHelpLinkServer` where server components |
+
+**Do not delete:** `src/lib/help/help-articles/**` (27 files), `define-article.ts`, `index.ts`
+
+---
+
+### Phase 3A implementation todos
+
+- [x] **3.1** Prisma `KnowledgeArticle` model + migration `20260608120000_knowledge_articles`
+- [x] **3.2** `knowledge-article-store.ts` — mapper, slug overlay merge, DB error → file fallback
+- [x] **3.3** `knowledge-article-schemas.ts` — Zod validation + JSON steps/FAQ parse
+- [x] **3.4** Update `help-registry.ts` — async DB-overrides-by-slug + file fill-in
+- [x] **3.5** Update public `/help` pages + organizer hub for async registry
+- [ ] **3.6** `ContextualHelpLinkServer` + migrate server page imports — **deferred Phase 3A** (contextual links stay file-registry based)
+- [x] **3.7** Seed utility + `POST /api/admin/knowledge-articles/seed` (featured/popular starter set)
+- [x] **3.8** Admin API routes (CRUD, bulk, archive, duplicate, export)
+- [x] **3.9** `knowledge-articles-table-config` + admin query builder
+- [x] **3.10** `/admin/knowledge` table UI (search, filters, sort, pagination, page select-all, bulk actions)
+- [x] **3.11** `/admin/knowledge/new` + `[id]/edit` editor form (textarea JSON with examples)
+- [x] **3.12** CSV export (`knowledge-article-csv.ts` + export route; selected + all filtered)
+- [x] **3.13** Wire Global Settings link on `/admin` (“Knowledge Repository”)
+- [x] **3.14** Update `exportChatbotKnowledgeBase()` for async merged catalog
+- [x] **3.15** Tests (store merge, CSV, schemas, registry, chatbot export) — 38 passing
+- [x] **3.16** `npm test -- help` + `npm run build` — both passed
+
+### Phase 3B — deferred
+
+- [ ] CSV import UI + preview diff + confirmed apply
+- [ ] “Select all matching filter” for bulk export
+
+### Phase 3C — future
+
+- [ ] Chatbot UI consuming `exportChatbotKnowledgeBase()`
 - [ ] Vector DB indexing pipeline
-- [ ] `organizerOnly` / `adminOnly` visibility enforcement in page + export
+- [ ] Full `organizerOnly` / `adminOnly` visibility enforcement on public pages
+- [ ] Optional `GET /api/help/chatbot-export` admin route
+
+---
+
+### Test plan (Phase 3A)
+
+| Module | Tests |
+|--------|-------|
+| `knowledge-article-store.ts` | DB row → `HelpArticle`; empty DB → files; DB error → files |
+| `knowledge-article-schemas.ts` | Invalid audience/category rejected; slug required |
+| `knowledge-article-csv.ts` | JSON fields escaped; round-trip shape |
+| `help-registry.ts` | Unpublished excluded; published public only |
+| `help-chatbot-export.ts` | Same exclusions; async DB path |
+| Admin API | 403 for non-admin (if pattern exists) |
+
+---
+
+### Review — Phase 3A (completed 2026-05-31)
+
+| Area | Change |
+|------|--------|
+| **Migration** | `20260608120000_knowledge_articles` — `KnowledgeArticle` table + user relations |
+| **Merge strategy** | DB-overrides-by-slug; file fill-in; unpublished/archived DB row blocks file fallback for that slug; empty DB or DB error → file articles |
+| **Admin routes** | `/admin/knowledge`, `/admin/knowledge/new`, `/admin/knowledge/[id]/edit` |
+| **Admin API** | CRUD, bulk publish/unpublish/archive, duplicate, seed, CSV export (selected + all filtered) |
+| **Public Help Center** | Async merged catalog; only `published` + non-archived + `visibility: public` |
+| **Chatbot export** | Async; same public visibility rules |
+| **Seed** | Idempotent from 27 file articles; featured/popular starter slugs per approved list |
+| **Global Settings** | “Knowledge Repository” link on `/admin` |
+| **Contextual help** | **Unchanged** — `ContextualHelpLink` stays file-registry based (follow-up) |
+| **Tests** | 38 help tests passing (`knowledge-article-store`, `knowledge-article-csv`, `knowledge-article-schemas`, registry, chatbot export) |
+| **Build** | `npm run build` passed |
+
+**Known limitations (Phase 3A):**
+- CSV import deferred to Phase 3B
+- Cross-page persistent selection deferred to Phase 3B
+- `organizerOnly` / `adminOnly` articles not exposed on public pages yet
+- Contextual help links not DB-backed yet
+- Run `npx prisma migrate deploy` on each environment before using admin CRUD
+
+**Files added:** `knowledge-article-store.ts`, `knowledge-article-schemas.ts`, `knowledge-article-csv.ts`, `knowledge-article-admin.ts`, `seed-knowledge-articles-from-files.ts`, `require-admin-api.ts`, admin pages/components, `src/app/api/admin/knowledge-articles/**`, migration SQL, table config + tests.
+
+---
+
+## Phase 3 legacy notes (superseded by plan above)
+
+- ~~`globalSetting` JSON blob~~ → use dedicated `KnowledgeArticle` table
+- Chatbot UI + vector DB remain Phase 3C
 
 ---
 
@@ -3692,4 +4104,28 @@ After approval, implementation starts at **Phase 1** and proceeds in order; upda
 | Tests | 13 passing in `help-registry.test.ts` |
 | Build | `npm run build` passed |
 | Deferred | Organizer `/help` hub, chatbot API route, contextual links → Phase 2 |
+
+---
+
+## Knowledge Repository — Keywords column & seeding (2026-05-31)
+
+### Plan
+- [x] Backfill empty DB keywords from file library on seed
+- [x] Add **Keywords** column after Category in admin table (filterable)
+- [x] Global search (`q`) matches keywords (case-insensitive partial)
+- [x] CSV export/import supports editing keywords (comma-separated + JSON)
+
+### Review
+
+| Area | Change |
+|------|--------|
+| Seed | `seedKnowledgeArticlesFromFiles` backfills `keywords` for existing rows when empty, using file article by slug |
+| Admin table | New **Keywords** column after Category; comma-joined display with hover title |
+| Search | `q` uses Postgres `unnest(keywords) ILIKE` for partial match; column filter uses same operators as other text columns |
+| CSV export | Keywords as `account, signup` (quoted when needed) instead of JSON |
+| CSV import | Accepts comma-separated or JSON array for `keywords`; replace/import updates keywords via existing `formInputToPrismaData` |
+| Tests | CSV round-trip + comma-separated keywords import |
+| Build | `npm run build` passed |
+
+**Note:** Run seed API (`POST /api/admin/knowledge-articles/seed`) once in each environment to backfill keywords on articles that were created before keywords were populated.
 

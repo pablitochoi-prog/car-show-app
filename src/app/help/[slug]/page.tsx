@@ -4,21 +4,19 @@ import { notFound } from "next/navigation";
 import { HelpArticleBody } from "@/components/help/help-article-body";
 import { getHelpCategoryLabel } from "@/lib/help/help-categories";
 import {
-  getHelpArticleBySlug,
-  getPublishedHelpSlugs,
+  getHelpArticleBySlugAsync,
+  getRelatedHelpArticlesAsync,
 } from "@/lib/help/help-registry";
+
+export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
 };
 
-export async function generateStaticParams() {
-  return getPublishedHelpSlugs().map((slug) => ({ slug }));
-}
-
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const article = getHelpArticleBySlug(slug);
+  const article = await getHelpArticleBySlugAsync(slug);
   if (!article) {
     return { title: "Help article not found" };
   }
@@ -31,9 +29,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function HelpArticlePage({ params }: PageProps) {
   const { slug } = await params;
-  const article = getHelpArticleBySlug(slug);
+  const article = await getHelpArticleBySlugAsync(slug);
   if (!article) notFound();
 
+  const related = await getRelatedHelpArticlesAsync(article);
   const categoryLabel = getHelpCategoryLabel(article.category);
 
   return (
@@ -57,7 +56,7 @@ export default async function HelpArticlePage({ params }: PageProps) {
       <h1 className="mt-4 text-3xl font-bold tracking-tight">{article.title}</h1>
 
       <div className="mt-8">
-        <HelpArticleBody article={article} />
+        <HelpArticleBody article={article} relatedArticles={related} />
       </div>
 
       <p className="mt-10 text-sm text-muted-foreground">

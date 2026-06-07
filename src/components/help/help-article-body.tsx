@@ -1,18 +1,17 @@
 import Link from "next/link";
 import { getHelpCategoryLabel } from "@/lib/help/help-categories";
-import {
-  formatHelpArticleReviewDate,
-  getRelatedHelpArticles,
-} from "@/lib/help/help-registry";
+import { formatHelpArticleReviewDate } from "@/lib/help/help-registry";
 import type { HelpArticle } from "@/lib/help/help-types";
 import { HelpAudienceBadge } from "./help-audience-badge";
+import { HelpRichTextContent } from "./help-rich-text-content";
 
 type Props = {
   article: HelpArticle;
+  relatedArticles?: HelpArticle[];
 };
 
-export function HelpArticleBody({ article }: Props) {
-  const related = getRelatedHelpArticles(article);
+export function HelpArticleBody({ article, relatedArticles = [] }: Props) {
+  const related = relatedArticles;
 
   return (
     <article className="space-y-8 text-base leading-relaxed">
@@ -67,7 +66,7 @@ export function HelpArticleBody({ article }: Props) {
               <h3 className="font-medium text-foreground">
                 {index + 1}. {step.title}
               </h3>
-              <p className="text-muted-foreground">{step.body}</p>
+              <HelpRichTextContent html={step.body} className="mt-1" />
             </li>
           ))}
         </ol>
@@ -89,7 +88,9 @@ export function HelpArticleBody({ article }: Props) {
             {article.frequentlyAskedQuestions.map((faq) => (
               <div key={faq.question}>
                 <dt className="font-medium text-foreground">{faq.question}</dt>
-                <dd className="mt-1 text-muted-foreground">{faq.answer}</dd>
+                <dd className="mt-1">
+                  <HelpRichTextContent html={faq.answer} />
+                </dd>
               </div>
             ))}
           </dl>

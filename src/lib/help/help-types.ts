@@ -91,7 +91,21 @@ export type HelpArticle = {
   published: boolean;
   sortOrder: number;
   visibility: HelpVisibility;
+  /** Set on DB-backed articles; used for Help Center landing sections. */
+  featured?: boolean;
+  popular?: boolean;
 };
+
+export const HELP_VISIBILITY_VALUES: HelpVisibility[] = [
+  "public",
+  "authenticated",
+  "organizerOnly",
+  "adminOnly",
+];
+
+export function isHelpVisibility(value: string): value is HelpVisibility {
+  return (HELP_VISIBILITY_VALUES as readonly string[]).includes(value);
+}
 
 export const HELP_AUDIENCE_LABELS: Record<HelpAudience, string> = {
   REGISTRANT: "Registrants & vehicle owners",

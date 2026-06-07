@@ -1,5 +1,5 @@
 import { getHelpCategoryLabel } from "./help-categories";
-import { getPublishedHelpArticles } from "./help-registry";
+import { getPublicPublishedArticlesAsync } from "./help-registry";
 import type { HelpArticle } from "./help-types";
 
 export type ChatbotArticleExport = {
@@ -85,10 +85,11 @@ function toChatbotExport(article: HelpArticle): ChatbotArticleExport {
 
 /**
  * Export published, public help articles in a chatbot-friendly shape.
- * Lib-only — no HTTP route in Phase 2A.
+ * Uses merged DB + file catalog when available.
  */
-export function exportChatbotKnowledgeBase(): ChatbotArticleExport[] {
-  return getPublishedHelpArticles()
-    .filter((article) => article.visibility === "public")
-    .map(toChatbotExport);
+export async function exportChatbotKnowledgeBase(): Promise<
+  ChatbotArticleExport[]
+> {
+  const articles = await getPublicPublishedArticlesAsync();
+  return articles.map(toChatbotExport);
 }
