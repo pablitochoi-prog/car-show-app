@@ -11,12 +11,20 @@ export function ScorecardsSummaryReportView({ data }: Props) {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        For line-by-line deductions and exports, use the full score sheet results
-        workspace.
+        Open class rankings, individual vehicle score sheets, or a judge
+        consistency matrix to compare deductions across vehicles.
       </p>
-      <ButtonLink href={data.resultsPageHref}>
-        Open score sheet results →
-      </ButtonLink>
+      <div className="flex flex-wrap gap-2">
+        <ButtonLink href={data.resultsPageHref} variant="primary">
+          Open score sheet results →
+        </ButtonLink>
+        <ButtonLink href={data.individualScoreSheetsHref} variant="outline">
+          Open individual score sheets →
+        </ButtonLink>
+        <ButtonLink href={data.judgeScoreSheetsHref} variant="outline">
+          Open judges&apos; score sheets →
+        </ButtonLink>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat label="Draft" value={data.totalDraft} />
@@ -78,14 +86,20 @@ function Stat({ label, value }: { label: string; value: number }) {
 function ButtonLink({
   href,
   children,
+  variant = "primary",
 }: {
   href: string;
   children: ReactNode;
+  variant?: "primary" | "outline";
 }) {
   return (
     <Link
       href={href}
-      className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
+      className={
+        variant === "primary"
+          ? "inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
+          : "inline-flex h-9 items-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-muted/50"
+      }
     >
       {children}
     </Link>

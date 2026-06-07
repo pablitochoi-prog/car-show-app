@@ -111,11 +111,21 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     comingSoonNote: "Geographic breakdown tables are planned for a later phase.",
   },
   {
+    id: "judge-progress",
+    label: "Judge Progress",
+    description:
+      "Score sheet and ballot completion status while judging is underway.",
+    groupId: "judging-operations",
+    navSortOrder: 60,
+    available: true,
+    supportsCsv: true,
+  },
+  {
     id: "public-voting",
     label: "Public Voting Results",
     description: "Website and SMS vote rankings by public voting category.",
     groupId: "voting-awards",
-    navSortOrder: 60,
+    navSortOrder: 70,
     available: true,
     supportsCsv: true,
   },
@@ -124,23 +134,13 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     label: "Judge Ballot Results",
     description: "Informal judge ballot rankings by award category.",
     groupId: "voting-awards",
-    navSortOrder: 70,
-    available: true,
-    supportsCsv: true,
-  },
-  {
-    id: "judge-progress",
-    label: "Judge Progress",
-    description:
-      "Score sheet and ballot completion status while judging is underway.",
-    groupId: "judging-operations",
     navSortOrder: 80,
     available: true,
     supportsCsv: true,
   },
   {
     id: "scorecards",
-    label: "Structured Scorecard Results",
+    label: "Judged Scorecard Results",
     description:
       "High-level score sheet status by class. Open the full results workspace for detail.",
     groupId: "judging-operations",
@@ -168,9 +168,9 @@ export const EVENT_REPORT_NAV_ORDER: EventReportTypeId[] = [
   "staffing",
   "check-in",
   "geography",
+  "judge-progress",
   "public-voting",
   "judge-ballots",
-  "judge-progress",
   "scorecards",
   "awards",
 ];
@@ -184,6 +184,8 @@ export const REPORT_EMPTY_MESSAGES = {
     "No judge ballot categories are configured for this event yet. Create award categories under Awards & Judging → Judge Ballot.",
   judgeBallotNoVotes:
     "No judge ballot votes have been submitted yet. This report only includes informal judge ballot voting — not structured score sheet winners or trophy placements.",
+  judgeBallotWinnersWithoutVoteDetail:
+    "No judge ballot vote totals are available to display. Awards / Winners may still list trophy placements sourced from judge ballot (manual overrides, projected picks, or finalized results after vote detail was removed). See the Awards / Winners report for placements.",
 } as const;
 
 const REPORT_BY_ID = new Map(
@@ -233,6 +235,48 @@ export function navigableReportTypes(): EventReportDefinition[] {
       (r) => r.id !== "home" && (r.available || r.comingSoon),
     ),
   );
+}
+
+export type EventReportVotingSetup = {
+  publicVotingConfigured: boolean;
+  judgeBallotConfigured: boolean;
+  scoreSheetConfigured: boolean;
+};
+
+/** Voting-results reports only appear when that method is configured on the event. */
+export function isVotingResultsReportVisible(
+  reportId: EventReportTypeId,
+  setup: EventReportVotingSetup,
+): boolean {
+  switch (reportId) {
+    case "public-voting":
+      return setup.publicVotingConfigured;
+    case "judge-ballots":
+      return setup.judgeBallotConfigured;
+    case "scorecards":
+      return setup.scoreSheetConfigured;
+    default:
+      return true;
+  }
+}
+
+export function filterReportsForEvent(
+  reports: EventReportDefinition[],
+  setup: EventReportVotingSetup,
+): EventReportDefinition[] {
+  return reports.filter((r) => isVotingResultsReportVisible(r.id, setup));
+}
+
+export function navigableReportTypesForEvent(
+  setup: EventReportVotingSetup,
+): EventReportDefinition[] {
+  return filterReportsForEvent(navigableReportTypes(), setup);
+}
+
+export function reportsForHomeCardsForEvent(
+  setup: EventReportVotingSetup,
+): EventReportDefinition[] {
+  return filterReportsForEvent(reportsForHomeCards(), setup);
 }
 
 export function reportsByGroup(groupId: EventReportGroupId): EventReportDefinition[] {
@@ -286,8 +330,9 @@ export type ReportsHomeSummary = {
   withPrint: number;
 };
 
-export function getReportsHomeSummary(): ReportsHomeSummary {
-  const cards = reportsForHomeCards();
+export function getReportsHomeSummary(
+  cards: EventReportDefinition[] = reportsForHomeCards(),
+): ReportsHomeSummary {
   return {
     total: cards.length,
     available: cards.filter((r) => r.available && !r.comingSoon).length,

@@ -6,12 +6,15 @@ import {
 } from "@/lib/event-awards-trophies";
 import { pickAutoWinnerForPlace } from "@/lib/judging/award-trophy-place-pick";
 import {
-  rankCategoryAwardPool,
-  rankSpecialAwardPool,
-  type RankedTrophyVehicle,
-  type TrophyWinnerRankingSource,
-  TROPHY_WINNERS_LIST_SIZE,
+  createAwardTrophyRankingCache,
+  rankCategoryAwardPoolFromCache,
+  rankSpecialAwardPoolFromCache,
+} from "@/lib/judging/award-trophy-ranking-cache";
+import type {
+  RankedTrophyVehicle,
+  TrophyWinnerRankingSource,
 } from "@/lib/judging/award-trophy-ranking";
+import { TROPHY_WINNERS_LIST_SIZE } from "@/lib/judging/award-trophy-ranking";
 import { loadEventVotingControl } from "@/lib/judging/event-voting-control";
 
 export { TROPHY_WINNERS_LIST_SIZE } from "@/lib/judging/award-trophy-match";
@@ -123,29 +126,39 @@ function attachListFlags(
 
 export async function loadAwardTrophyWinners(
   eventId: string,
+  options?: { includeRankedList?: boolean },
 ): Promise<AwardTrophyWinnersPayload | null> {
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: {
-      eventCategories: {
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          trophyCount: true,
-          customName: true,
-          category: { select: { name: true } },
+  const includeRankedList = options?.includeRankedList ?? true;
+
+  const [event, placements, votingControl, rankingCache] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id: eventId },
+      select: {
+        eventCategories: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            trophyCount: true,
+            customName: true,
+            category: { select: { name: true } },
+          },
+        },
+        eventAwards: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            customName: true,
+            specialAward: { select: { name: true } },
+          },
         },
       },
-      eventAwards: {
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          customName: true,
-          specialAward: { select: { name: true } },
-        },
-      },
-    },
-  });
+    }),
+    prisma.eventTrophyPlacement.findMany({
+      where: { eventId },
+    }),
+    loadEventVotingControl(eventId),
+    createAwardTrophyRankingCache(eventId),
+  ]);
   if (!event) return null;
 
   const categories = event.eventCategories.map((c) => ({
@@ -162,21 +175,9 @@ export async function loadAwardTrophyWinners(
     })),
   });
 
-  const placements = await prisma.eventTrophyPlacement.findMany({
-    where: { eventId },
-  });
   const placementByEntryId = new Map(
     placements.map((p) => [p.trophyEntryId, p]),
   );
-
-  const categoryPools = new Map<
-    string,
-    { vehicles: RankedTrophyVehicle[]; source: TrophyWinnerRankingSource }
-  >();
-  const specialPools = new Map<
-    string,
-    { vehicles: RankedTrophyVehicle[]; source: TrophyWinnerRankingSource }
-  >();
 
   const groups: TrophyAwardGroup[] = [];
 
@@ -191,8 +192,7 @@ export async function loadAwardTrophyWinners(
     const catId = cat.id;
     if (!categoryIdsWithTrophies.has(catId)) continue;
     const awardName = `Best ${cat.name}`;
-    const pool = await rankCategoryAwardPool(eventId, catId);
-    categoryPools.set(catId, pool);
+    const pool = rankCategoryAwardPoolFromCache(rankingCache, catId);
 
     const catEntries = entries.filter((e) => {
       const p = parseAwardTrophyEntryId(e.id);
@@ -224,7 +224,9 @@ export async function loadAwardTrophyWinners(
       kind: "category",
       rankingSource: pool.source,
       sourceHint: sourceHint(pool.source),
-      rankedVehicles: attachListFlags(pool.vehicles, placeSlots),
+      rankedVehicles: includeRankedList
+        ? attachListFlags(pool.vehicles, placeSlots)
+        : [],
       placeSlots,
     });
   }
@@ -241,11 +243,7 @@ export async function loadAwardTrophyWinners(
     if (!specialIdsWithTrophies.has(awardId)) continue;
     const awardName =
       award?.specialAward?.name ?? award?.customName ?? "Special award";
-    let pool = specialPools.get(awardId);
-    if (!pool) {
-      pool = await rankSpecialAwardPool(eventId, awardName);
-      specialPools.set(awardId, pool);
-    }
+    const pool = rankSpecialAwardPoolFromCache(rankingCache, awardName);
 
     const entry = entries.find((e) => {
       const p = parseAwardTrophyEntryId(e.id);
@@ -276,12 +274,12 @@ export async function loadAwardTrophyWinners(
       kind: "special",
       rankingSource: pool.source,
       sourceHint: sourceHint(pool.source),
-      rankedVehicles: attachListFlags(pool.vehicles, placeSlots),
+      rankedVehicles: includeRankedList
+        ? attachListFlags(pool.vehicles, placeSlots)
+        : [],
       placeSlots,
     });
   }
-
-  const votingControl = await loadEventVotingControl(eventId);
 
   return {
     judgingFinalized: votingControl?.trophyWinnersEnabled ?? false,

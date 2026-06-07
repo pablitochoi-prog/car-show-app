@@ -67,6 +67,7 @@ describe("serializeOrganizerJudgeScoreSheet", () => {
             id: "item-1",
             label: "Finish",
             maxPoints: 50,
+            isIndented: true,
             awardedPoints: null,
             itemNotes: null,
             deductions: [
@@ -87,6 +88,8 @@ describe("serializeOrganizerJudgeScoreSheet", () => {
     const out = serializeOrganizerJudgeScoreSheet(baseSheet);
     expect(out.judge.name).toBe("Pat Judge");
     expect(out.submittedAtLabel).toContain("2026");
+    expect(out.sections[0]?.sectionMax).toBe(50);
+    expect(out.sections[0]?.items[0]?.isIndented).toBe(true);
     expect(out.sections[0]?.items[0]?.deductions[0]?.comment).toBe("Small chip");
     expect(out.generalNotes).toBe("Overall good");
     expect(out.calculatedFinalScore).toBeGreaterThan(0);

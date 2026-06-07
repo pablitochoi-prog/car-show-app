@@ -40,6 +40,9 @@ export default function HomePage() {
             <div className="mb-4 flex justify-center">
               <SiteLogo size="hero" priority />
             </div>
+            <p className="mb-2 text-sm font-medium text-muted-foreground">
+              Car Show Scout, LLC
+            </p>
             <h1
               id="home-hero-heading"
               className="mb-4 text-3xl font-bold tracking-tight text-foreground sm:text-4xl md:text-5xl"
@@ -47,9 +50,10 @@ export default function HomePage() {
               Find and Manage Car Shows with CarShowScout
             </h1>
             <p className="mx-auto mb-8 max-w-2xl text-base text-muted-foreground md:text-lg">
-              Discover upcoming car shows, cruise-ins, and meets. Register your
-              vehicles online, help organizers run smooth events, and vote by
-              text for People&apos;s Choice and other awards.
+              Car Show Scout is a car show event management platform for
+              organizers, registrants, judges, event staff, and attendees.
+              Discover upcoming shows, register vehicles, run judging and
+              voting, and keep everyone informed from one place.
             </p>
             <nav
               className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap"
@@ -82,6 +86,38 @@ export default function HomePage() {
                 Sign in
               </Link>
             </nav>
+          </div>
+        </section>
+
+        {/* Platform overview */}
+        <section className="py-14" aria-labelledby="home-platform-heading">
+          <div className="page-shell max-w-3xl">
+            <h2
+              id="home-platform-heading"
+              className="text-2xl font-bold tracking-tight md:text-3xl"
+            >
+              One platform for the full car show lifecycle
+            </h2>
+            <p className="mt-3 leading-relaxed text-muted-foreground">
+              Car Show Scout, LLC provides tools for every role at a show:
+            </p>
+            <ul className="mt-4 list-disc space-y-2 pl-6 text-sm leading-relaxed text-muted-foreground md:text-base">
+              <li>Event registration and vehicle registration</li>
+              <li>Printable dash cards with vehicle IDs and QR codes</li>
+              <li>Public voting and judge ballot voting</li>
+              <li>Score sheet judging for structured awards</li>
+              <li>Event communications and organizer messaging</li>
+              <li>Buyer inquiries for vehicles listed for sale at events</li>
+            </ul>
+            <p className="mt-6 text-sm text-muted-foreground">
+              Questions?{" "}
+              <a
+                href="mailto:support@carshowscout.com"
+                className="font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                support@carshowscout.com
+              </a>
+            </p>
           </div>
         </section>
 
@@ -234,26 +270,39 @@ export default function HomePage() {
               />
               <div>
                 <h2 id="home-sms-heading" className="text-xl font-bold">
-                  Car show voting by text
+                  SMS notifications and voting
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  When an event enables SMS voting, spectators can support
-                  their favorite vehicles using the code on the dash card.
-                  Message and data rates may apply. See our{" "}
+                  Car Show Scout may send optional SMS messages about
+                  registration, voting, judging, buyer inquiries, and event
+                  updates when you opt in. Message frequency varies. Message and
+                  data rates may apply. Reply STOP to unsubscribe and HELP for
+                  help. SMS consent is not required to register, vote, judge,
+                  or participate in an event. Car Show Scout does not sell or
+                  share mobile phone numbers or SMS consent information with
+                  third parties or affiliates for marketing or promotional
+                  purposes. See our{" "}
+                  <Link
+                    href="/sms"
+                    className="font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    SMS Program page
+                  </Link>
+                  ,{" "}
                   <Link
                     href="/terms"
                     className="font-medium text-foreground underline-offset-4 hover:underline"
                   >
                     SMS Text Policy
-                  </Link>{" "}
-                  and{" "}
+                  </Link>
+                  , and{" "}
                   <Link
                     href="/privacy"
                     className="font-medium text-foreground underline-offset-4 hover:underline"
                   >
                     Privacy Policy
-                  </Link>{" "}
-                  for details.
+                  </Link>
+                  .
                 </p>
               </div>
             </div>
@@ -303,18 +352,33 @@ export default function HomePage() {
               aria-label="Legal policies"
             >
               <Link
+                href="/privacy"
+                className="font-medium underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Privacy Policy
+              </Link>
+              <Link
                 href="/terms"
                 className="font-medium underline-offset-4 hover:text-foreground hover:underline"
               >
                 SMS Text Policy
               </Link>
               <Link
-                href="/privacy"
+                href="/sms"
                 className="font-medium underline-offset-4 hover:text-foreground hover:underline"
               >
-                Privacy Policy
+                SMS Program
               </Link>
             </nav>
+            <p className="mt-6 text-xs text-muted-foreground">
+              Car Show Scout, LLC ·{" "}
+              <a
+                href="mailto:support@carshowscout.com"
+                className="underline-offset-4 hover:text-foreground hover:underline"
+              >
+                support@carshowscout.com
+              </a>
+            </p>
           </div>
         </section>
       </div>

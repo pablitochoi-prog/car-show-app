@@ -14,6 +14,7 @@ import {
 import { backfillJudgingClassOnOrphanSheets } from "@/lib/judging/score-sheet-judging-class-link";
 import { formatSubmittedAt } from "@/lib/format-submitted-at";
 import { maskContactIfBanned } from "@/lib/mask-banned-user-contact";
+import { resolveSectionMaxPoints } from "@/lib/judging/organizer-score-sheet-display";
 
 export const SCORING_STATUSES: JudgeScoreSheetStatus[] = ["SUBMITTED", "FINALIZED"];
 
@@ -45,6 +46,7 @@ export type OrganizerScoreSheetItemView = {
   id: string;
   label: string;
   maxPoints: number;
+  isIndented: boolean;
   awardedPoints: number | null;
   itemNotes: string | null;
   deductions: Array<{
@@ -60,6 +62,7 @@ export type OrganizerScoreSheetSectionView = {
   name: string;
   sortOrder: number;
   sectionScore: number;
+  sectionMax: number;
   items: OrganizerScoreSheetItemView[];
 };
 
@@ -144,6 +147,7 @@ export function serializeOrganizerJudgeScoreSheet(
         id: string;
         label: string;
         maxPoints: number;
+        isIndented: boolean;
         awardedPoints: number | null;
         itemNotes: string | null;
         pointType: JudgingSubcategoryPointType | null;
@@ -210,10 +214,15 @@ export function serializeOrganizerJudgeScoreSheet(
       name: section.name,
       sortOrder: section.sortOrder,
       sectionScore: calculated.sectionScores[sectionIndex] ?? 0,
+      sectionMax: resolveSectionMaxPoints(
+        section.maxSectionPoints,
+        section.items,
+      ),
       items: section.items.map((item) => ({
         id: item.id,
         label: item.label,
         maxPoints: item.maxPoints,
+        isIndented: item.isIndented,
         awardedPoints: item.awardedPoints,
         itemNotes: item.itemNotes,
         deductions: item.deductions.map((d) => ({

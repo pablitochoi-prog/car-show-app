@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getSiteOrigin } from "@/lib/site-url";
 
 const SITE_NAME = "CarShowScout";
-const DEFAULT_ORIGIN = "https://events.carshowscout.com";
+const DEFAULT_ORIGIN = "https://carshowscout.com";
 
 export const HOMEPAGE_TITLE =
   "Car Show Discovery, Registration & SMS Voting | CarShowScout";

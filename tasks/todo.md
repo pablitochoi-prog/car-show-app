@@ -3300,3 +3300,38 @@ After approval, implementation starts at **Phase 1** and proceeds in order; upda
 | Blockers | Check-in schema; Stripe processing fee not stored |
 | Nav | Reports already in organizer nav; improve reports sub-nav layout |
 
+---
+
+## Domain migration: events.carshowscout.com → carshowscout.com
+
+### Phase B — Code (completed 2026-05-31)
+
+- [x] Production fallback URLs → `https://carshowscout.com` (`site-url.ts`, `homepage-seo.ts`)
+- [x] SMS opt-in disclosure links → relative `/terms` and `/privacy`
+- [x] Public `/sms` A2P compliance page
+- [x] Homepage + footer: LLC, features, SMS summary, `support@carshowscout.com`, policy links
+- [x] Default privacy + SMS policy HTML (admin-overridable) with mobile-number sharing language
+- [x] Tests, `.env.example`, SMS consent checklist updated
+
+### Phase C — External / infra (manual — not started)
+
+- [ ] Vercel: attach `carshowscout.com`, set `NEXT_PUBLIC_APP_URL=https://carshowscout.com` in Production
+- [ ] Supabase Auth: Site URL + redirect allowlist for `https://carshowscout.com/auth/callback`
+- [ ] Twilio: webhook → `https://carshowscout.com/api/sms/twilio/inbound`
+- [ ] Stripe: webhook endpoint → `https://carshowscout.com/api/stripe/webhook`
+- [ ] DNS: point apex to Vercel; keep `events.carshowscout.com` serving app during migration
+
+### Phase D — Redirect (future — not implemented)
+
+- [ ] **301 redirect** `events.carshowscout.com` → `carshowscout.com` (preserve path/query) for printed dash-card QRs and legacy email links
+- [ ] Regenerate vehicle QRs for active events after cutover (optional)
+- [ ] Remove legacy Supabase redirect URLs after transition period
+
+### Review (Phase B)
+
+| Area | Change |
+|------|--------|
+| Primary domain fallback | `carshowscout.com` when `NEXT_PUBLIC_APP_URL` unset in production |
+| Migration host | `events.carshowscout.com` still works when set via env — no forced redirect in app |
+| A2P | `/sms`, `/privacy`, `/terms` defaults + homepage SMS disclosure |
+

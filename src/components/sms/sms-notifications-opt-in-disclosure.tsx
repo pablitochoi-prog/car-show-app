@@ -4,10 +4,9 @@ import {
   SMS_NOTIFICATIONS_FULL_DISCLOSURE,
 } from "@/lib/sms-notifications-disclosure-content";
 
-export const SMS_NOTIFICATIONS_TERMS_URL =
-  "https://events.carshowscout.com/terms";
-export const SMS_NOTIFICATIONS_PRIVACY_URL =
-  "https://events.carshowscout.com/privacy";
+/** Relative policy paths — work on any app host during domain migration. */
+export const SMS_NOTIFICATIONS_TERMS_URL = "/terms";
+export const SMS_NOTIFICATIONS_PRIVACY_URL = "/privacy";
 
 /** Full TCPA consent disclosure with Terms and Privacy Policy links. */
 export function SmsNotificationsOptInFullDisclosure() {
@@ -17,8 +16,6 @@ export function SmsNotificationsOptInFullDisclosure() {
       <Link
         href={SMS_NOTIFICATIONS_TERMS_URL}
         className="font-medium text-primary underline-offset-4 hover:underline"
-        target="_blank"
-        rel="noopener noreferrer"
       >
         {SMS_CONSENT_LINK_LABELS.terms}
       </Link>
@@ -26,8 +23,6 @@ export function SmsNotificationsOptInFullDisclosure() {
       <Link
         href={SMS_NOTIFICATIONS_PRIVACY_URL}
         className="font-medium text-primary underline-offset-4 hover:underline"
-        target="_blank"
-        rel="noopener noreferrer"
       >
         {SMS_CONSENT_LINK_LABELS.privacyPolicy}
       </Link>

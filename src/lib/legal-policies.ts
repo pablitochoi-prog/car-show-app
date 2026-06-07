@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
-import { DEFAULT_SMS_TEXT_POLICY_HTML } from "@/lib/legal-policy-defaults";
+import {
+  DEFAULT_PRIVACY_POLICY_HTML,
+  DEFAULT_SMS_TEXT_POLICY_HTML,
+} from "@/lib/legal-policy-defaults";
 import {
   isPolicyHtmlEmpty,
   sanitizePolicyHtml,
@@ -43,14 +46,14 @@ export async function getLegalPolicies(): Promise<LegalPolicies> {
   return parseValue(row.value);
 }
 
-export async function getSmsTextPolicyHtml(): Promise<string | null> {
+export async function getSmsTextPolicyHtml(): Promise<string> {
   const policies = await getLegalPolicies();
-  return policies.smsTextPolicyHtml;
+  return policies.smsTextPolicyHtml ?? DEFAULT_SMS_TEXT_POLICY_HTML;
 }
 
-export async function getPrivacyPolicyHtml(): Promise<string | null> {
+export async function getPrivacyPolicyHtml(): Promise<string> {
   const policies = await getLegalPolicies();
-  return policies.privacyPolicyHtml;
+  return policies.privacyPolicyHtml ?? DEFAULT_PRIVACY_POLICY_HTML;
 }
 
 /** HTML prefill for the SMS policy admin editor. */

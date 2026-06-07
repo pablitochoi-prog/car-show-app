@@ -9,7 +9,12 @@ describe("getSiteOrigin", () => {
   });
 
   it("uses NEXT_PUBLIC_APP_URL when set", () => {
-    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com/";
+    process.env.NEXT_PUBLIC_APP_URL = "https://carshowscout.com/";
+    expect(getSiteOrigin()).toBe("https://carshowscout.com");
+  });
+
+  it("honors legacy events host when configured in env", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
     expect(getSiteOrigin()).toBe("https://events.carshowscout.com");
   });
 
@@ -22,6 +27,6 @@ describe("getSiteOrigin", () => {
   it("defaults to production host in production without env", () => {
     delete process.env.NEXT_PUBLIC_APP_URL;
     process.env.NODE_ENV = "production";
-    expect(getSiteOrigin()).toBe("https://events.carshowscout.com");
+    expect(getSiteOrigin()).toBe("https://carshowscout.com");
   });
 });

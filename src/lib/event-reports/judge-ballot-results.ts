@@ -1,8 +1,18 @@
 import { prisma } from "@/lib/db";
-import { aggregateJudgeBallotResults } from "@/lib/judging/judge-ballot-results";
+import { aggregateJudgeBallotResultsForEvent } from "@/lib/judging/judge-ballot-results";
 import { loadVehicleEntryMetaMap } from "@/lib/event-reports/vehicle-entry-meta";
 import { applyTopN, REPORT_TOP_N } from "@/lib/event-reports/format";
 import { csvRow } from "@/lib/event-reports/csv";
+import {
+  resolveJudgeBallotReportEmptyState,
+  type JudgeBallotReportEmptyState,
+} from "@/lib/event-reports/judge-ballot-empty-state";
+import { reportHasRankedRows } from "@/lib/event-reports/report-types";
+import { loadEventVotingControl } from "@/lib/judging/event-voting-control";
+import {
+  ballotVotingReportStatus,
+  type ReportVotingMethodStatus,
+} from "@/lib/event-reports/voting-method-status";
 
 export type JudgeBallotResultReportRow = {
   rank: number;
@@ -31,32 +41,65 @@ export type JudgeBallotCategoryResults = {
 export type JudgeBallotResultsReport = {
   generatedAt: string;
   showAll: boolean;
+  votingStatus: ReportVotingMethodStatus;
   categories: JudgeBallotCategoryResults[];
+  emptyState: JudgeBallotReportEmptyState | null;
 };
+
+/** Lightweight check for empty-state messaging (avoids full trophy ranking). */
+async function countJudgeBallotAwardWinners(eventId: string): Promise<number> {
+  const linkedBallots = await prisma.judgeBallotCategory.findMany({
+    where: { eventId, eventAwardId: { not: null } },
+    select: { eventAwardId: true },
+  });
+  if (linkedBallots.length === 0) return 0;
+
+  const trophyEntryIds = linkedBallots.map(
+    (row) => `special:${row.eventAwardId!}`,
+  );
+
+  return prisma.eventTrophyPlacement.count({
+    where: {
+      eventId,
+      trophyEntryId: { in: trophyEntryIds },
+      isVacant: false,
+      vehicleEntryCode: { not: null },
+    },
+  });
+}
 
 export async function loadJudgeBallotResultsReport(
   eventId: string,
   options?: { showAll?: boolean },
 ): Promise<JudgeBallotResultsReport> {
   const showAll = options?.showAll ?? false;
-  const [categories, metaMap] = await Promise.all([
-    prisma.judgeBallotCategory.findMany({
-      where: { eventId },
-      orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true, status: true },
-    }),
-    loadVehicleEntryMetaMap(eventId),
-  ]);
+  const [categories, metaMap, judgeBallotAwardWinnerCount, votingControl] =
+    await Promise.all([
+      prisma.judgeBallotCategory.findMany({
+        where: { eventId },
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, name: true, status: true },
+      }),
+      loadVehicleEntryMetaMap(eventId),
+      countJudgeBallotAwardWinners(eventId),
+      loadEventVotingControl(eventId),
+    ]);
 
-  const enriched: JudgeBallotCategoryResults[] = [];
-  for (const cat of categories) {
-    const results = await aggregateJudgeBallotResults(cat.id);
+  const votingStatus = votingControl
+    ? ballotVotingReportStatus(votingControl.ballot)
+    : "not_started";
+
+  const resultsByCategory = await aggregateJudgeBallotResultsForEvent(
+    eventId,
+    categories.map((cat) => cat.id),
+  );
+
+  const enriched: JudgeBallotCategoryResults[] = categories.map((cat) => {
+    const results = resultsByCategory.get(cat.id) ?? [];
     const rows: JudgeBallotResultReportRow[] = results.map((r) => {
       const meta = metaMap.get(r.vehicleEntryCode);
       const avg =
-        r.judgeCount > 0
-          ? (r.totalVotes / r.judgeCount).toFixed(2)
-          : "0";
+        r.judgeCount > 0 ? (r.totalVotes / r.judgeCount).toFixed(2) : "0";
       return {
         rank: r.rank,
         vehicleEntryCode: r.vehicleEntryCode,
@@ -72,7 +115,7 @@ export async function loadJudgeBallotResultsReport(
       };
     });
     const sliced = applyTopN(rows, showAll);
-    enriched.push({
+    return {
       categoryId: cat.id,
       categoryName: cat.name,
       status: cat.status,
@@ -80,13 +123,21 @@ export async function loadJudgeBallotResultsReport(
       totalShown: sliced.length,
       topN: REPORT_TOP_N,
       rows: sliced,
-    });
-  }
+    };
+  });
+
+  const emptyState = resolveJudgeBallotReportEmptyState({
+    categoryCount: categories.length,
+    hasRankedRows: reportHasRankedRows(enriched),
+    judgeBallotAwardWinnerCount,
+  });
 
   return {
     generatedAt: new Date().toISOString(),
     showAll,
+    votingStatus,
     categories: enriched,
+    emptyState,
   };
 }
 

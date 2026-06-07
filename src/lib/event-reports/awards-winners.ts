@@ -51,7 +51,7 @@ export async function loadAwardsWinnersReport(
         eventAwardsVotingFinalizedAt: true,
       },
     }),
-    loadAwardTrophyWinners(eventId),
+    loadAwardTrophyWinners(eventId, { includeRankedList: false }),
   ]);
 
   if (!event || !payload) return null;

@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  POLICY_UNPUBLISHED_MESSAGE,
-  PolicyPageContent,
-} from "@/components/legal/policy-page-content";
+import { PolicyPageContent } from "@/components/legal/policy-page-content";
 import { getSmsTextPolicyHtml } from "@/lib/legal-policies";
 
 export const metadata: Metadata = {
@@ -27,13 +24,7 @@ export default async function TermsPage() {
       </p>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">SMS Text Policy</h1>
       <div className="mt-6">
-        {html ? (
-          <PolicyPageContent html={html} />
-        ) : (
-          <p className="text-base leading-relaxed text-muted-foreground">
-            {POLICY_UNPUBLISHED_MESSAGE}
-          </p>
-        )}
+        <PolicyPageContent html={html} />
       </div>
       <p className="mt-8 text-sm text-muted-foreground">
         Questions? Contact your event organizer or visit{" "}
