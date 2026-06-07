@@ -100,15 +100,15 @@ export function EventReportsNav({
 
           if (report.comingSoon) {
             return (
-            <Link
-              key={report.id}
-              href={href}
-              prefetch
-              scroll={false}
-              aria-current={isActive ? "page" : undefined}
-              aria-busy={isPending || undefined}
-              title={report.comingSoonNote ?? "Coming soon"}
-              onClick={() => beginNavigation(report.id)}
+              <Link
+                key={report.id}
+                href={href}
+                prefetch
+                scroll={false}
+                aria-current={isActive ? "page" : undefined}
+                aria-busy={isPending || undefined}
+                title={report.comingSoonNote ?? "Coming soon"}
+                onClick={() => beginNavigation(report.id)}
                 className={cn(
                   "relative flex min-h-10 flex-col items-center justify-center rounded-md border border-dashed px-1 py-1.5 text-center text-[0.65rem] leading-snug",
                   isPending && "pointer-events-none opacity-70",
