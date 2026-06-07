@@ -1002,6 +1002,7 @@ model SpecialAward {
 /// Admin-managed Help Center / Knowledge Repository articles.
 model KnowledgeArticle {
   id                     String    @id @default(uuid())
+  articleNumber          Int       @unique @default(autoincrement())
   slug                   String    @unique
   title                  String
   shortDescription       String    @db.Text

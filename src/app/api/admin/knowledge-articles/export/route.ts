@@ -4,8 +4,9 @@ import {
   buildKnowledgeArticlesAdminWhere,
   knowledgeArticlesAdminTableConfig,
 } from "@/lib/admin-table/knowledge-articles-table-config";
+import { resolveKnowledgeArticlesAdminWhereExtras } from "@/lib/admin-table/resolve-knowledge-articles-where-extras";
 import { parseAdminTableParams } from "@/lib/admin-table/parse-admin-table-params";
-import { buildKnowledgeArticlesCsv } from "@/lib/help/knowledge-article-csv";
+import { buildKnowledgeArticlesExcelResponse } from "@/lib/help/knowledge-article-excel-handlers";
 import { requireAdminApiUser } from "@/lib/help/require-admin-api";
 
 export const runtime = "nodejs";
@@ -29,20 +30,13 @@ export async function GET(req: NextRequest) {
       req.nextUrl.searchParams,
       knowledgeArticlesAdminTableConfig,
     );
-    const where = buildKnowledgeArticlesAdminWhere(params);
+    const whereExtras = await resolveKnowledgeArticlesAdminWhereExtras(params);
+    const where = buildKnowledgeArticlesAdminWhere(params, whereExtras);
     rows = await prisma.knowledgeArticle.findMany({
       where,
       orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
     });
   }
 
-  const csv = buildKnowledgeArticlesCsv(rows);
-  const date = new Date().toISOString().slice(0, 10);
-
-  return new NextResponse(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="knowledge-articles-${date}.csv"`,
-    },
-  });
+  return buildKnowledgeArticlesExcelResponse(rows);
 }

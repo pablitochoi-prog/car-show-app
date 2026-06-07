@@ -12,6 +12,7 @@ function mockDbRow(
   const base = HELP_ARTICLES.find((a) => a.slug === overrides.slug);
   return {
     id: overrides.id ?? "uuid-1",
+    articleNumber: overrides.articleNumber ?? 1,
     slug: overrides.slug,
     title: overrides.title ?? base?.title ?? "Title",
     shortDescription: overrides.shortDescription ?? base?.shortDescription ?? "Desc",

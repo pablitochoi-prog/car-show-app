@@ -2,16 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { revalidateKnowledgeArticles } from "@/lib/help/knowledge-article-admin";
+import { nextAvailableKnowledgeSlug } from "@/lib/help/knowledge-article-slug";
 import { requireAdminApiUser } from "@/lib/help/require-admin-api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function duplicateSlug(base: string): string {
-  const suffix = "-copy";
-  if (base.endsWith(suffix)) return `${base}-2`;
-  return `${base}${suffix}`;
-}
 
 export async function POST(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { user, response } = await requireAdminApiUser();
@@ -23,12 +18,11 @@ export async function POST(_req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ error: "Article not found." }, { status: 404 });
   }
 
-  let slug = duplicateSlug(source.slug);
-  let attempt = 2;
-  while (await prisma.knowledgeArticle.findUnique({ where: { slug } })) {
-    slug = `${source.slug}-copy-${attempt}`;
-    attempt += 1;
-  }
+  const existing = await prisma.knowledgeArticle.findMany({ select: { slug: true } });
+  const slug = nextAvailableKnowledgeSlug(
+    source.slug,
+    new Set(existing.map((row) => row.slug)),
+  );
 
   try {
     const article = await prisma.knowledgeArticle.create({

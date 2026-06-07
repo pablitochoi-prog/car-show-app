@@ -4105,3 +4105,27 @@ After approval, implementation starts at **Phase 1** and proceeds in order; upda
 | Build | `npm run build` passed |
 | Deferred | Organizer `/help` hub, chatbot API route, contextual links → Phase 2 |
 
+---
+
+## Knowledge Repository — Keywords column & seeding (2026-05-31)
+
+### Plan
+- [x] Backfill empty DB keywords from file library on seed
+- [x] Add **Keywords** column after Category in admin table (filterable)
+- [x] Global search (`q`) matches keywords (case-insensitive partial)
+- [x] CSV export/import supports editing keywords (comma-separated + JSON)
+
+### Review
+
+| Area | Change |
+|------|--------|
+| Seed | `seedKnowledgeArticlesFromFiles` backfills `keywords` for existing rows when empty, using file article by slug |
+| Admin table | New **Keywords** column after Category; comma-joined display with hover title |
+| Search | `q` uses Postgres `unnest(keywords) ILIKE` for partial match; column filter uses same operators as other text columns |
+| CSV export | Keywords as `account, signup` (quoted when needed) instead of JSON |
+| CSV import | Accepts comma-separated or JSON array for `keywords`; replace/import updates keywords via existing `formInputToPrismaData` |
+| Tests | CSV round-trip + comma-separated keywords import |
+| Build | `npm run build` passed |
+
+**Note:** Run seed API (`POST /api/admin/knowledge-articles/seed`) once in each environment to backfill keywords on articles that were created before keywords were populated.
+

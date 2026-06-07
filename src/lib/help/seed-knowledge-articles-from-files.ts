@@ -20,8 +20,10 @@ export const SEED_POPULAR_SLUGS = new Set([
 export type SeedKnowledgeArticlesResult = {
   created: number;
   skipped: number;
+  keywordsBackfilled: number;
   slugsCreated: string[];
   slugsSkipped: string[];
+  slugsKeywordsBackfilled: string[];
 };
 
 export async function seedKnowledgeArticlesFromFiles(
@@ -34,13 +36,26 @@ export async function seedKnowledgeArticlesFromFiles(
 
   let created = 0;
   let skipped = 0;
+  let keywordsBackfilled = 0;
   const slugsCreated: string[] = [];
   const slugsSkipped: string[] = [];
+  const slugsKeywordsBackfilled: string[] = [];
 
   for (const article of HELP_ARTICLES) {
     if (existingSlugs.has(article.slug)) {
       skipped += 1;
       slugsSkipped.push(article.slug);
+
+      if (article.keywords.length > 0) {
+        const updated = await prisma.knowledgeArticle.updateMany({
+          where: { slug: article.slug, keywords: { isEmpty: true } },
+          data: { keywords: article.keywords, updatedByUserId: userId ?? null },
+        });
+        if (updated.count > 0) {
+          keywordsBackfilled += updated.count;
+          slugsKeywordsBackfilled.push(article.slug);
+        }
+      }
       continue;
     }
 
@@ -56,5 +71,12 @@ export async function seedKnowledgeArticlesFromFiles(
     slugsCreated.push(article.slug);
   }
 
-  return { created, skipped, slugsCreated, slugsSkipped };
+  return {
+    created,
+    skipped,
+    keywordsBackfilled,
+    slugsCreated,
+    slugsSkipped,
+    slugsKeywordsBackfilled,
+  };
 }

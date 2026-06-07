@@ -11,25 +11,20 @@ import {
   formRawToKnowledgeArticleInput,
   knowledgeArticleCreateSchema,
 } from "@/lib/help/knowledge-article-schemas";
+import type { HelpArticleFaq, HelpArticleStep } from "@/lib/help/help-types";
 import {
   HELP_AUDIENCE_LABELS,
   HELP_AUDIENCES,
   HELP_VISIBILITY_VALUES,
 } from "@/lib/help/help-types";
-
-const STEPS_JSON_EXAMPLE = `[
-  {
-    "title": "Open the event page",
-    "body": "Go to the event listing and tap Register."
-  }
-]`;
-
-const FAQ_JSON_EXAMPLE = `[
-  {
-    "question": "Do I need an account?",
-    "answer": "Yes. Create a free CarShowScout account first."
-  }
-]`;
+import {
+  emptyKnowledgeFaq,
+  emptyKnowledgeStep,
+} from "@/lib/help/knowledge-article-rich-text";
+import {
+  AdminKnowledgeFaqsFields,
+  AdminKnowledgeStepsFields,
+} from "./admin-knowledge-steps-faqs-fields";
 
 export type KnowledgeArticleFormDefaults = {
   title: string;
@@ -49,14 +44,26 @@ export type KnowledgeArticleFormDefaults = {
   whoThisIsFor: string;
   whatThisHelpsYouDo: string;
   beforeYouStartText: string;
-  stepsJson: string;
+  steps: HelpArticleStep[];
   whatHappensNext: string;
-  faqsJson: string;
+  faqs: HelpArticleFaq[];
   articleBody: string;
   chatbotSummary: string;
   chatbotKeywordsText: string;
   lastReviewedAt: string;
 };
+
+function withCreateModeRichTextDefaults(
+  mode: "create" | "edit",
+  initial: KnowledgeArticleFormDefaults,
+): KnowledgeArticleFormDefaults {
+  if (mode !== "create") return initial;
+  return {
+    ...initial,
+    steps: initial.steps.length > 0 ? initial.steps : [emptyKnowledgeStep()],
+    faqs: initial.faqs.length > 0 ? initial.faqs : [emptyKnowledgeFaq()],
+  };
+}
 
 type Props = {
   mode: "create" | "edit";
@@ -70,7 +77,9 @@ export function AdminKnowledgeArticleEditor({
   initial,
 }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState(initial);
+  const [form, setForm] = useState(() =>
+    withCreateModeRichTextDefaults(mode, initial),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -344,19 +353,11 @@ export function AdminKnowledgeArticleEditor({
             className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="ka-steps">Step-by-step instructions (JSON array)</Label>
-          <p className="text-xs text-muted-foreground">
-            Example: {STEPS_JSON_EXAMPLE}
-          </p>
-          <textarea
-            id="ka-steps"
-            value={form.stepsJson}
-            onChange={(e) => update("stepsJson", e.target.value)}
-            rows={8}
-            className="flex w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-          />
-        </div>
+        <AdminKnowledgeStepsFields
+          steps={form.steps}
+          disabled={saving}
+          onStepsChange={(steps) => update("steps", steps)}
+        />
         <div className="space-y-2">
           <Label htmlFor="ka-next">What happens next</Label>
           <textarea
@@ -367,17 +368,11 @@ export function AdminKnowledgeArticleEditor({
             className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="ka-faq">FAQ (JSON array)</Label>
-          <p className="text-xs text-muted-foreground">Example: {FAQ_JSON_EXAMPLE}</p>
-          <textarea
-            id="ka-faq"
-            value={form.faqsJson}
-            onChange={(e) => update("faqsJson", e.target.value)}
-            rows={8}
-            className="flex w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-          />
-        </div>
+        <AdminKnowledgeFaqsFields
+          faqs={form.faqs}
+          disabled={saving}
+          onFaqsChange={(faqs) => update("faqs", faqs)}
+        />
       </section>
 
       <section className="space-y-4 rounded-lg border p-4">

@@ -5,16 +5,18 @@ import {
   HELP_VISIBILITY_VALUES,
 } from "@/lib/help/help-types";
 import type { AdminTableConfig, ParsedAdminTableParams } from "./types";
+import { applyTextFilterToFields, parseTextFilter, prismaStringFilter } from "./text-filter";
 
 export const knowledgeArticlesAdminTableConfig: AdminTableConfig = {
   prefix: "knowledge",
-  defaultSort: "sortOrder",
+  defaultSort: "articleNumber",
   defaultSortDir: "asc",
   defaultPageSize: 25,
   maxPageSize: 100,
   columns: [
     { id: "title", sortable: true, filterable: true, filterType: "text" },
     { id: "slug", sortable: true, filterable: true, filterType: "text" },
+    { id: "article", sortable: false, filterable: true, filterType: "text" },
     {
       id: "category",
       sortable: true,
@@ -22,6 +24,7 @@ export const knowledgeArticlesAdminTableConfig: AdminTableConfig = {
       filterType: "enum",
       enumValues: HELP_CATEGORY_IDS,
     },
+    { id: "keywords", sortable: false, filterable: true, filterType: "text" },
     {
       id: "audience",
       sortable: true,
@@ -50,49 +53,73 @@ export const knowledgeArticlesAdminTableConfig: AdminTableConfig = {
       filterType: "enum",
       enumValues: ["true", "false"],
     },
+    { id: "articleNumber", sortable: true, filterable: false },
     { id: "sortOrder", sortable: true, filterable: false },
     { id: "updatedAt", sortable: true, filterable: false },
     { id: "lastReviewedAt", sortable: true, filterable: false },
   ],
 };
 
+export type KnowledgeArticlesAdminWhereExtras = {
+  keywordSearchIds?: string[];
+  keywordsFilterIds?: string[];
+};
+
 export function buildKnowledgeArticlesAdminWhere(
   params: ParsedAdminTableParams,
+  extras: KnowledgeArticlesAdminWhereExtras = {},
 ): Prisma.KnowledgeArticleWhereInput {
   const and: Prisma.KnowledgeArticleWhereInput[] = [];
 
   if (params.q) {
     const term = params.q;
-    and.push({
-      OR: [
-        { title: { contains: term, mode: "insensitive" } },
-        { slug: { contains: term, mode: "insensitive" } },
-        { shortDescription: { contains: term, mode: "insensitive" } },
-        { articleBody: { contains: term, mode: "insensitive" } },
-        { chatbotSummary: { contains: term, mode: "insensitive" } },
-        { keywords: { has: term } },
-      ],
-    });
+    const or: Prisma.KnowledgeArticleWhereInput[] = [
+      { title: { contains: term, mode: "insensitive" } },
+      { slug: { contains: term, mode: "insensitive" } },
+      { shortDescription: { contains: term, mode: "insensitive" } },
+      { articleBody: { contains: term, mode: "insensitive" } },
+      { chatbotSummary: { contains: term, mode: "insensitive" } },
+    ];
+    if (extras.keywordSearchIds?.length) {
+      or.push({ id: { in: extras.keywordSearchIds } });
+    }
+    and.push({ OR: or });
   }
 
   if (params.filters.title) {
-    and.push({
-      title: { contains: params.filters.title, mode: "insensitive" },
-    });
+    const clause = applyTextFilterToFields(["title"], params.filters.title);
+    if (clause) and.push(clause);
   }
 
   if (params.filters.slug) {
-    and.push({
-      slug: { contains: params.filters.slug, mode: "insensitive" },
-    });
+    const clause = applyTextFilterToFields(["slug"], params.filters.slug);
+    if (clause) and.push(clause);
+  }
+
+  if (params.filters.article) {
+    const clause = applyTextFilterToFields(
+      ["shortDescription", "articleBody", "chatbotSummary"],
+      params.filters.article,
+    );
+    if (clause) and.push(clause);
   }
 
   if (params.filters.category) {
-    and.push({ category: params.filters.category });
+    const { mode, value } = parseTextFilter(params.filters.category);
+    if (value) {
+      and.push({ category: prismaStringFilter(mode, value) });
+    }
   }
 
   if (params.filters.audience) {
-    and.push({ audience: params.filters.audience });
+    const { mode, value } = parseTextFilter(params.filters.audience);
+    if (value) {
+      and.push({ audience: prismaStringFilter(mode, value) });
+    }
+  }
+
+  if (params.filters.keywords && extras.keywordsFilterIds !== undefined) {
+    and.push({ id: { in: extras.keywordsFilterIds } });
   }
 
   if (params.filters.published === "true") and.push({ published: true });
@@ -132,8 +159,11 @@ export function buildKnowledgeArticlesAdminOrderBy(
       return { updatedAt: dir };
     case "lastReviewedAt":
       return { lastReviewedAt: dir };
+    case "articleNumber":
+      return { articleNumber: dir };
     case "sortOrder":
-    default:
       return { sortOrder: dir };
+    default:
+      return { articleNumber: dir };
   }
 }

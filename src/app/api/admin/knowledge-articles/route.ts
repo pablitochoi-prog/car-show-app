@@ -6,6 +6,7 @@ import {
   buildKnowledgeArticlesAdminWhere,
   knowledgeArticlesAdminTableConfig,
 } from "@/lib/admin-table/knowledge-articles-table-config";
+import { resolveKnowledgeArticlesAdminWhereExtras } from "@/lib/admin-table/resolve-knowledge-articles-where-extras";
 import { parseAdminTableParams } from "@/lib/admin-table/parse-admin-table-params";
 import {
   adminTableMeta,
@@ -29,7 +30,8 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams,
     knowledgeArticlesAdminTableConfig,
   );
-  const where = buildKnowledgeArticlesAdminWhere(params);
+  const whereExtras = await resolveKnowledgeArticlesAdminWhereExtras(params);
+  const where = buildKnowledgeArticlesAdminWhere(params, whereExtras);
   const orderBy = buildKnowledgeArticlesAdminOrderBy(params);
   const skip = adminTableSkip(params.page, params.pageSize);
 

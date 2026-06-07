@@ -1,5 +1,7 @@
 import { revalidatePath } from "next/cache";
 import type { KnowledgeArticle } from "@prisma/client";
+import type { HelpArticleFaq, HelpArticleStep } from "./help-types";
+import { plainTextToEditorHtml } from "./knowledge-article-rich-text";
 import type { KnowledgeArticleFormInput } from "./knowledge-article-schemas";
 
 export function revalidateKnowledgeArticles(slug?: string) {
@@ -36,6 +38,40 @@ export function formInputToPrismaData(input: KnowledgeArticleFormInput) {
   };
 }
 
+function asSteps(value: KnowledgeArticle["stepByStepInstructions"]): HelpArticleStep[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (item): item is HelpArticleStep =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as HelpArticleStep).title === "string" &&
+        typeof (item as HelpArticleStep).body === "string",
+    )
+    .map((step) => ({
+      title: step.title,
+      body: plainTextToEditorHtml(step.body),
+    }));
+}
+
+function asFaqs(
+  value: KnowledgeArticle["frequentlyAskedQuestions"],
+): HelpArticleFaq[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (item): item is HelpArticleFaq =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as HelpArticleFaq).question === "string" &&
+        typeof (item as HelpArticleFaq).answer === "string",
+    )
+    .map((faq) => ({
+      question: faq.question,
+      answer: plainTextToEditorHtml(faq.answer),
+    }));
+}
+
 export function knowledgeArticleToFormDefaults(row: KnowledgeArticle) {
   return {
     title: row.title,
@@ -55,9 +91,9 @@ export function knowledgeArticleToFormDefaults(row: KnowledgeArticle) {
     whoThisIsFor: row.whoThisIsFor,
     whatThisHelpsYouDo: row.whatThisHelpsYouDo,
     beforeYouStartText: row.beforeYouStart.join("\n"),
-    stepsJson: JSON.stringify(row.stepByStepInstructions, null, 2),
+    steps: asSteps(row.stepByStepInstructions),
     whatHappensNext: row.whatHappensNext,
-    faqsJson: JSON.stringify(row.frequentlyAskedQuestions, null, 2),
+    faqs: asFaqs(row.frequentlyAskedQuestions),
     articleBody: row.articleBody,
     chatbotSummary: row.chatbotSummary,
     chatbotKeywordsText: row.chatbotKeywords.join(", "),

@@ -12,7 +12,7 @@ export default async function AdminKnowledgeEditPage({ params }: Props) {
   if (!article) notFound();
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <Link
           href="/admin/knowledge"

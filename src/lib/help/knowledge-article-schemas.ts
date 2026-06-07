@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+  isRichTextEmpty,
+  pruneKnowledgeFaqs,
+  pruneKnowledgeSteps,
+} from "./knowledge-article-rich-text";
+import {
   isHelpAudience,
   isHelpCategory,
   isHelpVisibility,
@@ -13,13 +18,17 @@ import {
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export const helpArticleStepSchema = z.object({
-  title: z.string().min(1),
-  body: z.string().min(1),
+  title: z.string().trim().min(1, "Each step needs a title."),
+  body: z
+    .string()
+    .refine((value) => !isRichTextEmpty(value), "Each step needs instructions."),
 });
 
 export const helpArticleFaqSchema = z.object({
-  question: z.string().min(1),
-  answer: z.string().min(1),
+  question: z.string().trim().min(1, "Each FAQ needs a question."),
+  answer: z
+    .string()
+    .refine((value) => !isRichTextEmpty(value), "Each FAQ needs an answer."),
 });
 
 function parseJsonArrayField<T>(
@@ -126,9 +135,9 @@ export function formRawToKnowledgeArticleInput(raw: {
   whoThisIsFor: string;
   whatThisHelpsYouDo: string;
   beforeYouStartText: string;
-  stepsJson: string;
+  steps: HelpArticleStep[];
   whatHappensNext: string;
-  faqsJson: string;
+  faqs: HelpArticleFaq[];
   articleBody: string;
   chatbotSummary: string;
   chatbotKeywordsText: string;
@@ -162,9 +171,9 @@ export function formRawToKnowledgeArticleInput(raw: {
     whoThisIsFor: raw.whoThisIsFor.trim(),
     whatThisHelpsYouDo: raw.whatThisHelpsYouDo.trim(),
     beforeYouStart: parseLinesToArray(raw.beforeYouStartText),
-    stepByStepInstructions: parseStepsJson(raw.stepsJson),
+    stepByStepInstructions: pruneKnowledgeSteps(raw.steps),
     whatHappensNext: raw.whatHappensNext.trim(),
-    frequentlyAskedQuestions: parseFaqsJson(raw.faqsJson),
+    frequentlyAskedQuestions: pruneKnowledgeFaqs(raw.faqs),
     articleBody: raw.articleBody,
     chatbotSummary: raw.chatbotSummary.trim(),
     chatbotKeywords: parseCommaSeparated(raw.chatbotKeywordsText),

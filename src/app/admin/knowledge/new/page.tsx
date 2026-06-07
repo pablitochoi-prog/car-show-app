@@ -1,5 +1,9 @@
 import Link from "next/link";
 import { AdminKnowledgeArticleEditor } from "@/components/admin/admin-knowledge-article-editor";
+import {
+  emptyKnowledgeFaq,
+  emptyKnowledgeStep,
+} from "@/lib/help/knowledge-article-rich-text";
 
 const EMPTY_FORM = {
   title: "",
@@ -19,9 +23,9 @@ const EMPTY_FORM = {
   whoThisIsFor: "",
   whatThisHelpsYouDo: "",
   beforeYouStartText: "",
-  stepsJson: "[]",
+  steps: [emptyKnowledgeStep()],
   whatHappensNext: "",
-  faqsJson: "[]",
+  faqs: [emptyKnowledgeFaq()],
   articleBody: "",
   chatbotSummary: "",
   chatbotKeywordsText: "",
@@ -30,7 +34,7 @@ const EMPTY_FORM = {
 
 export default function AdminKnowledgeNewPage() {
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <Link
           href="/admin/knowledge"

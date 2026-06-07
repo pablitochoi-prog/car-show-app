@@ -3,7 +3,7 @@ import { AdminKnowledgeRepositorySection } from "@/components/admin/admin-knowle
 
 export default function AdminKnowledgePage() {
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div>
         <Link
           href="/admin"
@@ -15,8 +15,8 @@ export default function AdminKnowledgePage() {
           Knowledge Repository
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage Help Center articles for CarShowScout. Export to CSV for batch
-          editing in Excel. CSV import is planned for Phase 3B.
+          Manage Help Center articles for CarShowScout. Import or export CSV for
+          batch editing in Excel.
         </p>
       </div>
       <AdminKnowledgeRepositorySection />
