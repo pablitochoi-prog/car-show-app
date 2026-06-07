@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { loadGarageVehiclesForUser } from "@/lib/garage-vehicle";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { AddVehicleSection } from "./add-vehicle-section";
 import { MyVehiclesList } from "@/components/dashboard/my-vehicles-list";
 import { buttonVariants } from "@/components/ui/button";
@@ -35,6 +36,7 @@ export default async function VehiclesPage({ searchParams }: Props) {
           <p className="mt-1 text-sm text-muted-foreground">
             Saved cars in your garage — reuse them when registering for any show.
           </p>
+          <ContextualHelpLink slug="add-vehicle-from-garage" className="mt-2" />
         </div>
         <Link
           href={returnTo ?? "/dashboard"}

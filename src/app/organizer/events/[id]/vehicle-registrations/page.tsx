@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { canManageVehicleRegistrations } from "@/lib/vehicle-registrations-auth";
+import { getEventPlatformFeeStatus } from "@/lib/event-platform-fee-status";
 import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { VehicleRegistrationsWorkspace } from "@/components/organizer/vehicle-registrations-workspace";
@@ -29,10 +30,13 @@ export default async function EventVehicleRegistrationsPage({
   );
   if (!allowed) notFound();
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: { name: true, showNumber: true },
-  });
+  const [event, platformFeeStatus] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id: eventId },
+      select: { name: true, showNumber: true },
+    }),
+    getEventPlatformFeeStatus(eventId),
+  ]);
   if (!event) notFound();
 
   return (
@@ -56,7 +60,11 @@ export default async function EventVehicleRegistrationsPage({
 
       <h2 className="text-lg font-medium">Vehicle registrations</h2>
 
-      <VehicleRegistrationsWorkspace eventId={eventId} />
+      <VehicleRegistrationsWorkspace
+        eventId={eventId}
+        dashCardsAllowed={platformFeeStatus?.paid ?? true}
+        dashCardsBlockedMessage={platformFeeStatus?.dashCardsBlockedMessage}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { getEventForViewer } from "@/lib/event-access";
 import { displayContactName } from "@/lib/contact-display";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { EventRegistrationPage } from "@/components/registration/event-registration-page";
 import { getPlatformFee, getEventSetupFee, type PlatformFeeConfig } from "@/lib/platform-fee";
 import { formatEventShowNumber } from "@/lib/event-show-number";
@@ -126,6 +127,8 @@ export default async function EventDetailPage({ params }: Props) {
           </>
         )}
       </div>
+
+      <ContextualHelpLink slug="register-for-event" className="mb-4" />
 
       <EventRegistrationPage
         stripeConnectReady={stripeConnectReady}

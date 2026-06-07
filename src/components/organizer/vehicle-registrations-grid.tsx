@@ -24,6 +24,7 @@ import {
   useVehicleRegistrationsColumnLayout,
   type VehicleRegistrationsFixedColumnKey,
 } from "@/components/organizer/use-vehicle-registrations-column-layout";
+import { CreateDashCardsLink } from "@/components/organizer/create-dash-cards-link";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 50;
@@ -40,6 +41,8 @@ type Props = {
   onSelectedVehicleIdsChange: React.Dispatch<React.SetStateAction<Set<string>>>;
   eventCategoryId: string;
   onEventCategoryIdChange: (id: string) => void;
+  dashCardsAllowed?: boolean;
+  dashCardsBlockedMessage?: string;
 };
 
 function cell(value: string | number | null | undefined) {
@@ -123,6 +126,8 @@ export function VehicleRegistrationsGrid({
   onSelectedVehicleIdsChange,
   eventCategoryId,
   onEventCategoryIdChange,
+  dashCardsAllowed = true,
+  dashCardsBlockedMessage,
 }: Props) {
   const sectionIds = useMemo(
     () => categories.map((c) => c.sectionId),
@@ -133,6 +138,7 @@ export function VehicleRegistrationsGrid({
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [vehicleIdFilter, setVehicleIdFilter] = useState<ColumnFilterValue>(null);
   const [classFilter, setClassFilter] = useState<ColumnFilterValue>(null);
   const [makeFilter, setMakeFilter] = useState<ColumnFilterValue>(null);
   const [modelFilter, setModelFilter] = useState<ColumnFilterValue>(null);
@@ -146,6 +152,11 @@ export function VehicleRegistrationsGrid({
     return rows.filter((r) => r.eventCategoryId === eventCategoryId);
   }, [rows, eventCategoryId]);
 
+  const getVehicleId = useCallback(
+    (r: VehicleRegistrationsGridRow) =>
+      r.publicVehicleId?.trim() ? r.publicVehicleId : "—",
+    [],
+  );
   const getVehicleClass = useCallback(
     (r: VehicleRegistrationsGridRow) =>
       r.vehicleClass?.trim() ? r.vehicleClass : "—",
@@ -164,6 +175,7 @@ export function VehicleRegistrationsGrid({
     [],
   );
 
+  const vehicleIdOptions = useColumnFilterOptions(classScopedRows, getVehicleId);
   const classOptions = useColumnFilterOptions(classScopedRows, getVehicleClass);
   const makeOptions = useColumnFilterOptions(classScopedRows, getMake);
   const modelOptions = useColumnFilterOptions(classScopedRows, getModel);
@@ -189,6 +201,10 @@ export function VehicleRegistrationsGrid({
     }));
     return applyColumnFilters(classScopedRows, [
       {
+        getValue: (r) => (r.publicVehicleId?.trim() ? r.publicVehicleId : "—"),
+        selected: vehicleIdFilter,
+      },
+      {
         getValue: (r) => (r.vehicleClass?.trim() ? r.vehicleClass : "—"),
         selected: classFilter,
       },
@@ -203,6 +219,7 @@ export function VehicleRegistrationsGrid({
   }, [
     classScopedRows,
     categories,
+    vehicleIdFilter,
     classFilter,
     makeFilter,
     modelFilter,
@@ -217,6 +234,7 @@ export function VehicleRegistrationsGrid({
   }, [
     eventCategoryId,
     pageSize,
+    vehicleIdFilter,
     classFilter,
     makeFilter,
     modelFilter,
@@ -237,7 +255,18 @@ export function VehicleRegistrationsGrid({
     pageRows.length > 0 &&
     pageRows.every((r) => selectedVehicleIds.has(r.registrationVehicleId));
 
+  const selectedRegistrationIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of rows) {
+      if (selectedVehicleIds.has(row.registrationVehicleId)) {
+        ids.add(row.registrationId);
+      }
+    }
+    return [...ids];
+  }, [rows, selectedVehicleIds]);
+
   const hasActiveFilters =
+    vehicleIdFilter !== null ||
     classFilter !== null ||
     makeFilter !== null ||
     modelFilter !== null ||
@@ -246,6 +275,7 @@ export function VehicleRegistrationsGrid({
     eventCategoryId !== "";
 
   const clearFilters = useCallback(() => {
+    setVehicleIdFilter(null);
     setClassFilter(null);
     setMakeFilter(null);
     setModelFilter(null);
@@ -345,10 +375,19 @@ export function VehicleRegistrationsGrid({
           </select>
         </div>
         {selectedVehicleIds.size > 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {selectedVehicleIds.size} vehicle
-            {selectedVehicleIds.size === 1 ? "" : "s"} selected (across pages)
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-muted-foreground">
+              {selectedVehicleIds.size} vehicle
+              {selectedVehicleIds.size === 1 ? "" : "s"} selected (across pages)
+            </p>
+            <CreateDashCardsLink
+              eventId={eventId}
+              registrationIds={selectedRegistrationIds}
+              registrationVehicleIds={[...selectedVehicleIds]}
+              disabled={!dashCardsAllowed}
+              disabledTitle={dashCardsBlockedMessage}
+            />
+          </div>
         ) : null}
       </div>
 
@@ -394,7 +433,11 @@ export function VehicleRegistrationsGrid({
                 />
               </th>
               {header("Photo", "photo")}
-              {header("Vehicle ID", "vehicleId")}
+              {header("Vehicle ID", "vehicleId", {
+                options: vehicleIdOptions,
+                value: vehicleIdFilter,
+                onChange: setVehicleIdFilter,
+              })}
               {header("Year", "year")}
               {header("Make", "make", {
                 options: makeOptions,

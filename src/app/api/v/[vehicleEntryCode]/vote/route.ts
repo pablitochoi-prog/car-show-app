@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { findVehicleEntryByCode } from "@/lib/vehicle-entry-lookup";
 import {
   getOrCreateVoterKey,
-  recordPublicVote,
+  recordPublicVotes,
 } from "@/lib/vehicle-voting";
 import {
   vehicleEntryCodePrefix,
@@ -19,9 +19,17 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
-  votingCategoryId: z.string().min(1),
-});
+const bodySchema = z
+  .object({
+    votingCategoryId: z.string().min(1).optional(),
+    votingCategoryIds: z.array(z.string().min(1)).min(1).optional(),
+  })
+  .refine(
+    (body) =>
+      Boolean(body.votingCategoryId) ||
+      (body.votingCategoryIds?.length ?? 0) > 0,
+    { message: "At least one voting category is required." },
+  );
 
 type RouteParams = {
   params: Promise<{ vehicleEntryCode: string }>;
@@ -73,18 +81,24 @@ async function postVote(
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "votingCategoryId is required." },
+      { error: parsed.error.issues[0]?.message ?? "Invalid vote request." },
       { status: 400 },
     );
   }
 
+  const votingCategoryIds = parsed.data.votingCategoryIds?.length
+    ? parsed.data.votingCategoryIds
+    : parsed.data.votingCategoryId
+      ? [parsed.data.votingCategoryId]
+      : [];
+
   const fingerprint = await getOrCreateVoterKey();
   const user = await getCurrentUser();
 
-  const result = await recordPublicVote(
+  const result = await recordPublicVotes(
     entry,
     fingerprint,
-    parsed.data.votingCategoryId,
+    votingCategoryIds,
     user?.id ?? null,
   );
   if (!result.ok) {

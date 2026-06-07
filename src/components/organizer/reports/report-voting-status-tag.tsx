@@ -1,9 +1,14 @@
-import type { ReportVotingMethodStatus } from "@/lib/event-reports/voting-method-status";
-import { reportVotingStatusLabel } from "@/lib/event-reports/voting-method-status";
+import type { ReportVotingMethodStatus } from "@/lib/event-reports/voting-method-status-shared";
+import {
+  configureVotingStatusLabel,
+  reportVotingStatusLabel,
+} from "@/lib/event-reports/voting-method-status-shared";
 import { cn } from "@/lib/utils";
 
 type Props = {
   status: ReportVotingMethodStatus;
+  /** Configure pages use "Voting Open" style labels; reports use shorter hub labels. */
+  variant?: "report" | "configure";
 };
 
 const STATUS_STYLES: Record<ReportVotingMethodStatus, string> = {
@@ -12,7 +17,15 @@ const STATUS_STYLES: Record<ReportVotingMethodStatus, string> = {
   closed: "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200",
 };
 
-export function ReportVotingStatusTag({ status }: Props) {
+export function ReportVotingStatusTag({
+  status,
+  variant = "report",
+}: Props) {
+  const label =
+    variant === "configure"
+      ? configureVotingStatusLabel(status)
+      : reportVotingStatusLabel(status);
+
   return (
     <span
       className={cn(
@@ -21,7 +34,7 @@ export function ReportVotingStatusTag({ status }: Props) {
       )}
       role="status"
     >
-      {reportVotingStatusLabel(status)}
+      {label}
     </span>
   );
 }

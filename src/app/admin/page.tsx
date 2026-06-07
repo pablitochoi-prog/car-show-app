@@ -87,12 +87,12 @@ export default async function AdminDashboardPage() {
           <AdminAccountsSection />
         </CollapsibleCard>
 
-        <CollapsibleCard title="Awards" defaultOpen={false}>
-          <AdminAwardsSection />
-        </CollapsibleCard>
-
         <CollapsibleCard title="Vehicles" defaultOpen={false}>
           <AdminVehiclesSection />
+        </CollapsibleCard>
+
+        <CollapsibleCard title="Awards" defaultOpen={false}>
+          <AdminAwardsSection />
         </CollapsibleCard>
 
         <CollapsibleCard title="Sale Inquiries" defaultOpen={false}>

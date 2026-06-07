@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { JudgeBallotCategoryList } from "@/components/judge/judge-ballot-category-list";
 
 type Props = { params: Promise<{ id: string }> };
@@ -16,6 +17,7 @@ export default async function JudgeEventBallotPage({ params }: Props) {
         <p className="mt-1 text-sm text-muted-foreground">
           Select an award category to vote
         </p>
+        <ContextualHelpLink slug="submit-judge-ballot-votes" className="mt-2" />
       </div>
       <JudgeBallotCategoryList eventId={eventId} />
     </div>

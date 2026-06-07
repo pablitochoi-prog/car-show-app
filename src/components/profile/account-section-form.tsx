@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { UsPhoneInput } from "@/components/inputs/us-phone-input";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { SmsNotificationsOptInProfileField } from "@/components/sms/sms-notifications-opt-in-profile-field";
 import {
   AddressConfirmSheet,
@@ -567,6 +568,7 @@ export const AccountSectionForm = forwardRef<AccountSectionFormHandle, Props>(
               checked={smsNotificationsOptIn}
               onCheckedChange={setSmsNotificationsOptIn}
             />
+            <ContextualHelpLink slug="sms-notifications" />
           </div>
         </div>
 

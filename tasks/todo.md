@@ -3506,8 +3506,9 @@ type HelpArticle = {
 - [x] **2.4** Create `src/components/help/contextual-help-link.tsx` — small non-intrusive link component
 - [x] **2.5** Wire `relatedArticleIds` on article pages (related articles section) — done in Phase 1 article body
 - [x] **2.6** Add contextual help links — Phase 2B first batch (12 links, 10 files)
-- [ ] **2.7** (Optional) Create `src/app/organizer/events/[id]/help/page.tsx` — organizer contextual hub filtered to ORGANIZER + GENERAL articles
-- [ ] **2.8** Run build + tests
+- [x] **2.6b** Add contextual help links — Phase 2C second batch (9 links, 9 files)
+- [x] **2.7** Create `src/app/organizer/events/[id]/help/page.tsx` — organizer contextual hub filtered to ORGANIZER + GENERAL articles
+- [x] **2.8** Run build + tests
 
 ### Remaining articles (Phase 2)
 
@@ -3656,6 +3657,18 @@ After approval, implementation starts at **Phase 1** and proceeds in order; upda
 | Links | 12 contextual links across 10 files (approved batch only) |
 | Tests | 4 new tests in `contextual-help-link.test.ts` (25 total help tests) |
 | Build | `npm run build` passed |
+
+### Review — Phase 2C + 2.7 + 2.8 (completed 2026-05-31)
+
+| Area | Change |
+|------|--------|
+| **2.6b contextual links** | Staff (`assign-judges`), dash cards (`dash-cards`), awards hub (`review-awards-winners`), public event register (`register-for-event`), My Vehicles (`add-vehicle-from-garage`), profile SMS (`sms-notifications`), judge ballot (`submit-judge-ballot-votes`), judge score sheets (`complete-score-sheet-judging`) |
+| **2.7 organizer help hub** | `/organizer/events/[id]/help` — search + category-grouped ORGANIZER/GENERAL articles; link from Edit Event page |
+| **HelpSearchForm** | `basePath`, `lockAudience`, `showQuickFilters` for scoped hubs |
+| **Tests** | 25 help tests passing |
+| **Build** | `npm run build` passed |
+
+**Phase 2 complete** — full 27-article library, chatbot export, contextual links (both batches), organizer help hub.
 
 ### Review — Phase 2A (completed 2026-05-31)
 

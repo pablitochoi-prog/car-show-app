@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { JudgeAssignedVehicleList } from "@/components/judge/judge-assigned-vehicle-list";
 
 type Props = { params: Promise<{ id: string }> };
@@ -16,6 +17,10 @@ export default async function JudgeEventScoreSheetsPage({ params }: Props) {
         <p className="mt-1 text-sm text-muted-foreground">
           Vehicles and categories assigned to you
         </p>
+        <ContextualHelpLink
+          slug="complete-score-sheet-judging"
+          className="mt-2"
+        />
       </div>
       <JudgeAssignedVehicleList eventId={eventId} />
     </div>

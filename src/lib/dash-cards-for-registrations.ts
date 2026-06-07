@@ -226,12 +226,22 @@ function placeholderCardForRegistration(
  * (`RegistrationVehicle`) and one per guest JSON vehicle when there are no linked rows.
  * TODO: Replace hard-coded SMS short code with per-event `Event` config when added to schema.
  */
+export type LoadDashCardModelsOptions = {
+  /** When set, only linked vehicles with these ids are included (guest vehicles unaffected). */
+  registrationVehicleIds?: string[];
+};
+
 export async function loadDashCardModelsForRegistrations(
   eventId: string,
   registrationIds: string[],
+  options?: LoadDashCardModelsOptions,
 ): Promise<DashCardModel[]> {
   const start = perfTimingStart();
   const uniqueRegIds = [...new Set(registrationIds.filter(Boolean))];
+  const registrationVehicleFilter =
+    options?.registrationVehicleIds && options.registrationVehicleIds.length > 0
+      ? new Set(options.registrationVehicleIds.filter(Boolean))
+      : null;
   if (uniqueRegIds.length === 0) {
     logPerfTiming({
       name: "dashCards.load",
@@ -414,6 +424,9 @@ export async function loadDashCardModelsForRegistrations(
     );
 
     for (const rv of reg.vehicles) {
+      if (registrationVehicleFilter && !registrationVehicleFilter.has(rv.id)) {
+        continue;
+      }
       const v = rv.vehicle;
       const classLabel =
         rv.eventCategory != null

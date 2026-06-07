@@ -14,6 +14,7 @@ import {
   FIVE_MINUTE_OPTIONS,
   normalizeDatetimeLocalToFiveMinutes,
   normalizeTimeToFiveMinutes,
+  TIME_FIVE_MINUTE_STEP_SECONDS,
 } from "@/lib/time-quarter-hour";
 
 const HOUR_OPTIONS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
@@ -153,7 +154,7 @@ function DatetimePickerDialog({
     const parts = parseDatetimeParts(value);
     setDate(parts.date);
     setH12(parts.h12);
-    setMinute(parts.minute);
+    setMinute(normalizeTimeToFiveMinutes(parts.minute));
     setAmpm(parts.ampm);
   }, [open, value]);
 
@@ -283,15 +284,17 @@ function NativeDatetimeLocalField({
   className?: string;
   "aria-label"?: string;
 }) {
+  const normalized = normalizeDatetimeLocalToFiveMinutes(value);
+
   return (
     <input
       id={id}
       type="datetime-local"
       aria-label={ariaLabel}
-      value={value}
+      step={TIME_FIVE_MINUTE_STEP_SECONDS}
+      value={normalized}
       className={cn(nativeInputClassName, className)}
-      onChange={(e) => onChange(e.target.value)}
-      onBlur={(e) =>
+      onChange={(e) =>
         onChange(normalizeDatetimeLocalToFiveMinutes(e.target.value))
       }
     />
@@ -315,12 +318,13 @@ export function DatetimeLocalField({
   const autoId = useId();
   const id = idProp ?? autoId;
   const useSafariPicker = isSafariBrowser();
+  const normalizedValue = normalizeDatetimeLocalToFiveMinutes(value);
 
   if (useSafariPicker) {
     return (
       <SafariDatetimeLocalField
         id={id}
-        value={value}
+        value={normalizedValue}
         onChange={onChange}
         className={className}
         aria-label={ariaLabel}
@@ -331,7 +335,7 @@ export function DatetimeLocalField({
   return (
     <NativeDatetimeLocalField
       id={id}
-      value={value}
+      value={normalizedValue}
       onChange={onChange}
       className={className}
       aria-label={ariaLabel}

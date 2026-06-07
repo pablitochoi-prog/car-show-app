@@ -829,7 +829,7 @@ model VehicleSaleInquiry {
   @@map("vehicle_sale_inquiries")
 }
 
-/// Web/QR public vote — one vote per visitor per category per event; at most one category per vehicle.
+/// Web/QR public vote — one vote per visitor per category per event (any vehicle); multiple categories allowed per vehicle.
 model VehiclePublicVote {
   id                    String   @id @default(uuid())
   eventId               String
@@ -848,7 +848,6 @@ model VehiclePublicVote {
   votingCategory       VotingCategory        @relation(fields: [votingCategoryId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, votingCategoryId, visitorKey])
-  @@unique([eventId, vehicleEntryCode, visitorKey])
   @@index([eventId, vehicleEntryCode])
   @@map("vehicle_public_votes")
 }

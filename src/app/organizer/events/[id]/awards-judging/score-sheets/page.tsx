@@ -3,10 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
-import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
+import { AwardsJudgingConfigurePageHeader } from "@/components/organizer/awards-judging/awards-judging-configure-page-header";
 import { ScoreSheetJudgingAdmin } from "@/components/organizer/awards-judging/score-sheet-judging-admin";
-import { formatEventShowNumber } from "@/lib/event-show-number";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -52,17 +51,14 @@ export default async function ScoreSheetJudgingSetupPage({ params }: Props) {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          Show #{formatEventShowNumber(event.showNumber)} · Voting Method: Score Sheet Judging
-        </p>
-        <h1 className="font-heading text-2xl font-bold">
-          <EventNameWithNumber name={event.name} showNumber={event.showNumber} />
-        </h1>
-        <p className="mt-1 text-muted-foreground">
-          Structured score sheet judging by vehicle class
-        </p>
-      </div>
+      <AwardsJudgingConfigurePageHeader
+        eventId={eventId}
+        name={event.name}
+        showNumber={event.showNumber}
+        votingMethodLabel="Score Sheet Judging"
+        methodTitle="Score Sheet Judging"
+        method="score-sheets"
+      />
 
       <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
 

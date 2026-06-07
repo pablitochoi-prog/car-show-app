@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isEventVotingReadyForTrophies } from "@/lib/judging/event-voting-control";
-import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control";
+import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control-types";
 
 function snapshot(
   overall: EventVotingControlSnapshot["overall"],

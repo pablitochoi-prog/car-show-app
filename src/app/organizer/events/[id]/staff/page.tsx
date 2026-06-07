@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser, canManageEventAndLoad } from "@/lib/auth";
 import { getEventStaffList, listEventRoleDefinitions } from "@/lib/event-staff";
 import { EventStaffManager } from "@/components/forms/event-staff-manager";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 
 export default async function EventStaffPage({
@@ -46,6 +47,7 @@ export default async function EventStaffPage({
           Add or remove team members and assign event-specific roles. Each role
           grants different permissions scoped to this event only.
         </p>
+        <ContextualHelpLink slug="assign-judges" className="mt-2" />
       </div>
 
       <EventStaffManager
