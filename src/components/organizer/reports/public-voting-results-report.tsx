@@ -1,5 +1,9 @@
 import Link from "next/link";
 import type { PublicVotingResultsReport } from "@/lib/event-reports/public-voting-results";
+import {
+  REPORT_EMPTY_MESSAGES,
+  reportHasRankedRows,
+} from "@/lib/event-reports/report-types";
 import { ReportEmptyState } from "@/components/organizer/reports/report-empty-state";
 
 type Props = {
@@ -8,16 +12,18 @@ type Props = {
 };
 
 export function PublicVotingResultsReport({ eventId, data }: Props) {
-  const hasVotes = data.categories.some((c) => c.rows.length > 0);
+  const hasVotes = reportHasRankedRows(data.categories);
 
   if (data.categories.length === 0) {
     return (
-      <ReportEmptyState message="No public voting categories are configured for this event yet." />
+      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.publicVotingNoCategories} />
     );
   }
 
   if (!hasVotes) {
-    return <ReportEmptyState message="No public votes have been recorded yet." />;
+    return (
+      <ReportEmptyState message={REPORT_EMPTY_MESSAGES.publicVotingNoVotes} />
+    );
   }
 
   const base = `/organizer/events/${eventId}/reports?report=public-voting`;

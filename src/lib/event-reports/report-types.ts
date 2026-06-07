@@ -4,7 +4,8 @@ export type EventReportGroupId =
   | "voting-awards"
   | "judging-operations"
   | "attendees-marketing"
-  | "staffing-admin";
+  | "staffing-admin"
+  | "awards-results";
 
 export type EventReportTypeId =
   | "home"
@@ -24,6 +25,8 @@ export type EventReportDefinition = {
   label: string;
   description: string;
   groupId: EventReportGroupId;
+  /** Lifecycle order for nav tabs and home cards (lower = earlier). */
+  navSortOrder: number;
   /** Shown on home + navigable when true */
   available: boolean;
   /** Home card visible but links to placeholder copy */
@@ -33,16 +36,18 @@ export type EventReportDefinition = {
   supportsPrint?: boolean;
 };
 
+/** Event lifecycle order for home section headings. */
 export const EVENT_REPORT_GROUPS: {
   id: EventReportGroupId;
   label: string;
 }[] = [
   { id: "financial", label: "Financial" },
   { id: "registrations-vehicles", label: "Registrations & Vehicles" },
-  { id: "voting-awards", label: "Voting & Awards" },
-  { id: "judging-operations", label: "Judging Operations" },
-  { id: "attendees-marketing", label: "Attendees & Marketing" },
   { id: "staffing-admin", label: "Staffing / Admin" },
+  { id: "attendees-marketing", label: "Attendees & Marketing" },
+  { id: "voting-awards", label: "Voting" },
+  { id: "judging-operations", label: "Judging Operations" },
+  { id: "awards-results", label: "Awards & Trophies" },
 ];
 
 export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
@@ -51,6 +56,7 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     label: "All reports",
     description: "Choose a report for this event.",
     groupId: "financial",
+    navSortOrder: 0,
     available: true,
   },
   {
@@ -59,6 +65,7 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     description:
       "Registration revenue, fees, and payment status for this event.",
     groupId: "financial",
+    navSortOrder: 10,
     available: true,
     supportsCsv: false,
   },
@@ -68,6 +75,7 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     description:
       "Searchable list of registrations and vehicles with contact and payment fields.",
     groupId: "registrations-vehicles",
+    navSortOrder: 20,
     available: true,
     supportsCsv: true,
     supportsPrint: true,
@@ -77,14 +85,37 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     label: "Staffing List",
     description: "Event staff, roles, and judging assignments.",
     groupId: "staffing-admin",
+    navSortOrder: 30,
     available: true,
     supportsCsv: true,
+  },
+  {
+    id: "check-in",
+    label: "Check-In / No-Show",
+    description: "Event-day attendance and dash card tracking.",
+    groupId: "attendees-marketing",
+    navSortOrder: 40,
+    available: false,
+    comingSoon: true,
+    comingSoonNote:
+      "Requires check-in tracking fields on registered vehicles. Planned for a later phase.",
+  },
+  {
+    id: "geography",
+    label: "Attendee / Geographic Breakdown",
+    description: "Where registrants and vehicles came from.",
+    groupId: "attendees-marketing",
+    navSortOrder: 50,
+    available: false,
+    comingSoon: true,
+    comingSoonNote: "Geographic breakdown tables are planned for a later phase.",
   },
   {
     id: "public-voting",
     label: "Public Voting Results",
     description: "Website and SMS vote rankings by public voting category.",
     groupId: "voting-awards",
+    navSortOrder: 60,
     available: true,
     supportsCsv: true,
   },
@@ -93,18 +124,9 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     label: "Judge Ballot Results",
     description: "Informal judge ballot rankings by award category.",
     groupId: "voting-awards",
+    navSortOrder: 70,
     available: true,
     supportsCsv: true,
-  },
-  {
-    id: "awards",
-    label: "Awards / Winners",
-    description:
-      "Trophy placements and projected winners for announcements and printing.",
-    groupId: "voting-awards",
-    available: true,
-    supportsCsv: true,
-    supportsPrint: true,
   },
   {
     id: "judge-progress",
@@ -112,6 +134,7 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     description:
       "Score sheet and ballot completion status while judging is underway.",
     groupId: "judging-operations",
+    navSortOrder: 80,
     available: true,
     supportsCsv: true,
   },
@@ -121,33 +144,57 @@ export const EVENT_REPORT_TYPES: EventReportDefinition[] = [
     description:
       "High-level score sheet status by class. Open the full results workspace for detail.",
     groupId: "judging-operations",
+    navSortOrder: 90,
     available: true,
     supportsCsv: false,
   },
   {
-    id: "geography",
-    label: "Attendee / Geographic Breakdown",
-    description: "Where registrants and vehicles came from.",
-    groupId: "attendees-marketing",
-    available: false,
-    comingSoon: true,
-    comingSoonNote: "Geographic breakdown tables are planned for a later phase.",
-  },
-  {
-    id: "check-in",
-    label: "Check-In / No-Show",
-    description: "Event-day attendance and dash card tracking.",
-    groupId: "attendees-marketing",
-    available: false,
-    comingSoon: true,
-    comingSoonNote:
-      "Requires check-in tracking fields on registered vehicles. Planned for a later phase.",
+    id: "awards",
+    label: "Awards / Winners",
+    description:
+      "Trophy placements and projected winners for announcements and printing.",
+    groupId: "awards-results",
+    navSortOrder: 100,
+    available: true,
+    supportsCsv: true,
+    supportsPrint: true,
   },
 ];
+
+/** Expected nav tab order (excludes home). */
+export const EVENT_REPORT_NAV_ORDER: EventReportTypeId[] = [
+  "financial",
+  "registrations",
+  "staffing",
+  "check-in",
+  "geography",
+  "public-voting",
+  "judge-ballots",
+  "judge-progress",
+  "scorecards",
+  "awards",
+];
+
+export const REPORT_EMPTY_MESSAGES = {
+  publicVotingNoCategories:
+    "No public voting categories are configured for this event yet. Set them up under Edit Event → SMS Voting.",
+  publicVotingNoVotes:
+    "No public voting results yet. This report only includes attendee/public votes from website and SMS voting — not score sheet or trophy winner results.",
+  judgeBallotNoCategories:
+    "No judge ballot categories are configured for this event yet. Create award categories under Awards & Judging → Judge Ballot.",
+  judgeBallotNoVotes:
+    "No judge ballot votes have been submitted yet. This report only includes informal judge ballot voting — not structured score sheet winners or trophy placements.",
+} as const;
 
 const REPORT_BY_ID = new Map(
   EVENT_REPORT_TYPES.map((r) => [r.id, r] as const),
 );
+
+function sortByNavOrder(
+  reports: EventReportDefinition[],
+): EventReportDefinition[] {
+  return [...reports].sort((a, b) => a.navSortOrder - b.navSortOrder);
+}
 
 export function getEventReportDefinition(
   id: EventReportTypeId,
@@ -175,17 +222,30 @@ export function defaultEventReportType(): EventReportTypeId {
 }
 
 export function reportsForHomeCards(): EventReportDefinition[] {
-  return EVENT_REPORT_TYPES.filter((r) => r.id !== "home");
+  return sortByNavOrder(
+    EVENT_REPORT_TYPES.filter((r) => r.id !== "home"),
+  );
 }
 
 export function navigableReportTypes(): EventReportDefinition[] {
-  return EVENT_REPORT_TYPES.filter(
-    (r) => r.id !== "home" && (r.available || r.comingSoon),
+  return sortByNavOrder(
+    EVENT_REPORT_TYPES.filter(
+      (r) => r.id !== "home" && (r.available || r.comingSoon),
+    ),
   );
 }
 
 export function reportsByGroup(groupId: EventReportGroupId): EventReportDefinition[] {
-  return reportsForHomeCards().filter((r) => r.groupId === groupId);
+  return sortByNavOrder(
+    reportsForHomeCards().filter((r) => r.groupId === groupId),
+  );
+}
+
+/** True when a ranked report has at least one row in any section/category. */
+export function reportHasRankedRows(
+  sections: ReadonlyArray<{ rows: ReadonlyArray<unknown> }>,
+): boolean {
+  return sections.some((section) => section.rows.length > 0);
 }
 
 export const CSV_EXPORT_REPORT_IDS = [
