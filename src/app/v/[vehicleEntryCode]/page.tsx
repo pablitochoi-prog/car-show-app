@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getUserEventRoles } from "@/lib/event-staff";
 import { JudgeScorePanel } from "@/components/vehicle-entry/judge-score-panel";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { PublicVotePanel } from "@/components/vehicle-entry/public-vote-panel";
 import { StaffVehicleHub } from "@/components/vehicle-entry/staff-vehicle-hub";
 import { findVehicleEntryByCode } from "@/lib/vehicle-entry-lookup";
@@ -93,11 +94,17 @@ export default async function VehicleEntrySmartRoutePage({
   const buyerInquiryNotice = await loadVehicleBuyerInquiryNotice(entry);
 
   return (
-    <PublicVotePanel
-      entry={entry}
-      votingOpen={votingOpen}
-      voteContext={voteContext}
-      buyerInquiryNotice={buyerInquiryNotice}
-    />
+    <div className="space-y-4">
+      <PublicVotePanel
+        entry={entry}
+        votingOpen={votingOpen}
+        voteContext={voteContext}
+        buyerInquiryNotice={buyerInquiryNotice}
+      />
+      <div className="page-shell max-w-lg space-y-2 pb-8 print:hidden">
+        <ContextualHelpLink slug="scan-dash-card-qr-code" />
+        <ContextualHelpLink slug="public-voting" />
+      </div>
+    </div>
   );
 }

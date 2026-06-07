@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Download, Printer } from "lucide-react";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import {
   EVENT_REPORT_GROUPS,
   getReportsHomeSummary,
@@ -105,6 +106,7 @@ export function EventReportsHome({ eventId, votingSetup }: Props) {
           contact details are only visible to authorized organizers for this
           event.
         </p>
+        <ContextualHelpLink slug="event-reports" />
         <dl className="grid gap-3 text-sm sm:grid-cols-3">
           <div>
             <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { canCreateEvent } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { EventForm } from "@/components/forms/event-form";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -85,13 +86,14 @@ export default async function NewEventPage({
 
   return (
     <div className="page-shell max-w-5xl">
-      <div className="mx-auto mb-6 max-w-2xl text-center sm:text-left">
+      <div className="mx-auto mb-6 max-w-2xl space-y-3 text-center sm:text-left">
         <Link
           href="/dashboard"
           className="text-sm text-muted-foreground hover:text-foreground"
         >
           ← Back to dashboard
         </Link>
+        <ContextualHelpLink slug="create-and-publish-event" />
       </div>
       <EventForm
         organizations={organizations}

@@ -40,6 +40,12 @@ export async function Footer() {
               Find Events
             </Link>
             <Link
+              href="/help"
+              className="transition-colors hover:text-foreground"
+            >
+              Help Center
+            </Link>
+            <Link
               href="/terms"
               className="transition-colors hover:text-foreground"
             >

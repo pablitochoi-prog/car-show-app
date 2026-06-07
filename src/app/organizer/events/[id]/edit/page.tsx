@@ -9,6 +9,7 @@ import { parseDailyHours } from "@/lib/daily-hours";
 import { getEventStaffList, listEventRoleDefinitions } from "@/lib/event-staff";
 import { EventStaffManager } from "@/components/forms/event-staff-manager";
 import { EventSetupListCards } from "@/components/forms/event-setup-list-cards";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
@@ -356,6 +357,10 @@ export default async function EditEventPage({
                 showNumber={event.showNumber}
               />
             </h1>
+            <ContextualHelpLink
+              slug="create-and-publish-event"
+              className="mt-2"
+            />
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <EventMessagesButton

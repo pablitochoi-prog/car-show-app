@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Unlink,
 } from "lucide-react";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import { describeStripeDisabledReason } from "@/lib/stripe-disabled-reason";
 
 export type StripeConnectInfo = {
@@ -199,6 +200,7 @@ export function StripeConnectCard({
                 ? "Stripe is reviewing your submitted information. Refresh status in a few minutes, then enable paid registration below."
                 : "Complete your Stripe setup to start accepting payments."}
         </CardDescription>
+        <ContextualHelpLink slug="connect-stripe" className="pt-1" />
       </CardHeader>
       <CardContent className="space-y-4">
         {!canDisconnect && isConnected && !isActive && (
