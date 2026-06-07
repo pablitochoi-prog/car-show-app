@@ -106,8 +106,9 @@ Verify on each surface where **first-time** consent is requested:
 
 Each first-time surface must include:
 
-- [ ] **Terms** link → `https://events.carshowscout.com/terms`
-- [ ] **Privacy Policy** link → `https://events.carshowscout.com/privacy`
+- [ ] **Terms** link → `/terms` (same origin as the app host)
+- [ ] **Privacy Policy** link → `/privacy` (same origin as the app host)
+- [ ] **SMS Program** public page → `/sms`
 - [ ] Reply **STOP** to opt out
 - [ ] **HELP** for help
 - [ ] Message **frequency varies**

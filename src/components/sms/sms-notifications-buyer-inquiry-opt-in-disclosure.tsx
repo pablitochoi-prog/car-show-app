@@ -16,8 +16,6 @@ export function SmsNotificationsBuyerInquiryOptInDisclosure() {
       <Link
         href={SMS_NOTIFICATIONS_TERMS_URL}
         className="font-medium text-primary underline-offset-4 hover:underline"
-        target="_blank"
-        rel="noopener noreferrer"
       >
         {SMS_CONSENT_LINK_LABELS.terms}
       </Link>
@@ -25,8 +23,6 @@ export function SmsNotificationsBuyerInquiryOptInDisclosure() {
       <Link
         href={SMS_NOTIFICATIONS_PRIVACY_URL}
         className="font-medium text-primary underline-offset-4 hover:underline"
-        target="_blank"
-        rel="noopener noreferrer"
       >
         {SMS_CONSENT_LINK_LABELS.privacyPolicy}
       </Link>

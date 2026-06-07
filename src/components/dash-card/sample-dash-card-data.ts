@@ -46,7 +46,7 @@ export const SAMPLE_DASH_CARD_DATA: DashCardModel = {
   },
   sale: {
     badgeLabel: "Interested in buying?",
-    salePageUrl: "https://events.carshowscout.com/v/AXY-005/sale",
+    salePageUrl: "https://carshowscout.com/v/AXY-005/sale",
     qrImageUrl: null,
   },
 };

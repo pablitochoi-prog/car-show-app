@@ -47,7 +47,7 @@ describe("resolveVehicleQrUrlForDashCard", () => {
   });
 
   it("generates inline SVG when no persisted vote QR URL", async () => {
-    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
+    process.env.NEXT_PUBLIC_APP_URL = "https://carshowscout.com";
     const url = await resolveVehicleQrUrlForDashCard(null, "AXY-013");
     expect(url.startsWith("data:image/svg+xml;base64,")).toBe(true);
   });

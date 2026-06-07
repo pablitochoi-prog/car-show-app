@@ -9,9 +9,9 @@ import { vehicleSmartRouteUrl } from "@/lib/vehicle-entry-code";
  */
 describe("vehicle entry smart route (/v/[vehicleEntryCode])", () => {
   it("encodes the public smart-route URL in dash-card QR codes", () => {
-    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
+    process.env.NEXT_PUBLIC_APP_URL = "https://carshowscout.com";
     expect(vehicleSmartRouteUrl("BZB-001")).toBe(
-      "https://events.carshowscout.com/v/BZB-001",
+      "https://carshowscout.com/v/BZB-001",
     );
   });
 

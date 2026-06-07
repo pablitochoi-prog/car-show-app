@@ -17,14 +17,14 @@ describe("vehicle-entry-code", () => {
   });
 
   it("builds smart route URLs from site origin", () => {
-    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
+    process.env.NEXT_PUBLIC_APP_URL = "https://carshowscout.com";
     expect(vehicleSmartRouteUrl("AXY-004")).toBe(
-      "https://events.carshowscout.com/v/AXY-004",
+      "https://carshowscout.com/v/AXY-004",
     );
   });
 
   it("encodes vehicle entry codes in QR URLs", () => {
-    process.env.NEXT_PUBLIC_APP_URL = "https://events.carshowscout.com";
+    process.env.NEXT_PUBLIC_APP_URL = "https://carshowscout.com";
     expect(vehicleSmartRouteUrl("AXY-004")).toContain("/v/AXY-004");
   });
 });

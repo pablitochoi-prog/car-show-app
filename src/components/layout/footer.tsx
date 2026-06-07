@@ -27,7 +27,7 @@ export async function Footer() {
               </div>
             ) : null}
             <p className="text-center text-xs text-muted-foreground sm:text-left sm:text-sm">
-              &copy; {new Date().getFullYear()} CarShowScout.com. All rights
+              &copy; {new Date().getFullYear()} Car Show Scout, LLC. All rights
               reserved.
             </p>
           </div>
@@ -50,6 +50,12 @@ export async function Footer() {
               className="transition-colors hover:text-foreground"
             >
               Privacy Policy
+            </Link>
+            <Link
+              href="/sms"
+              className="transition-colors hover:text-foreground"
+            >
+              SMS Program
             </Link>
             <Link
               href="/login"

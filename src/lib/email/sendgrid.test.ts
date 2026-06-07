@@ -29,7 +29,7 @@ describe("sendgrid email service", () => {
       eventName: "Radwood",
       eventShowNumber: 1001,
       eventDateLabel: "June 1, 2026",
-      registrationUrl: "https://events.carshowscout.com/events/abc/register",
+      registrationUrl: "https://carshowscout.com/events/abc/register",
       confirmed: true,
     });
 
@@ -45,7 +45,7 @@ describe("sendgrid email service", () => {
 
     const result = await sendPasswordResetEmail({
       to: "user@example.com",
-      resetUrl: "https://events.carshowscout.com/reset",
+      resetUrl: "https://carshowscout.com/reset",
     });
 
     expect(result.sent).toBe(false);
@@ -63,7 +63,7 @@ describe("sendgrid email service", () => {
       eventName: "Radwood",
       eventShowNumber: 1001,
       eventDateLabel: "June 1, 2026",
-      eventUrl: "https://events.carshowscout.com/events/abc",
+      eventUrl: "https://carshowscout.com/events/abc",
     });
 
     expect(result.sent).toBe(false);
@@ -102,7 +102,7 @@ describe("sendgrid email service", () => {
       buyerPhone: "(818) 555-0100",
       offerAmountCents: 2_500_000,
       message: "Still available?",
-      inquiryDetailUrl: "https://events.carshowscout.com/dashboard/sale-inquiries/abc",
+      inquiryDetailUrl: "https://carshowscout.com/dashboard/sale-inquiries/abc",
     });
 
     expect(result.sent).toBe(false);
