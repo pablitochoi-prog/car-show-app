@@ -10,7 +10,13 @@ type Props = {
 export function RegistrationDetailReport({ eventId, data }: Props) {
   if (data.totalRows === 0) {
     return (
-      <ReportEmptyState message="No registrations match your search for this event." />
+      <ReportEmptyState
+        message={
+          data.search.trim()
+            ? "No registrations match your search. Try a different name, email, or vehicle ID."
+            : "No registrations for this event yet."
+        }
+      />
     );
   }
 

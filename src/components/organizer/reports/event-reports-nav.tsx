@@ -44,14 +44,22 @@ export function EventReportsNav({ eventId, activeReport }: Props) {
 
         if (report.comingSoon) {
           return (
-            <div
+            <PendingLink
               key={report.id}
-              className="flex min-h-10 flex-col items-center justify-center rounded-md border border-dashed px-1 py-1.5 text-center text-[0.65rem] leading-snug opacity-60"
+              href={href}
+              scroll={false}
+              aria-current={isActive ? "page" : undefined}
               title={report.comingSoonNote ?? "Coming soon"}
+              className={cn(
+                "flex min-h-10 flex-col items-center justify-center rounded-md border border-dashed px-1 py-1.5 text-center text-[0.65rem] leading-snug opacity-80",
+                isActive
+                  ? "border-primary/50 bg-muted text-foreground"
+                  : "hover:bg-muted/50",
+              )}
             >
               <span>{report.label}</span>
               <span className="text-[0.6rem] text-muted-foreground">Soon</span>
-            </div>
+            </PendingLink>
           );
         }
 

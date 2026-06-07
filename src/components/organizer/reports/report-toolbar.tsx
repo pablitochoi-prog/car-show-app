@@ -1,48 +1,49 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Download, Printer } from "lucide-react";
-import type { EventReportTypeId } from "@/lib/event-reports/report-types";
-import { isCsvExportReportId } from "@/lib/event-reports/report-types";
+import {
+  buildReportCsvHref,
+  reportSupportsCsvExport,
+  type EventReportDefinition,
+} from "@/lib/event-reports/report-types";
 
 type Props = {
   eventId: string;
-  reportId: EventReportTypeId;
-  supportsCsv?: boolean;
-  supportsPrint?: boolean;
+  report: Pick<EventReportDefinition, "id" | "label" | "supportsCsv" | "supportsPrint">;
 };
 
-export function ReportToolbar({
-  eventId,
-  reportId,
-  supportsCsv,
-  supportsPrint,
-}: Props) {
-  const csvHref =
-    supportsCsv && isCsvExportReportId(reportId)
-      ? `/api/events/${eventId}/reports/${reportId}/csv`
-      : null;
+export function ReportToolbar({ eventId, report }: Props) {
+  const csvHref = reportSupportsCsvExport(report)
+    ? buildReportCsvHref(eventId, report.id)
+    : null;
+
+  if (!csvHref && !report.supportsPrint) {
+    return null;
+  }
 
   return (
-    <div className="flex flex-wrap gap-2 print:hidden">
+    <div className="flex flex-wrap items-center gap-2 print:hidden">
       {csvHref ? (
         <a
           href={csvHref}
           download
-          className="inline-flex h-7 items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted"
+          aria-label={`Export ${report.label} as CSV`}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1")}
         >
           <Download className="size-3.5" aria-hidden />
           Export CSV
         </a>
       ) : null}
-      {supportsPrint ? (
+      {report.supportsPrint ? (
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={() => window.print()}
         >
-          <Printer className="mr-1 size-4" aria-hidden />
+          <Printer className="size-3.5" aria-hidden />
           Print
         </Button>
       ) : null}
