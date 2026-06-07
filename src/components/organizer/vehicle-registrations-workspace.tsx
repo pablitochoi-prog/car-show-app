@@ -17,9 +17,15 @@ const EMPTY_GRID: GridData = {
 
 type Props = {
   eventId: string;
+  dashCardsAllowed?: boolean;
+  dashCardsBlockedMessage?: string;
 };
 
-export function VehicleRegistrationsWorkspace({ eventId }: Props) {
+export function VehicleRegistrationsWorkspace({
+  eventId,
+  dashCardsAllowed = true,
+  dashCardsBlockedMessage,
+}: Props) {
   const router = useRouter();
   const [grid, setGrid] = useState<GridData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -99,6 +105,8 @@ export function VehicleRegistrationsWorkspace({ eventId }: Props) {
         onSelectedVehicleIdsChange={setSelectedVehicleIds}
         eventCategoryId={eventCategoryId}
         onEventCategoryIdChange={setEventCategoryId}
+        dashCardsAllowed={dashCardsAllowed}
+        dashCardsBlockedMessage={dashCardsBlockedMessage}
       />
       {data.scoreSheetJudgingEnabled ? (
         <ScoreSheetJudgeAssignments

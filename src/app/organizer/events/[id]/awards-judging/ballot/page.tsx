@@ -4,10 +4,9 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { requireStaffStepUpPage } from "@/lib/require-organizer-step-up";
 import { getEventStaffList } from "@/lib/event-staff";
-import { EventNameWithNumber } from "@/components/events/event-name-with-number";
 import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
+import { AwardsJudgingConfigurePageHeader } from "@/components/organizer/awards-judging/awards-judging-configure-page-header";
 import { JudgeBallotAdmin } from "@/components/organizer/awards-judging/judge-ballot-admin";
-import { formatEventShowNumber } from "@/lib/event-show-number";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -72,17 +71,14 @@ export default async function JudgeBallotAdminPage({ params }: Props) {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          Show #{formatEventShowNumber(event.showNumber)} · Voting Method: Assigned Judge Ballot
-        </p>
-        <h1 className="font-heading text-2xl font-bold">
-          <EventNameWithNumber name={event.name} showNumber={event.showNumber} />
-        </h1>
-        <p className="mt-1 text-muted-foreground">
-          Judge Ballot Voting — configure award categories and vote limits
-        </p>
-      </div>
+      <AwardsJudgingConfigurePageHeader
+        eventId={eventId}
+        name={event.name}
+        showNumber={event.showNumber}
+        votingMethodLabel="Assigned Judge Ballot"
+        methodTitle="Judge Ballot Voting"
+        method="judge-ballot"
+      />
 
       <EventOrganizerNavBar eventId={eventId} active="awards-judging" user={user} />
 

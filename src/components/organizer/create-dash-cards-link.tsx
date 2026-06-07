@@ -9,12 +9,15 @@ import { cn } from "@/lib/utils";
 export function CreateDashCardsLink({
   eventId,
   registrationIds,
+  registrationVehicleIds,
   disabled = false,
   disabledTitle,
   className,
 }: {
   eventId: string;
   registrationIds: string[];
+  /** When set, only dash cards for these linked vehicles are printed. */
+  registrationVehicleIds?: string[];
   disabled?: boolean;
   disabledTitle?: string;
   className?: string;
@@ -38,9 +41,14 @@ export function CreateDashCardsLink({
     );
   }
 
-  const href = `/organizer/events/${eventId}/dash-cards?ids=${registrationIds
-    .map((id) => encodeURIComponent(id))
-    .join(",")}`;
+  const params = new URLSearchParams();
+  if (registrationIds.length > 0) {
+    params.set("ids", registrationIds.join(","));
+  }
+  if (registrationVehicleIds && registrationVehicleIds.length > 0) {
+    params.set("rvIds", registrationVehicleIds.join(","));
+  }
+  const href = `/organizer/events/${eventId}/dash-cards?${params.toString()}`;
 
   return (
     <PendingLink href={href} prefetch className={buttonClass}>

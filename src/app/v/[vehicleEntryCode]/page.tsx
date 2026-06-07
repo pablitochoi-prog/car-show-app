@@ -16,9 +16,9 @@ import {
   loadVehicleBuyerInquiryNotice,
 } from "@/lib/public-vehicle-sale-listing";
 import {
-  entryAllowsPublicVoting,
   getVisitorPublicVoteContext,
   readVoterFingerprint,
+  resolvePublicVotingPeriodStatus,
 } from "@/lib/vehicle-voting";
 
 type Props = {
@@ -63,11 +63,10 @@ export default async function VehicleEntrySmartRoutePage({
     return <StaffVehicleHub entry={entry} canJudge={canJudge} />;
   }
 
-  if (role === "judge" || (role === "organizer" && view === "judge")) {
+  // Judge scoring is opt-in (?view=judge). Dash-card QR /v/{code} defaults to public voting.
+  if (view === "judge") {
     if (!canJudge) {
-      return (
-        <StaffVehicleHub entry={entry} canJudge={false} />
-      );
+      return <StaffVehicleHub entry={entry} canJudge={false} />;
     }
     const existing = user
       ? await getJudgeScoreForEntry(
@@ -88,9 +87,12 @@ export default async function VehicleEntrySmartRoutePage({
 
   const fingerprint = await readVoterFingerprint();
   const voteContext = await getVisitorPublicVoteContext(entry, fingerprint);
+  const votingPeriodStatus = await resolvePublicVotingPeriodStatus(
+    entry,
+    voteContext,
+  );
   const votingOpen =
-    entryAllowsPublicVoting(entry, entry.event.status) &&
-    voteContext.hasAnyOpenCategory;
+    entry.votingStatus !== "CLOSED" && voteContext.hasAnyOpenCategory;
   const buyerInquiryNotice = await loadVehicleBuyerInquiryNotice(entry);
 
   return (
@@ -98,6 +100,7 @@ export default async function VehicleEntrySmartRoutePage({
       <PublicVotePanel
         entry={entry}
         votingOpen={votingOpen}
+        votingPeriodStatus={votingPeriodStatus}
         voteContext={voteContext}
         buyerInquiryNotice={buyerInquiryNotice}
       />

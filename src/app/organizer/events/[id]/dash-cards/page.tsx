@@ -21,13 +21,13 @@ export default async function OrganizerDashCardsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ids?: string }>;
+  searchParams: Promise<{ ids?: string; rvIds?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const { id: eventId } = await params;
-  const { ids: idsParam } = await searchParams;
+  const { ids: idsParam, rvIds: rvIdsParam } = await searchParams;
 
   const allowed = await canManageEventRegistrations(
     user.id,
@@ -49,6 +49,10 @@ export default async function OrganizerDashCardsPage({
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const registrationVehicleIds = (rvIdsParam ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   if (!platformFeeStatus?.paid) {
     return (
@@ -67,7 +71,10 @@ export default async function OrganizerDashCardsPage({
               showNumber={event.showNumber}
             />
           </h1>
-          <ContextualHelpLink slug="print-dash-cards" className="mt-2" />
+          <div className="mt-2 space-y-1">
+            <ContextualHelpLink slug="print-dash-cards" />
+            <ContextualHelpLink slug="dash-cards" />
+          </div>
         </div>
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-6 text-sm">
           <p className="font-medium text-amber-950 dark:text-amber-100">
@@ -99,6 +106,9 @@ export default async function OrganizerDashCardsPage({
   const cards = await loadDashCardModelsForRegistrations(
     eventId,
     registrationIds,
+    registrationVehicleIds.length > 0
+      ? { registrationVehicleIds }
+      : undefined,
   );
 
   return (
@@ -124,7 +134,10 @@ export default async function OrganizerDashCardsPage({
             card{cards.length === 1 ? "" : "s"}. Each card prints on one US Letter
             sheet (8.5&quot; × 11&quot;) in landscape.
           </p>
-          <ContextualHelpLink slug="print-dash-cards" className="mt-2" />
+          <div className="mt-2 space-y-1">
+            <ContextualHelpLink slug="print-dash-cards" />
+            <ContextualHelpLink slug="dash-cards" />
+          </div>
         </div>
         <DashCardPrintButton cardCount={cards.length} />
       </div>

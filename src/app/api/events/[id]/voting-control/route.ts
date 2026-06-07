@@ -8,7 +8,10 @@ import {
   loadEventVotingControl,
   openAllEventVoting,
   reopenAllEventVoting,
+  runVotingMethodControlAction,
   unfinalizeAllEventVoting,
+  type EventVotingMethodKey,
+  type VotingMethodControlAction,
 } from "@/lib/judging/event-voting-control";
 import { ScoreSheetJudgingPeriodError } from "@/lib/judging/score-sheet-judging-period";
 
@@ -68,11 +71,54 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const action = (body as { action?: string })?.action;
+  const bodyObj = body as {
+    action?: string;
+    method?: string;
+    methodAction?: string;
+  };
+  const action = bodyObj.action;
+
+  const METHOD_KEYS: EventVotingMethodKey[] = [
+    "public-voting",
+    "judge-ballot",
+    "score-sheets",
+  ];
+  const METHOD_ACTIONS: VotingMethodControlAction[] = [
+    "open",
+    "close",
+    "reopen",
+  ];
 
   try {
     let snapshot;
-    if (action === "close_all") {
+    if (action === "method_control") {
+      const method = bodyObj.method;
+      const methodAction = bodyObj.methodAction;
+      if (!method || !METHOD_KEYS.includes(method as EventVotingMethodKey)) {
+        return NextResponse.json(
+          {
+            error:
+              'method must be "public-voting", "judge-ballot", or "score-sheets".',
+          },
+          { status: 400 },
+        );
+      }
+      if (
+        !methodAction ||
+        !METHOD_ACTIONS.includes(methodAction as VotingMethodControlAction)
+      ) {
+        return NextResponse.json(
+          { error: 'methodAction must be "open", "close", or "reopen".' },
+          { status: 400 },
+        );
+      }
+      snapshot = await runVotingMethodControlAction(
+        eventId,
+        method as EventVotingMethodKey,
+        methodAction as VotingMethodControlAction,
+        user.id,
+      );
+    } else if (action === "close_all") {
       snapshot = await closeAllEventVoting(eventId, user.id);
     } else if (action === "open_all") {
       snapshot = await openAllEventVoting(eventId);
@@ -92,7 +138,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       return NextResponse.json(
         {
           error:
-            'action must be "close_all", "open_all", "reopen_all", "finalize_all", or "unfinalize_all".',
+            'action must be "method_control", "close_all", "open_all", "reopen_all", "finalize_all", or "unfinalize_all".',
         },
         { status: 400 },
       );

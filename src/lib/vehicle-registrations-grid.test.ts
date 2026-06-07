@@ -78,6 +78,7 @@ describe("loadVehicleRegistrationsGrid", () => {
     expect(grid.categories).toHaveLength(2);
     expect(grid.rows).toHaveLength(1);
     expect(grid.rows[0]).toMatchObject({
+      registrationId: "reg-1",
       publicVehicleId: "VIN1234",
       year: 1967,
       make: "Ford",

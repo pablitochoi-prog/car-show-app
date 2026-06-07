@@ -361,6 +361,14 @@ export default async function EditEventPage({
               slug="create-and-publish-event"
               className="mt-2"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              <Link
+                href={`/organizer/events/${event.id}/help`}
+                className="text-foreground underline-offset-4 hover:underline"
+              >
+                Browse all organizer help guides for this event
+              </Link>
+            </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <EventMessagesButton

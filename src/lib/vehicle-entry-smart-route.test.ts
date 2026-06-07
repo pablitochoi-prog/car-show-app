@@ -25,4 +25,14 @@ describe("vehicle entry smart route (/v/[vehicleEntryCode])", () => {
     expect(src).toContain("getVisitorPublicVoteContext");
     expect(src).toContain("readVoterFingerprint");
   });
+
+  it("defaults dash-card QR to public voting; judge scoring requires ?view=judge", () => {
+    const pagePath = join(
+      process.cwd(),
+      "src/app/v/[vehicleEntryCode]/page.tsx",
+    );
+    const src = readFileSync(pagePath, "utf8");
+    expect(src).toContain('view === "judge"');
+    expect(src).not.toMatch(/role\s*===\s*"judge"/);
+  });
 });

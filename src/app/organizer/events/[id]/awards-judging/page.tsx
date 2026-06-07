@@ -7,6 +7,7 @@ import { EventNameWithNumber } from "@/components/events/event-name-with-number"
 import { EventOrganizerNavBar } from "@/components/organizer/event-organizer-nav-bar";
 import { ContactSiteAdminButton } from "@/components/organizer/contact-site-admin-button";
 import { formatEventShowNumber } from "@/lib/event-show-number";
+import { ContextualHelpLink } from "@/components/help/contextual-help-link";
 import {
   AwardsJudgingHub,
   type AwardsJudgingHubStats,
@@ -127,6 +128,11 @@ export default async function AwardsJudgingHubPage({ params }: Props) {
         stats={stats}
         initialVotingSnapshot={votingSnapshot}
         isSiteAdmin={user.platformRole === "ADMIN"}
+      />
+
+      <ContextualHelpLink
+        slug="review-awards-winners"
+        className="text-center"
       />
 
       <p className="text-center text-sm text-muted-foreground">

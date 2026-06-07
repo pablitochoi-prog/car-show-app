@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { readResponseJson } from "@/lib/read-response-json";
-import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control";
+import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control-types";
 
 const OVERALL_LABELS = {
   OPEN: "Voting open",
@@ -26,11 +26,13 @@ export function EventVotingControls({
   eventId,
   initialSnapshot = null,
   onVotingChange,
+  onSnapshotChange,
   isSiteAdmin = false,
 }: {
   eventId: string;
   initialSnapshot?: EventVotingControlSnapshot | null;
   onVotingChange?: () => void;
+  onSnapshotChange?: (snapshot: EventVotingControlSnapshot) => void;
   isSiteAdmin?: boolean;
 }) {
   const router = useRouter();
@@ -78,6 +80,12 @@ export function EventVotingControls({
     }
   }, [initialSnapshot, load]);
 
+  useEffect(() => {
+    if (initialSnapshot) {
+      setSnapshot(initialSnapshot);
+    }
+  }, [initialSnapshot]);
+
   async function runAction(
     action:
       | "close_all"
@@ -109,7 +117,9 @@ export function EventVotingControls({
       if (!res.ok) {
         throw new Error(parsed.data?.error ?? "Action failed.");
       }
-      setSnapshot(parsed.data?.snapshot ?? null);
+      const next = parsed.data?.snapshot ?? null;
+      setSnapshot(next);
+      if (next) onSnapshotChange?.(next);
       setConfirmFinalize(false);
       setConfirmUnfinalize(false);
       onVotingChange?.();

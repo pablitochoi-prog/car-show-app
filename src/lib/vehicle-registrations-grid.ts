@@ -198,6 +198,7 @@ export async function loadVehicleRegistrationsGrid(
     }
     return {
       registrationVehicleId: v.id,
+      registrationId: v.registrationId,
       eventCategoryId: v.eventCategoryId,
       publicVehicleId: v.publicVehicleId?.trim() || null,
       photoUrl: resolveRowPhotoUrl(

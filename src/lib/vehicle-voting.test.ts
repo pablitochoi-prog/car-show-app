@@ -10,19 +10,21 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => cookieStore),
 }));
 
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    vehiclePublicVote: {
-      findUnique: vi.fn(async () => null),
-      findMany: vi.fn(async () => []),
-    },
-    event: {
-      findUnique: vi.fn(async () => null),
-    },
-    votingCategory: {
-      findMany: vi.fn(async () => []),
-    },
+const prismaMock = vi.hoisted(() => ({
+  vehiclePublicVote: {
+    findUnique: vi.fn(async () => null),
+    findMany: vi.fn(async () => []),
   },
+  event: {
+    findUnique: vi.fn(async () => null),
+  },
+  votingCategory: {
+    findMany: vi.fn(async () => []),
+  },
+}));
+
+vi.mock("@/lib/db", () => ({
+  prisma: prismaMock,
 }));
 
 import {
@@ -72,7 +74,7 @@ describe("vehicle-voting fingerprint", () => {
   it("getVisitorPublicVoteContext is safe without fingerprint", async () => {
     cookieStore.get.mockReturnValue(undefined);
     const ctx = await getVisitorPublicVoteContext(sampleEntry, null);
-    expect(ctx.votedCategoryIdOnVehicle).toBeNull();
+    expect(ctx.votedCategoryIdsOnVehicle).toEqual([]);
     expect(cookieStore.set).not.toHaveBeenCalled();
   });
 });
@@ -84,5 +86,50 @@ describe("buildEventVisitorKey", () => {
     const otherEvent = buildEventVisitorKey("fp-1", "evt-2");
     expect(a).toBe(b);
     expect(a).not.toBe(otherEvent);
+  });
+});
+
+describe("getVisitorPublicVoteContext multi-category", () => {
+  beforeEach(() => {
+    prismaMock.event.findUnique.mockResolvedValue({
+      smsVotingEnabled: true,
+      smsVotingStartsAt: null,
+      smsVotingEndsAt: null,
+      status: "VOTING",
+      dailyHours: null,
+    });
+    prismaMock.votingCategory.findMany.mockResolvedValue([
+      {
+        id: "cat-pc",
+        name: "People's Choice",
+        smsOptionNumber: 1,
+        isActive: true,
+        votingStartsAt: null,
+        votingEndsAt: null,
+      },
+      {
+        id: "cat-kc",
+        name: "Kid's Choice",
+        smsOptionNumber: 2,
+        isActive: true,
+        votingStartsAt: null,
+        votingEndsAt: null,
+      },
+    ]);
+  });
+
+  it("allows a second category on the same vehicle after the first vote", async () => {
+    prismaMock.vehiclePublicVote.findMany.mockResolvedValue([
+      {
+        votingCategoryId: "cat-pc",
+        vehicleEntryCode: "AXY-004",
+      },
+    ]);
+
+    const ctx = await getVisitorPublicVoteContext(sampleEntry, "fp-1");
+
+    expect(ctx.votedCategoryIdsOnVehicle).toEqual(["cat-pc"]);
+    expect(ctx.categoryStates["cat-pc"]).toBe("voted_here");
+    expect(ctx.categoryStates["cat-kc"]).toBe("available");
   });
 });

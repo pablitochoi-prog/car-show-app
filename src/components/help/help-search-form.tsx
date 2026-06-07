@@ -17,23 +17,42 @@ type Props = {
   audience?: HelpAudience;
   category?: HelpCategory;
   resultCount?: number;
+  /** Defaults to `/help`. Use for scoped help hubs (e.g. organizer event help). */
+  basePath?: string;
+  /** When set, audience filter is hidden and locked for all searches. */
+  lockAudience?: HelpAudience;
+  showQuickFilters?: boolean;
 };
 
-function buildHelpHref(params: {
-  q?: string;
-  audience?: HelpAudience;
-  category?: HelpCategory;
-}): string {
+function buildHelpHref(
+  basePath: string,
+  params: {
+    q?: string;
+    audience?: HelpAudience;
+    category?: HelpCategory;
+  },
+): string {
   const search = new URLSearchParams();
   if (params.q?.trim()) search.set("q", params.q.trim());
   if (params.audience) search.set("audience", params.audience);
   if (params.category) search.set("category", params.category);
   const qs = search.toString();
-  return qs ? `/help?${qs}` : "/help";
+  return qs ? `${basePath}?${qs}` : basePath;
 }
 
-export function HelpSearchForm({ q, audience, category, resultCount }: Props) {
-  const hasFilters = Boolean(q?.trim() || audience || category);
+export function HelpSearchForm({
+  q,
+  audience,
+  category,
+  resultCount,
+  basePath = "/help",
+  lockAudience,
+  showQuickFilters = true,
+}: Props) {
+  const effectiveAudience = lockAudience ?? audience;
+  const hasFilters = Boolean(
+    q?.trim() || effectiveAudience || category,
+  );
 
   return (
     <div className="space-y-4">
@@ -55,23 +74,34 @@ export function HelpSearchForm({ q, audience, category, resultCount }: Props) {
           />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="help-audience">Audience</Label>
-            <select
-              id="help-audience"
-              name="audience"
-              defaultValue={audience ?? ""}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="">All audiences</option>
-              {HELP_AUDIENCES.filter((a) => a !== "ADMIN").map((value) => (
-                <option key={value} value={value}>
-                  {HELP_AUDIENCE_LABELS[value]}
-                </option>
-              ))}
-            </select>
-          </div>
+        {lockAudience ? (
+          <input type="hidden" name="audience" value={lockAudience} />
+        ) : null}
+
+        <div
+          className={cn(
+            "grid gap-3",
+            lockAudience ? "sm:grid-cols-1" : "sm:grid-cols-2",
+          )}
+        >
+          {!lockAudience ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="help-audience">Audience</Label>
+              <select
+                id="help-audience"
+                name="audience"
+                defaultValue={audience ?? ""}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">All audiences</option>
+                {HELP_AUDIENCES.filter((a) => a !== "ADMIN").map((value) => (
+                  <option key={value} value={value}>
+                    {HELP_AUDIENCE_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="help-category">Category</Label>
@@ -95,7 +125,7 @@ export function HelpSearchForm({ q, audience, category, resultCount }: Props) {
           <Button type="submit">Search</Button>
           {hasFilters ? (
             <Link
-              href="/help"
+              href={basePath}
               className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
             >
               Clear filters
@@ -104,27 +134,33 @@ export function HelpSearchForm({ q, audience, category, resultCount }: Props) {
         </div>
       </form>
 
-      <div className="flex flex-wrap gap-2" aria-label="Quick audience filters">
-        <span className="w-full text-xs font-medium text-muted-foreground sm:w-auto sm:py-1">
-          Quick filters:
-        </span>
-        {(["REGISTRANT", "ORGANIZER", "SPECTATOR", "JUDGE"] as const).map(
-          (value) => (
-            <Link
-              key={value}
-              href={buildHelpHref({ q, audience: value, category })}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                audience === value
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:bg-muted",
-              )}
-            >
-              {HELP_AUDIENCE_LABELS[value]}
-            </Link>
-          ),
-        )}
-      </div>
+      {showQuickFilters && !lockAudience ? (
+        <div className="flex flex-wrap gap-2" aria-label="Quick audience filters">
+          <span className="w-full text-xs font-medium text-muted-foreground sm:w-auto sm:py-1">
+            Quick filters:
+          </span>
+          {(["REGISTRANT", "ORGANIZER", "SPECTATOR", "JUDGE"] as const).map(
+            (value) => (
+              <Link
+                key={value}
+                href={buildHelpHref(basePath, {
+                  q,
+                  audience: value,
+                  category,
+                })}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  effectiveAudience === value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {HELP_AUDIENCE_LABELS[value]}
+              </Link>
+            ),
+          )}
+        </div>
+      ) : null}
 
       {typeof resultCount === "number" && hasFilters ? (
         <p className="text-sm text-muted-foreground" role="status">

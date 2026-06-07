@@ -1,4 +1,3 @@
-import type { EventAwardsVotingStatus, ScoreSheetJudgingPeriodStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSmsVotingWindowStatus } from "@/lib/sms/voting-window";
 import { closeJudgeBallotCategory, openJudgeBallotCategory } from "@/lib/judging/judge-ballot-allocation";
@@ -8,41 +7,22 @@ import {
   reopenScoreSheetJudgingPeriod,
   ScoreSheetJudgingPeriodError,
 } from "@/lib/judging/score-sheet-judging-period";
+import { resolvePublicVotingOpenWindow } from "@/lib/judging/public-voting-open-window";
 
-export type EventVotingOverallStatus = EventAwardsVotingStatus;
+export type {
+  EventVotingControlSnapshot,
+  EventVotingMethodKey,
+  EventVotingOverallStatus,
+  VotingMethodControlAction,
+} from "@/lib/judging/event-voting-control-types";
 
-export type EventVotingControlSnapshot = {
-  overall: EventVotingOverallStatus;
-  publicVoting: {
-    configured: boolean;
-    status: "open" | "closed" | "not_started" | "not_configured";
-  };
-  ballot: {
-    configured: boolean;
-    openCount: number;
-    closedCount: number;
-    finalizedCount: number;
-    draftCount: number;
-  };
-  scoreSheet: {
-    configured: boolean;
-    status: ScoreSheetJudgingPeriodStatus;
-  };
-  canCloseAll: boolean;
-  /** Open public voting, ballot categories (draft/closed), and score sheet judging at once. */
-  canOpenAll: boolean;
-  canReopenAll: boolean;
-  canFinalizeAll: boolean;
-  /** Site admin only — revert FINALIZED → CLOSED so organizers can reopen voting. */
-  canUnfinalizeAll: boolean;
-  trophyWinnersEnabled: boolean;
-};
+export { isEventVotingReadyForTrophies } from "@/lib/judging/event-voting-control-types";
 
-export function isEventVotingReadyForTrophies(
-  snapshot: EventVotingControlSnapshot,
-): boolean {
-  return snapshot.trophyWinnersEnabled;
-}
+import type {
+  EventVotingControlSnapshot,
+  EventVotingMethodKey,
+  VotingMethodControlAction,
+} from "@/lib/judging/event-voting-control-types";
 
 export class EventVotingControlError extends Error {
   constructor(
@@ -54,10 +34,56 @@ export class EventVotingControlError extends Error {
   }
 }
 
-function addDays(base: Date, days: number): Date {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d;
+type MethodVotingStatus = "not_started" | "open" | "closed";
+
+function methodVotingStatus(
+  method: EventVotingMethodKey,
+  snapshot: EventVotingControlSnapshot,
+): MethodVotingStatus {
+  switch (method) {
+    case "public-voting": {
+      const { publicVoting } = snapshot;
+      if (!publicVoting.configured || publicVoting.status === "not_configured") {
+        return "not_started";
+      }
+      if (publicVoting.status === "not_started") return "not_started";
+      if (publicVoting.status === "open") return "open";
+      return "closed";
+    }
+    case "judge-ballot": {
+      const { ballot } = snapshot;
+      if (!ballot.configured) return "not_started";
+      if (ballot.openCount > 0) return "open";
+      if (
+        ballot.draftCount > 0 &&
+        ballot.closedCount === 0 &&
+        ballot.finalizedCount === 0
+      ) {
+        return "not_started";
+      }
+      return "closed";
+    }
+    case "score-sheets": {
+      const { scoreSheet } = snapshot;
+      if (!scoreSheet.configured) return "not_started";
+      if (scoreSheet.status === "OPEN") return "open";
+      return "closed";
+    }
+  }
+}
+
+function isMethodConfigured(
+  method: EventVotingMethodKey,
+  snapshot: EventVotingControlSnapshot,
+): boolean {
+  switch (method) {
+    case "public-voting":
+      return snapshot.publicVoting.configured;
+    case "judge-ballot":
+      return snapshot.ballot.configured;
+    case "score-sheets":
+      return snapshot.scoreSheet.configured;
+  }
 }
 
 export async function loadEventVotingControl(
@@ -193,20 +219,24 @@ async function closePublicVoting(eventId: string): Promise<void> {
   ]);
 }
 
-/** Reopen public voting — SMS end date one calendar day from today. */
-async function reopenPublicVoting(eventId: string): Promise<void> {
+/** Open or reopen public SMS/QR voting with organizer-adjusted window dates. */
+async function openPublicVoting(eventId: string): Promise<void> {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { smsVotingEnabled: true, smsVotingStartsAt: true },
+    select: {
+      smsVotingEnabled: true,
+      smsVotingStartsAt: true,
+      smsVotingEndsAt: true,
+    },
   });
   if (!event?.smsVotingEnabled) return;
 
   const now = new Date();
-  const endsAt = addDays(now, 1);
-  const startsAt =
-    event.smsVotingStartsAt && event.smsVotingStartsAt > now
-      ? event.smsVotingStartsAt
-      : now;
+  const { startsAt, endsAt } = resolvePublicVotingOpenWindow(
+    now,
+    event.smsVotingStartsAt,
+    event.smsVotingEndsAt,
+  );
 
   await prisma.$transaction([
     prisma.event.update({
@@ -224,6 +254,106 @@ async function reopenPublicVoting(eventId: string): Promise<void> {
       },
     }),
   ]);
+}
+
+async function openBallotVoting(
+  eventId: string,
+  includeDraft: boolean,
+): Promise<void> {
+  const statuses = includeDraft ? (["DRAFT", "CLOSED"] as const) : (["CLOSED"] as const);
+  const toOpen = await prisma.judgeBallotCategory.findMany({
+    where: { eventId, status: { in: [...statuses] } },
+    select: { id: true },
+  });
+  for (const cat of toOpen) {
+    await openJudgeBallotCategory(cat.id);
+  }
+}
+
+async function closeBallotVoting(eventId: string): Promise<void> {
+  const toClose = await prisma.judgeBallotCategory.findMany({
+    where: { eventId, status: "OPEN" },
+    select: { id: true },
+  });
+  for (const cat of toClose) {
+    await closeJudgeBallotCategory(cat.id, "CLOSED");
+  }
+}
+
+export async function runVotingMethodControlAction(
+  eventId: string,
+  method: EventVotingMethodKey,
+  action: VotingMethodControlAction,
+  actorUserId: string,
+): Promise<EventVotingControlSnapshot> {
+  const snapshot = await loadEventVotingControl(eventId);
+  if (!snapshot) {
+    throw new EventVotingControlError("Event not found.", "NOT_FOUND");
+  }
+  if (snapshot.overall === "FINALIZED") {
+    throw new EventVotingControlError(
+      "Results are finalized. Voting cannot be changed.",
+      "INVALID_STATE",
+    );
+  }
+  if (!isMethodConfigured(method, snapshot)) {
+    throw new EventVotingControlError(
+      "This voting method is not configured for the event.",
+      "INVALID_STATE",
+    );
+  }
+
+  const status = methodVotingStatus(method, snapshot);
+  if (action === "open" && status !== "not_started") {
+    throw new EventVotingControlError(
+      "Voting is already open or closed. Use Close or Reopen voting.",
+      "INVALID_STATE",
+    );
+  }
+  if (action === "close" && status !== "open") {
+    throw new EventVotingControlError(
+      "Voting is not open for this method.",
+      "INVALID_STATE",
+    );
+  }
+  if (action === "reopen" && status !== "closed") {
+    throw new EventVotingControlError(
+      "Voting is not closed for this method.",
+      "INVALID_STATE",
+    );
+  }
+
+  switch (method) {
+    case "public-voting":
+      if (action === "close") {
+        await closePublicVoting(eventId);
+      } else {
+        await openPublicVoting(eventId);
+      }
+      break;
+    case "judge-ballot":
+      if (action === "close") {
+        await closeBallotVoting(eventId);
+      } else if (action === "open") {
+        await openBallotVoting(eventId, true);
+      } else {
+        await openBallotVoting(eventId, false);
+      }
+      break;
+    case "score-sheets":
+      if (action === "close") {
+        await closeScoreSheetJudgingPeriod(eventId, actorUserId);
+      } else {
+        await reopenScoreSheetJudgingPeriod(eventId);
+      }
+      break;
+  }
+
+  const updated = await loadEventVotingControl(eventId);
+  if (!updated) {
+    throw new EventVotingControlError("Event not found.", "NOT_FOUND");
+  }
+  return updated;
 }
 
 export async function closeAllEventVoting(
@@ -311,7 +441,7 @@ export async function openAllEventVoting(
       (snapshot.publicVoting.status === "not_started" ||
         snapshot.publicVoting.status === "closed")
     ) {
-      await reopenPublicVoting(eventId);
+      await openPublicVoting(eventId);
     }
   }
 
@@ -366,7 +496,7 @@ export async function reopenAllEventVoting(
   }
 
   if (event.smsVotingEnabled) {
-    await reopenPublicVoting(eventId);
+    await openPublicVoting(eventId);
   }
 
   const closedBallot = await prisma.judgeBallotCategory.findMany({

@@ -14,6 +14,8 @@ export type VehicleRegistrationsVehicleClass = {
 
 export type VehicleRegistrationsGridRow = {
   registrationVehicleId: string;
+  /** Parent registration id (for dash card printing). */
+  registrationId: string;
   eventCategoryId: string | null;
   /** Event entry code shown to judges and voters (e.g. AXY-004). */
   publicVehicleId: string | null;

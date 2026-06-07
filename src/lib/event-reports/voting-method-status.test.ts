@@ -1,18 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
   ballotVotingReportStatus,
+  configureVotingStatusLabel,
   isVotingMethodEnabledForEvent,
   publicVotingReportStatus,
   reportVotingStatusLabel,
   scoreSheetReportStatus,
 } from "./voting-method-status";
-import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control";
+import type { EventVotingControlSnapshot } from "@/lib/judging/event-voting-control-types";
 
 describe("reportVotingStatusLabel", () => {
   it("maps status codes to organizer-facing labels", () => {
     expect(reportVotingStatusLabel("not_started")).toBe("Not Started");
     expect(reportVotingStatusLabel("open")).toBe("Open for voting");
     expect(reportVotingStatusLabel("closed")).toBe("Closed for voting");
+  });
+});
+
+describe("configureVotingStatusLabel", () => {
+  it("maps status codes to configure page labels", () => {
+    expect(configureVotingStatusLabel("not_started")).toBe("Voting Not Started");
+    expect(configureVotingStatusLabel("open")).toBe("Voting Open");
+    expect(configureVotingStatusLabel("closed")).toBe("Voting Closed");
   });
 });
 
