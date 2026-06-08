@@ -442,20 +442,21 @@ function PromoCodesTable() {
               </th>
             </tr>
           </thead>
-          <tbody>
-            {loading && rows.length === 0 ? (
-              <AdminTableSkeleton rows={5} cols={COLUMN_DEFS.length + 2} />
-            ) : rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={COLUMN_DEFS.length + 2}
-                  className="px-3 py-8 text-center text-muted-foreground"
-                >
-                  No promo codes yet. Click Create promo code to generate one.
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
+          {loading && rows.length === 0 ? (
+            <AdminTableSkeleton rows={5} cols={COLUMN_DEFS.length + 2} />
+          ) : (
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={COLUMN_DEFS.length + 2}
+                    className="px-3 py-8 text-center text-muted-foreground"
+                  >
+                    No promo codes yet. Click Create promo code to generate one.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
                 <tr key={row.id} className="border-b last:border-0">
                   <td className="px-2 py-2">
                     <input
@@ -561,9 +562,10 @@ function PromoCodesTable() {
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
+                ))
+              )}
+            </tbody>
+          )}
         </table>
       </div>
 
@@ -622,9 +624,19 @@ function PromoCodesTable() {
   );
 }
 
+function PromoCodesTableSkeleton() {
+  return (
+    <div className="w-full max-w-full overflow-x-auto rounded-lg border">
+      <table className="w-full border-collapse text-left text-sm">
+        <AdminTableSkeleton rows={5} cols={12} />
+      </table>
+    </div>
+  );
+}
+
 export function AdminPromoCodesSection() {
   return (
-    <Suspense fallback={<AdminTableSkeleton rows={5} cols={12} />}>
+    <Suspense fallback={<PromoCodesTableSkeleton />}>
       <PromoCodesTable />
     </Suspense>
   );

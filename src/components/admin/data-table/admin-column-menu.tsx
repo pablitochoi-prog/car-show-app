@@ -27,6 +27,13 @@ import {
   type TextFilterMode,
 } from "@/lib/admin-table/text-filter";
 
+/** Keep keyboard/pointer events inside filter fields instead of menu typeahead. */
+function keepFilterFieldFocus(
+  event: React.KeyboardEvent | React.PointerEvent,
+) {
+  event.stopPropagation();
+}
+
 export function AdminColumnMenu({
   label,
   columnId,
@@ -63,6 +70,7 @@ export function AdminColumnMenu({
   canHide?: boolean;
 }) {
   const parsed = parseTextFilter(filterValue ?? "");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [draftMode, setDraftMode] = useState<TextFilterMode>(parsed.mode);
   const [draft, setDraft] = useState(parsed.value);
@@ -71,8 +79,28 @@ export function AdminColumnMenu({
   const modes = textMatchModes ?? TEXT_FILTER_MODES;
   const useAdvancedTextFilter = Boolean(textMatchModes?.length);
 
+  function closeMenu() {
+    setMenuOpen(false);
+    setFilterOpen(false);
+  }
+
+  function openFilterPanel() {
+    const next = parseTextFilter(filterValue ?? "");
+    setDraftMode(next.mode);
+    setDraft(next.value);
+    setFilterOpen(true);
+    setMenuOpen(true);
+  }
+
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={menuOpen}
+      modal={false}
+      onOpenChange={(open) => {
+        setMenuOpen(open);
+        if (!open) setFilterOpen(false);
+      }}
+    >
       <DropdownMenuTrigger
         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
         aria-label={`Column options for ${label}`}
@@ -101,7 +129,12 @@ export function AdminColumnMenu({
         {sortable && filterable ? <DropdownMenuSeparator /> : null}
         {filterable ? (
           filterOpen ? (
-            <div className="space-y-2 p-2" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="space-y-2 p-2"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.preventDefault()}
+              onKeyDown={keepFilterFieldFocus}
+            >
               {useAdvancedTextFilter ? (
                 <>
                   <select
@@ -109,6 +142,8 @@ export function AdminColumnMenu({
                     value={draftMode}
                     aria-label={`Match type for ${label}`}
                     onChange={(e) => setDraftMode(e.target.value as TextFilterMode)}
+                    onKeyDown={keepFilterFieldFocus}
+                    onPointerDown={keepFilterFieldFocus}
                   >
                     {modes.map((mode) => (
                       <option key={mode} value={mode}>
@@ -124,6 +159,8 @@ export function AdminColumnMenu({
                       value={draft}
                       aria-label={`Filter ${label}`}
                       onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={keepFilterFieldFocus}
+                      onPointerDown={keepFilterFieldFocus}
                     >
                       <option value="">Select…</option>
                       {enumOptions.map((o) => (
@@ -139,13 +176,16 @@ export function AdminColumnMenu({
                       aria-label={`Filter ${label}`}
                       placeholder="Value…"
                       className="h-8 text-sm"
+                      autoFocus
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => {
+                        keepFilterFieldFocus(e);
                         if (e.key === "Enter") {
                           onFilter(encodeTextFilter(draftMode, draft));
-                          setFilterOpen(false);
+                          closeMenu();
                         }
                       }}
+                      onPointerDown={keepFilterFieldFocus}
                     />
                   )}
                 </>
@@ -155,6 +195,8 @@ export function AdminColumnMenu({
                   value={draft}
                   aria-label={`Filter ${label}`}
                   onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={keepFilterFieldFocus}
+                  onPointerDown={keepFilterFieldFocus}
                 >
                   <option value="">All</option>
                   {enumOptions.map((o) => (
@@ -171,6 +213,8 @@ export function AdminColumnMenu({
                     aria-label={`Filter ${label} from`}
                     className="h-8 text-sm"
                     onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={keepFilterFieldFocus}
+                    onPointerDown={keepFilterFieldFocus}
                   />
                   <Input
                     type="date"
@@ -178,6 +222,8 @@ export function AdminColumnMenu({
                     aria-label={`Filter ${label} to`}
                     className="h-8 text-sm"
                     onChange={(e) => setDraftTo(e.target.value)}
+                    onKeyDown={keepFilterFieldFocus}
+                    onPointerDown={keepFilterFieldFocus}
                   />
                 </>
               ) : (
@@ -195,11 +241,13 @@ export function AdminColumnMenu({
                   className="h-8 text-sm"
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
+                    keepFilterFieldFocus(e);
                     if (e.key === "Enter") {
                       onFilter(draft);
-                      setFilterOpen(false);
+                      closeMenu();
                     }
                   }}
+                  onPointerDown={keepFilterFieldFocus}
                 />
               )}
               <div className="flex gap-1">
@@ -213,7 +261,7 @@ export function AdminColumnMenu({
                     } else {
                       onFilter(draft, dateRange ? draftTo : undefined);
                     }
-                    setFilterOpen(false);
+                    closeMenu();
                   }}
                 >
                   Apply
@@ -230,7 +278,7 @@ export function AdminColumnMenu({
                       setDraftTo("");
                       setDraftMode("contains");
                       onClearFilter();
-                      setFilterOpen(false);
+                      closeMenu();
                     }}
                   >
                     <X className="size-3.5" />
@@ -240,14 +288,7 @@ export function AdminColumnMenu({
             </div>
           ) : (
             <>
-              <DropdownMenuItem
-                onClick={() => {
-                  const next = parseTextFilter(filterValue ?? "");
-                  setDraftMode(next.mode);
-                  setDraft(next.value);
-                  setFilterOpen(true);
-                }}
-              >
+              <DropdownMenuItem closeOnClick={false} onClick={openFilterPanel}>
                 <Filter className="mr-2 size-3.5" />
                 Filter this column
               </DropdownMenuItem>
