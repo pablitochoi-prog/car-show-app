@@ -2,6 +2,8 @@ import type { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import {
   STEP_UP_COOKIE_NAME,
+  STEP_UP_FRESHNESS_MS,
+  STEP_UP_MAX_AGE_SECONDS,
   STEP_UP_PURPOSE_ORGANIZER,
   type StepUpPurpose,
 } from "@/lib/step-up-config";
@@ -18,7 +20,7 @@ function cookieOptions() {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
     path: "/",
-    maxAge: 60 * 60 * 24,
+    maxAge: STEP_UP_MAX_AGE_SECONDS,
   };
 }
 
@@ -42,14 +44,33 @@ export async function readStepUpCookieFromStore(
   return payload;
 }
 
+/** True when the cookie's verifiedAt is within the server-side freshness window. */
+function isStepUpFresh(verifiedAt: number, now: number = Date.now()): boolean {
+  if (typeof verifiedAt !== "number" || !Number.isFinite(verifiedAt) || verifiedAt <= 0) {
+    return false;
+  }
+  // verifiedAt is HMAC-signed (server-set), so a future value cannot be forged;
+  // only reject when the cookie is older than the freshness window.
+  return now - verifiedAt <= STEP_UP_FRESHNESS_MS;
+}
+
+/**
+ * Validate a step-up cookie payload against the current user and login session.
+ * - Binds to the app user id.
+ * - When `sessionId` is provided (non-null), the cookie must have been minted
+ *   for that exact Supabase login session (rejects reuse across sessions).
+ * - Enforces the `verifiedAt` freshness window server-side.
+ */
 export function isStepUpValidForSession(
   payload: StepUpCookiePayload | null,
   userId: string,
-  _sessionId?: string | null,
+  sessionId?: string | null,
 ): boolean {
   if (!payload) return false;
-  // Bind to app user id; cookie is cleared on logout and idle timeout.
-  return payload.userId === userId;
+  if (payload.userId !== userId) return false;
+  if (sessionId && payload.sessionId !== sessionId) return false;
+  if (!isStepUpFresh(payload.verifiedAt)) return false;
+  return true;
 }
 
 export function setStepUpCookie(

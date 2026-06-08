@@ -44,6 +44,7 @@ export async function fulfillRegistrationFromCheckoutSession(
     where: { id: registrationId },
     select: {
       id: true,
+      status: true,
       paymentStatus: true,
       amountCents: true,
       platformFeeCents: true,
@@ -63,6 +64,15 @@ export async function fulfillRegistrationFromCheckoutSession(
   });
 
   if (!existing) return null;
+
+  // Never revive a refunded/cancelled registration from a replayed/late success.
+  if (
+    existing.paymentStatus === "REFUNDED" ||
+    existing.paymentStatus === "CANCELED" ||
+    existing.status === "CANCELLED"
+  ) {
+    return { registrationId, paid: false, checkoutType };
+  }
 
   if (options?.stripeEventId && existing.stripeEventId === options.stripeEventId) {
     return {

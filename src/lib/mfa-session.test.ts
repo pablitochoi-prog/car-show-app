@@ -57,4 +57,27 @@ describe("getMfaSessionState", () => {
     expect(supabase.auth.getUser).toHaveBeenCalled();
     expect(supabase.auth.mfa.getAuthenticatorAssuranceLevel).not.toHaveBeenCalled();
   });
+
+  it("fails safe to AAL1 with no MFA when getUser() errors", async () => {
+    const supabase = mockSupabase({
+      user: null,
+      getUserError: new Error("network down"),
+    });
+
+    const state = await getMfaSessionState(supabase as never);
+
+    expect(state.currentLevel).toBe("aal1");
+    expect(state.hasVerifiedTotp).toBe(false);
+    expect(state.needsMfaVerification).toBe(false);
+    expect(state.verifiedFactorId).toBe(null);
+  });
+
+  it("fails safe when getUser() returns no user", async () => {
+    const supabase = mockSupabase({ user: null });
+
+    const state = await getMfaSessionState(supabase as never);
+
+    expect(state.currentLevel).toBe("aal1");
+    expect(state.needsMfaVerification).toBe(false);
+  });
 });

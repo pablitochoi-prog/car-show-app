@@ -688,6 +688,17 @@ model Registration {
   @@map("registrations")
 }
 
+/// Idempotency ledger for processed Stripe webhook events (dedup redeliveries).
+model ProcessedStripeEvent {
+  /// Stripe event id (evt_...). Primary key enforces single processing.
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
+  @@map("processed_stripe_events")
+}
+
 model RegistrationVehicle {
   id            String @id @default(uuid())
   /// Legacy optional display order; numeric part also matches the 3-digit suffix of publicVehicleId when set.

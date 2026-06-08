@@ -1,5 +1,6 @@
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
+import { isTrustedAppHost } from "@/lib/safe-redirect-origin";
 import {
   buildStripeConnectSyncResult,
   type StripeConnectSyncResult,
@@ -25,21 +26,9 @@ export function resolveStripeAppOrigin(requestOrigin?: string | null): string {
       return fallback;
     }
 
-    if (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname.endsWith(".local")
-    ) {
-      return `${parsed.protocol}//${parsed.host}`;
-    }
-
-    const fallbackHost = new URL(fallback).host;
-    if (parsed.host === fallbackHost) return `${parsed.protocol}//${parsed.host}`;
-
-    if (
-      parsed.hostname.endsWith(".vercel.app") ||
-      parsed.hostname.endsWith("carshowscout.com")
-    ) {
+    // Only honor the request origin when its host is on the trusted allowlist.
+    // Rejects look-alikes (e.g. evilcarshowscout.com) and arbitrary *.vercel.app.
+    if (isTrustedAppHost(parsed.host)) {
       return `${parsed.protocol}//${parsed.host}`;
     }
   } catch {

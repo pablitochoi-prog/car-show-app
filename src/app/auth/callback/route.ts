@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseForResponse } from "@/lib/supabase/route-handler";
 import { prisma } from "@/lib/db";
+import { resolveSafeRedirectOrigin } from "@/lib/safe-redirect-origin";
 
 function safeNextPath(next: string | null): string {
   if (!next || !next.startsWith("/") || next.startsWith("//")) {
@@ -29,13 +30,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL("/login?error=missing_code", url.origin));
   }
 
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const isLocal = process.env.NODE_ENV === "development";
-  const successTarget = isLocal
-    ? `${url.origin}${next}`
-    : forwardedHost
-      ? `https://${forwardedHost}${next}`
-      : `${url.origin}${next}`;
+  const successTarget = `${resolveSafeRedirectOrigin(request)}${next}`;
 
   const response = NextResponse.redirect(successTarget);
   const supabase = await createSupabaseForResponse(response);

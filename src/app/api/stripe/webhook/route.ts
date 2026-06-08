@@ -16,6 +16,21 @@ export const dynamic = "force-dynamic";
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
 
+/** Refunded/cancelled registrations must not be revived by a replayed success. */
+function isTerminalRegistrationState(
+  registration:
+    | { paymentStatus?: string | null; status?: string | null }
+    | null
+    | undefined,
+): boolean {
+  if (!registration) return false;
+  return (
+    registration.paymentStatus === "REFUNDED" ||
+    registration.paymentStatus === "CANCELED" ||
+    registration.status === "CANCELLED"
+  );
+}
+
 export async function POST(request: Request) {
   if (!webhookSecret) {
     console.error("[webhook] STRIPE_WEBHOOK_SECRET not configured");
@@ -45,6 +60,17 @@ export async function POST(request: Request) {
       { error: "Invalid signature" },
       { status: 400 }
     );
+  }
+
+  // Idempotency: ignore any event id we have already fully processed. This
+  // protects every handler from Stripe redeliveries, including a success event
+  // replayed after a refund (which a per-registration marker would not catch).
+  const alreadyProcessed = await prisma.processedStripeEvent.findUnique({
+    where: { id: event.id },
+    select: { id: true },
+  });
+  if (alreadyProcessed) {
+    return NextResponse.json({ received: true, duplicate: true });
   }
 
   try {
@@ -85,6 +111,13 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+
+  // Record only after successful handling so a failed handler is retried by
+  // Stripe rather than being silently skipped. A unique-constraint race on
+  // concurrent redelivery is benign (handlers are already idempotent).
+  await prisma.processedStripeEvent
+    .create({ data: { id: event.id, type: event.type } })
+    .catch(() => undefined);
 
   return NextResponse.json({ received: true });
 }
@@ -132,10 +165,12 @@ async function handlePaymentSucceeded(event: Stripe.Event) {
 
   const existing = await prisma.registration.findUnique({
     where: { id: registrationId },
-    select: { stripeEventId: true, paymentStatus: true },
+    select: { stripeEventId: true, paymentStatus: true, status: true },
   });
 
   if (existing?.paymentStatus === "PAID") return;
+  // Never resurrect a refunded/cancelled registration from a replayed success.
+  if (isTerminalRegistrationState(existing)) return;
 
   await prisma.registration.update({
     where: { id: registrationId },
