@@ -21,10 +21,11 @@ export const REDEEMABLE_PROMO_STATUSES: PlatformFeePromoCodeStatus[] = [
 const BULK_STATUS_TRANSITIONS: Partial<
   Record<PlatformFeePromoCodeStatus, PlatformFeePromoCodeStatus[]>
 > = {
-  DRAFT: ["ACTIVE", "ARCHIVED"],
-  ACTIVE: ["REVOKED", "ARCHIVED"],
-  REVOKED: ["ACTIVE"],
-  EXPIRED: ["ARCHIVED"],
+  DRAFT: ["ACTIVE", "ARCHIVED", "EXPIRED"],
+  ACTIVE: ["REVOKED", "ARCHIVED", "EXPIRED"],
+  REVOKED: ["ACTIVE", "EXPIRED"],
+  RESERVED: ["EXPIRED", "ARCHIVED"],
+  EXPIRED: ["ARCHIVED", "ACTIVE"],
 };
 
 export function isBulkStatusTransitionAllowed(
@@ -47,10 +48,43 @@ export function bulkStatusTransitionError(
   if (from === "ARCHIVED" && to === "ACTIVE") {
     return "Archived promo codes cannot be bulk-activated. Edit individually with confirmation.";
   }
+  if (to === "EXPIRED") {
+    if (from === "REDEEMED" || from === "ARCHIVED") {
+      return `Cannot change status from ${PROMO_CODE_STATUS_LABELS[from]} to ${PROMO_CODE_STATUS_LABELS[to]}.`;
+    }
+    return null;
+  }
   if (!isBulkStatusTransitionAllowed(from, to)) {
     return `Cannot change status from ${PROMO_CODE_STATUS_LABELS[from]} to ${PROMO_CODE_STATUS_LABELS[to]}.`;
   }
   return null;
+}
+
+/** Individual admin edit (PATCH) — admins may manually expire most codes. */
+export function adminManualStatusTransitionError(
+  from: PlatformFeePromoCodeStatus,
+  to: PlatformFeePromoCodeStatus,
+): string | null {
+  if (from === to) return "Status is already set.";
+
+  if (from === "REDEEMED") {
+    if (to === "ACTIVE") {
+      return "Redeemed promo codes cannot be reactivated.";
+    }
+    if (to !== "ARCHIVED") {
+      return "Redeemed promo codes can only be archived.";
+    }
+    return null;
+  }
+
+  if (to === "EXPIRED") {
+    if (from === "ARCHIVED") {
+      return `Cannot change status from ${PROMO_CODE_STATUS_LABELS[from]} to ${PROMO_CODE_STATUS_LABELS[to]}.`;
+    }
+    return null;
+  }
+
+  return bulkStatusTransitionError(from, to);
 }
 
 export function isPromoCodeExpired(expiresAt: Date | null | undefined): boolean {

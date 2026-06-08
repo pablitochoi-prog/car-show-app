@@ -2,6 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdminApiUser } from "@/lib/help/require-admin-api";
 import { promoCodeBulkSchema } from "@/lib/validation/promo-code";
+import {
+  activePromoCodeExpiresAt,
+  expiredPromoCodeExpiresAt,
+} from "@/lib/promo-codes/promo-code-expiration";
 import { bulkStatusTransitionError } from "@/lib/promo-codes/promo-code-status";
 
 export const runtime = "nodejs";
@@ -51,6 +55,11 @@ export async function POST(req: NextRequest) {
     where: { id: { in: ids } },
     data: {
       status: nextStatus,
+      ...(nextStatus === "ACTIVE"
+        ? { expiresAt: activePromoCodeExpiresAt() }
+        : nextStatus === "EXPIRED"
+          ? { expiresAt: expiredPromoCodeExpiresAt() }
+          : {}),
       updatedByUserId: user!.id,
     },
   });

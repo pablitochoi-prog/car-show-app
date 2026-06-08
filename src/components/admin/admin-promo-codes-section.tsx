@@ -1,9 +1,18 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import type { PlatformFeePromoCode, PlatformFeePromoCodeStatus } from "@prisma/client";
-import { Archive, Ban, CheckCircle2, Loader2, Pencil } from "lucide-react";
+import {
+  Archive,
+  Ban,
+  Check,
+  CheckCircle2,
+  Copy,
+  Download,
+  Loader2,
+  Pencil,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { promoCodesAdminTableConfig } from "@/lib/admin-table/promo-codes-table-config";
@@ -42,7 +51,7 @@ const STATUS_OPTIONS = [
 ] as const;
 
 const COLUMN_DEFS = [
-  { id: "code", label: "Promo code", sortable: true, filterable: true, minWidth: 180 },
+  { id: "code", label: "Promo code", sortable: true, filterable: true, minWidth: 220 },
   {
     id: "status",
     label: "Status",
@@ -51,9 +60,9 @@ const COLUMN_DEFS = [
     filterType: "enum" as const,
     minWidth: 100,
   },
-  { id: "createdAt", label: "Created", sortable: true, minWidth: 104 },
-  { id: "updatedAt", label: "Modified", sortable: true, minWidth: 104 },
-  { id: "expiresAt", label: "Expires", sortable: true, minWidth: 104 },
+  { id: "createdAt", label: "Created", sortable: true, minWidth: 148 },
+  { id: "updatedAt", label: "Modified", sortable: true, minWidth: 148 },
+  { id: "expiresAt", label: "Expires", sortable: true, minWidth: 148 },
   {
     id: "organization",
     label: "Organization",
@@ -75,21 +84,40 @@ const COLUMN_DEFS = [
     filterable: true,
     minWidth: 88,
   },
-  { id: "redeemedAt", label: "Redeemed", sortable: true, minWidth: 104 },
-  { id: "redeemedBy", label: "Redeemed by", sortable: false, minWidth: 140 },
+  { id: "redeemedBy", label: "Redeemed by", sortable: false, minWidth: 120 },
+  {
+    id: "redeemedAt",
+    label: "Redeemed date/time",
+    sortable: true,
+    minWidth: 148,
+  },
 ] as const;
 
-const CHECKBOX_WIDTH = 40;
-const ACTIONS_WIDTH = 140;
+const CHECKBOX_WIDTH = 36;
+const ACTIONS_WIDTH = 120;
 
-function formatDate(iso: string | Date | null | undefined): string {
+const COLUMN_MIN_WIDTHS = Object.fromEntries(
+  COLUMN_DEFS.map((col) => [col.id, col.minWidth]),
+) as Record<string, number>;
+
+function columnStyle(width: number): CSSProperties {
+  return { width, minWidth: width, maxWidth: width };
+}
+
+function cellClass(extra = ""): string {
+  return `px-1.5 py-0.5 text-xs leading-tight ${extra}`.trim();
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/** Admin table timestamps: MM/DD/YYYY HH:MM:SS (local time). */
+function formatTableDateTime(iso: string | Date | null | undefined): string {
   if (!iso) return "—";
   const d = typeof iso === "string" ? new Date(iso) : iso;
-  return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
 function redeemedByLabel(row: PromoCodeRow): string {
@@ -166,14 +194,16 @@ function PromoCodesTable() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editNotes, setEditNotes] = useState("");
   const [editStatus, setEditStatus] = useState<PlatformFeePromoCodeStatus>("DRAFT");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const columns = useAdminTableColumns(
-    "promo-codes",
+    "promo-codes-v4",
     [...COLUMN_DEFS.map((c) => c.id), "actions"],
     {
-      minWidth: Object.fromEntries(
-        COLUMN_DEFS.map((c) => [c.id, c.minWidth]),
-      ),
+      minWidth: {
+        ...COLUMN_MIN_WIDTHS,
+        actions: ACTIONS_WIDTH,
+      },
     },
   );
 
@@ -287,6 +317,50 @@ function PromoCodesTable() {
     setEditStatus(row.status);
   }
 
+  async function copyPromoCode(row: PromoCodeRow) {
+    try {
+      await navigator.clipboard.writeText(row.code);
+      setCopiedId(row.id);
+      setActionError(null);
+      window.setTimeout(() => {
+        setCopiedId((current) => (current === row.id ? null : current));
+      }, 2000);
+    } catch {
+      setActionError("Could not copy promo code.");
+    }
+  }
+
+  async function exportSelectedCsv() {
+    if (selected.size === 0) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const ids = [...selected].join(",");
+      const res = await fetch(
+        `/api/admin/promo-codes/export?ids=${encodeURIComponent(ids)}`,
+      );
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setActionError(data.error ?? "Could not export promo codes.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download =
+        res.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] ?? "promo-codes.csv";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setActionError("Could not export promo codes.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveEdit() {
     if (!editId) return;
     setBusy(true);
@@ -360,6 +434,15 @@ function PromoCodesTable() {
       {selected.size > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
           <span>{selected.size} selected</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void exportSelectedCsv()}
+          >
+            <Download className="mr-1.5 size-4" />
+            Export CSV
+          </Button>
           <select
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
             value={bulkStatus}
@@ -390,13 +473,32 @@ function PromoCodesTable() {
       ) : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[1100px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40">
-              <th style={{ width: CHECKBOX_WIDTH }} className="px-2 py-2">
+      <div className="w-full max-w-full overflow-x-auto overscroll-x-contain rounded-lg border">
+        <table
+          className="w-full border-collapse text-left text-xs [&_tbody_tr]:h-7"
+          style={{ tableLayout: "fixed", minWidth: "100%" }}
+        >
+          <colgroup>
+            <col style={columnStyle(CHECKBOX_WIDTH)} />
+            {COLUMN_DEFS.filter((col) => columns.isVisible(col.id)).map(
+              (col) => (
+                <col
+                  key={col.id}
+                  style={columnStyle(columns.columnWidth(col.id))}
+                />
+              ),
+            )}
+            <col style={columnStyle(columns.columnWidth("actions"))} />
+          </colgroup>
+          <thead className="border-b bg-muted/40 text-xs">
+            <tr>
+              <th
+                className="px-1.5 py-1"
+                style={columnStyle(CHECKBOX_WIDTH)}
+              >
                 <input
                   type="checkbox"
+                  className="size-3.5"
                   checked={allSelected}
                   onChange={(e) => toggleAll(e.target.checked)}
                   aria-label="Select all on page"
@@ -427,6 +529,7 @@ function PromoCodesTable() {
                     activeSortDir={sortDirFor(col.id)}
                     filterValue={params.filters[col.id]}
                     width={columns.columnWidth(col.id)}
+                    compact
                     onResizeStart={(e) =>
                       columns.beginColumnResize(col.id, e.clientX)
                     }
@@ -437,131 +540,173 @@ function PromoCodesTable() {
                   />
                 ),
               )}
-              <th style={{ width: ACTIONS_WIDTH }} className="px-3 py-2 text-left">
+              <th
+                className="relative px-1.5 py-1 text-left text-xs"
+                style={columnStyle(columns.columnWidth("actions"))}
+              >
                 Actions
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize Actions column"
+                  className="absolute -right-px top-0 z-10 h-full w-2 cursor-col-resize touch-none hover:bg-primary/30 active:bg-primary/50"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    columns.beginColumnResize("actions", e.clientX);
+                  }}
+                />
               </th>
             </tr>
           </thead>
           {loading && rows.length === 0 ? (
-            <AdminTableSkeleton rows={5} cols={COLUMN_DEFS.length + 2} />
+            <AdminTableSkeleton rows={8} cols={COLUMN_DEFS.length + 2} />
           ) : (
             <tbody>
               {rows.length === 0 ? (
                 <tr>
                   <td
                     colSpan={COLUMN_DEFS.length + 2}
-                    className="px-3 py-8 text-center text-muted-foreground"
+                    className="px-3 py-6 text-center text-sm text-muted-foreground"
                   >
                     No promo codes yet. Click Create promo code to generate one.
                   </td>
                 </tr>
               ) : (
                 rows.map((row) => (
-                <tr key={row.id} className="border-b last:border-0">
-                  <td className="px-2 py-2">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(row.id)}
-                      onChange={(e) => toggleOne(row.id, e.target.checked)}
-                      aria-label={`Select ${row.code}`}
-                    />
-                  </td>
-                  {columns.isVisible("code") ? (
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {formatPromoCodeForDisplay(row.code)}
+                  <tr key={row.id} className="border-b last:border-0">
+                    <td className={cellClass()}>
+                      <input
+                        type="checkbox"
+                        className="size-3.5"
+                        checked={selected.has(row.id)}
+                        onChange={(e) => toggleOne(row.id, e.target.checked)}
+                        aria-label={`Select ${row.code}`}
+                      />
                     </td>
-                  ) : null}
-                  {columns.isVisible("status") ? (
-                    <td className="px-3 py-2">
-                      <Badge variant={statusBadgeVariant(row.status)}>
-                        {PROMO_CODE_STATUS_LABELS[row.status]}
-                      </Badge>
-                    </td>
-                  ) : null}
-                  {columns.isVisible("createdAt") ? (
-                    <td className="px-3 py-2">{formatDate(row.createdAt)}</td>
-                  ) : null}
-                  {columns.isVisible("updatedAt") ? (
-                    <td className="px-3 py-2">{formatDate(row.updatedAt)}</td>
-                  ) : null}
-                  {columns.isVisible("expiresAt") ? (
-                    <td className="px-3 py-2">{formatDate(row.expiresAt)}</td>
-                  ) : null}
-                  {columns.isVisible("organization") ? (
-                    <td className="max-w-[140px] truncate px-3 py-2">
-                      {orgDisplay(row)}
-                    </td>
-                  ) : null}
-                  {columns.isVisible("eventName") ? (
-                    <td className="max-w-[140px] truncate px-3 py-2">
-                      {eventNameDisplay(row)}
-                    </td>
-                  ) : null}
-                  {columns.isVisible("eventState") ? (
-                    <td className="px-3 py-2">{eventStateDisplay(row)}</td>
-                  ) : null}
-                  {columns.isVisible("redeemedAt") ? (
-                    <td className="px-3 py-2">{formatDate(row.redeemedAt)}</td>
-                  ) : null}
-                  {columns.isVisible("redeemedBy") ? (
-                    <td className="max-w-[140px] truncate px-3 py-2">
-                      {redeemedByLabel(row)}
-                    </td>
-                  ) : null}
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="size-8"
-                        title="Edit"
-                        onClick={() => openEdit(row)}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      {row.status === "DRAFT" ? (
+                    {columns.isVisible("code") ? (
+                      <td className={cellClass("overflow-visible font-mono")}>
+                        <div className="flex items-center gap-1">
+                          <span className="min-w-0 flex-1 truncate">
+                            {formatPromoCodeForDisplay(row.code)}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon-xs"
+                            className="shrink-0"
+                            title="Copy promo code"
+                            aria-label={`Copy promo code ${formatPromoCodeForDisplay(row.code)}`}
+                            onClick={() => void copyPromoCode(row)}
+                          >
+                            {copiedId === row.id ? (
+                              <Check className="size-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
+                          </Button>
+                        </div>
+                      </td>
+                    ) : null}
+                    {columns.isVisible("status") ? (
+                      <td className={cellClass()}>
+                        <Badge
+                          variant={statusBadgeVariant(row.status)}
+                          className="h-4 px-1 py-0 text-[10px] leading-none"
+                        >
+                          {PROMO_CODE_STATUS_LABELS[row.status]}
+                        </Badge>
+                      </td>
+                    ) : null}
+                    {columns.isVisible("createdAt") ? (
+                      <td className={cellClass("whitespace-nowrap tabular-nums")}>
+                        {formatTableDateTime(row.createdAt)}
+                      </td>
+                    ) : null}
+                    {columns.isVisible("updatedAt") ? (
+                      <td className={cellClass("whitespace-nowrap tabular-nums")}>
+                        {formatTableDateTime(row.updatedAt)}
+                      </td>
+                    ) : null}
+                    {columns.isVisible("expiresAt") ? (
+                      <td className={cellClass("whitespace-nowrap tabular-nums")}>
+                        {formatTableDateTime(row.expiresAt)}
+                      </td>
+                    ) : null}
+                    {columns.isVisible("organization") ? (
+                      <td className={cellClass("truncate")}>
+                        {orgDisplay(row)}
+                      </td>
+                    ) : null}
+                    {columns.isVisible("eventName") ? (
+                      <td className={cellClass("truncate")}>
+                        {eventNameDisplay(row)}
+                      </td>
+                    ) : null}
+                    {columns.isVisible("eventState") ? (
+                      <td className={cellClass("truncate")}>
+                        {eventStateDisplay(row)}
+                      </td>
+                    ) : null}
+                    {columns.isVisible("redeemedBy") ? (
+                      <td className={cellClass("truncate")}>
+                        {redeemedByLabel(row)}
+                      </td>
+                    ) : null}
+                    {columns.isVisible("redeemedAt") ? (
+                      <td className={cellClass("whitespace-nowrap tabular-nums")}>
+                        {formatTableDateTime(row.redeemedAt)}
+                      </td>
+                    ) : null}
+                    <td className={cellClass()}>
+                      <div className="flex flex-nowrap items-center gap-0">
                         <Button
                           type="button"
-                          size="icon"
+                          size="icon-xs"
                           variant="ghost"
-                          className="size-8"
-                          title="Activate"
-                          disabled={busy}
-                          onClick={() => void patchStatus(row.id, "ACTIVE")}
+                          title="Edit"
+                          onClick={() => openEdit(row)}
                         >
-                          <CheckCircle2 className="size-4" />
+                          <Pencil className="size-3" />
                         </Button>
-                      ) : null}
-                      {row.status === "ACTIVE" ? (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="size-8"
-                          title="Revoke"
-                          disabled={busy}
-                          onClick={() => void patchStatus(row.id, "REVOKED")}
-                        >
-                          <Ban className="size-4" />
-                        </Button>
-                      ) : null}
-                      {row.status !== "ARCHIVED" && row.status !== "REDEEMED" ? (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="size-8"
-                          title="Archive"
-                          disabled={busy}
-                          onClick={() => void patchStatus(row.id, "ARCHIVED")}
-                        >
-                          <Archive className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
+                        {row.status === "DRAFT" ? (
+                          <Button
+                            type="button"
+                            size="icon-xs"
+                            variant="ghost"
+                            title="Activate"
+                            disabled={busy}
+                            onClick={() => void patchStatus(row.id, "ACTIVE")}
+                          >
+                            <CheckCircle2 className="size-3" />
+                          </Button>
+                        ) : null}
+                        {row.status === "ACTIVE" ? (
+                          <Button
+                            type="button"
+                            size="icon-xs"
+                            variant="ghost"
+                            title="Revoke"
+                            disabled={busy}
+                            onClick={() => void patchStatus(row.id, "REVOKED")}
+                          >
+                            <Ban className="size-3" />
+                          </Button>
+                        ) : null}
+                        {row.status !== "ARCHIVED" && row.status !== "REDEEMED" ? (
+                          <Button
+                            type="button"
+                            size="icon-xs"
+                            variant="ghost"
+                            title="Archive"
+                            disabled={busy}
+                            onClick={() => void patchStatus(row.id, "ARCHIVED")}
+                          >
+                            <Archive className="size-3" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
                 ))
               )}
             </tbody>
