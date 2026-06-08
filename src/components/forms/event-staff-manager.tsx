@@ -263,6 +263,45 @@ export function EventStaffManager({
 
   return (
     <div className="space-y-6">
+      <div className="space-y-2">
+        <Button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setError(null);
+            setSuccess(null);
+            void openAddSheet();
+          }}
+        >
+          <Plus className="size-4" aria-hidden />
+          Add event staff
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Default role for new staff is <strong>Volunteer</strong>. Only one person
+          should be Organizer—use <strong>Reassign event ownership</strong> below to
+          change who that is; editing roles to add Organizer also moves it from the
+          previous organizer to Volunteer when needed.
+        </p>
+      </div>
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="text-sm text-emerald-600 dark:text-emerald-400" role="status">
+          {success}
+        </p>
+      )}
+
+      <EventStaffTable
+        staff={staff}
+        busy={busy}
+        onEdit={openEditSheet}
+        onRemove={handleRemoveMember}
+      />
+
       <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-4 shadow-sm">
         <h3 className="text-sm font-semibold text-foreground">
           Reassign event ownership
@@ -295,45 +334,6 @@ export function EventStaffManager({
             {transferBusy ? "Working…" : "Reassign ownership"}
           </Button>
         </div>
-      </div>
-
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-      {success && (
-        <p className="text-sm text-emerald-600 dark:text-emerald-400" role="status">
-          {success}
-        </p>
-      )}
-
-      <EventStaffTable
-        staff={staff}
-        busy={busy}
-        onEdit={openEditSheet}
-        onRemove={handleRemoveMember}
-      />
-
-      <div className="space-y-2">
-        <Button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            setError(null);
-            setSuccess(null);
-            void openAddSheet();
-          }}
-        >
-          <Plus className="size-4" aria-hidden />
-          Add event staff
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          Default role for new staff is <strong>Volunteer</strong>. Only one person
-          should be Organizer—use <strong>Reassign event ownership</strong> above to
-          change who that is; editing roles to add Organizer also moves it from the
-          previous organizer to Volunteer when needed.
-        </p>
       </div>
 
       <StaffMemberSheet

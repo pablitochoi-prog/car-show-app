@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { getHelpArticleBySlug } from "@/lib/help/help-registry";
+import { getHelpArticleBySlug } from "@/lib/help/help-file-registry";
 import { cn } from "@/lib/utils";
 
 type Props = {

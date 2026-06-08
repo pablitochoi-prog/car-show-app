@@ -8,16 +8,26 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Menu, LogIn, UserPlus, LogOut, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlatformRole } from "@/types";
+import {
+  HEADER_ACCOUNT_SHADE_LABEL,
+  HEADER_LOGOUT_BUTTON_CLASS,
+  resolveHeaderAccountShade,
+} from "@/lib/header-account-shade";
 import { useUnreadMessages } from "@/components/messages/unread-messages-provider";
 import { UnreadCountBadge } from "@/components/messages/unread-count-badge";
 import { SiteLogo } from "@/components/brand/site-logo";
 
 interface HeaderProps {
   isLoggedIn?: boolean;
-  user?: { name: string; email: string; platformRole?: PlatformRole } | null;
+  user?: {
+    name: string;
+    email: string;
+    platformRole?: PlatformRole;
+    hasJudgeStaffRole?: boolean;
+  } | null;
 }
 
-export function Header({ isLoggedIn = false }: HeaderProps) {
+export function Header({ isLoggedIn = false, user = null }: HeaderProps) {
   const { unreadCount: unreadMessageCount } = useUnreadMessages();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -27,6 +37,15 @@ export function Header({ isLoggedIn = false }: HeaderProps) {
   const dashboardActive = pathname.startsWith("/dashboard");
   const messagesActive = pathname.startsWith("/dashboard/messages");
   const hasUnreadMessages = unreadMessageCount > 0;
+  const accountShade = resolveHeaderAccountShade({
+    platformRole: user?.platformRole,
+    hasJudgeStaffRole: user?.hasJudgeStaffRole,
+  });
+  const logoutButtonClass = cn(
+    HEADER_LOGOUT_BUTTON_CLASS[accountShade],
+    "ml-1 font-medium",
+  );
+  const logoutTitle = `Log out (${HEADER_ACCOUNT_SHADE_LABEL[accountShade]} account)`;
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -104,7 +123,9 @@ export function Header({ isLoggedIn = false }: HeaderProps) {
                   size="sm"
                   disabled={loggingOut}
                   onClick={handleLogout}
-                  className="ml-1 text-muted-foreground"
+                  className={logoutButtonClass}
+                  title={logoutTitle}
+                  aria-label={logoutTitle}
                 >
                   <LogOut className="mr-2 h-4 w-4" />
                   Log out
@@ -187,8 +208,10 @@ export function Header({ isLoggedIn = false }: HeaderProps) {
                   <Button
                     type="button"
                     variant="ghost"
-                    className="w-full"
+                    className={cn(logoutButtonClass, "ml-0 w-full")}
                     disabled={loggingOut}
+                    title={logoutTitle}
+                    aria-label={logoutTitle}
                     onClick={() => {
                       void handleLogout();
                       setOpen(false);

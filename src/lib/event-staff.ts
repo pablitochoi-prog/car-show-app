@@ -60,6 +60,21 @@ export async function getUserEventRoles(
   return out;
 }
 
+const JUDGE_STAFF_ROLE_SLUGS = ["judge", "head_judge", "special_judge"] as const;
+
+/** True when the user has judge-related staff on any event (for header role tint). */
+export async function userHasJudgeStaffRoleOnAnyEvent(
+  userId: string,
+): Promise<boolean> {
+  const count = await prisma.eventStaffRoleLink.count({
+    where: {
+      staffMember: { userId },
+      role: { slug: { in: [...JUDGE_STAFF_ROLE_SLUGS] } },
+    },
+  });
+  return count > 0;
+}
+
 export type StaffMember = {
   userId: string;
   name: string;

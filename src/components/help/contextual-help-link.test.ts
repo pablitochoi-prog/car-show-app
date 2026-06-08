@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getHelpArticleBySlug } from "@/lib/help/help-registry";
+import { getHelpArticleBySlug } from "@/lib/help/help-file-registry";
 import { resolveContextualHelpLink } from "./contextual-help-link";
 
 /** Slugs wired in Phase 2B contextual help batch. */
