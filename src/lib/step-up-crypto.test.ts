@@ -44,4 +44,26 @@ describe("step-up-crypto", () => {
   it("masks email addresses", () => {
     expect(maskEmail("organizer@example.com")).toMatch(/o•+r@e•+e\.com/);
   });
+
+  it("requires STEP_UP_COOKIE_SECRET and does not fall back to SUPABASE_SERVICE_ROLE_KEY", () => {
+    delete process.env.STEP_UP_COOKIE_SECRET;
+    const originalServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-should-not-be-used";
+    try {
+      expect(() =>
+        signStepUpCookie({
+          userId: "u1",
+          sessionId: "s1",
+          purpose: "ORGANIZER_STEP_UP",
+          verifiedAt: Date.now(),
+        }),
+      ).toThrow(/STEP_UP_COOKIE_SECRET/);
+    } finally {
+      if (originalServiceRole === undefined) {
+        delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      } else {
+        process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRole;
+      }
+    }
+  });
 });

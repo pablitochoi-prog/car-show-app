@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import type { User } from "@prisma/client";
 import { canManageEvent } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { getVerifiedSupabaseSessionId } from "@/lib/supabase-auth-server";
 import { getMfaSessionState } from "@/lib/mfa-session";
 import { canManageEventRegistrations } from "@/lib/organizer-registrations-auth";
 import { getUserEventRoles } from "@/lib/event-staff";
@@ -25,6 +26,22 @@ const STAFF_STEP_UP_ROLES = new Set([
   "TREASURER",
   "HEAD_JUDGE",
 ]);
+
+/**
+ * Resolve the current verified Supabase login session id for step-up binding.
+ * Fail-safe: returns null on any error so a transient lookup failure falls back
+ * to user-id + freshness checks rather than forcing a spurious re-verification.
+ */
+async function resolveCurrentSessionId(
+  supabase?: SupabaseClient,
+): Promise<string | null> {
+  try {
+    const client = supabase ?? (await createClient());
+    return await getVerifiedSupabaseSessionId(client);
+  } catch {
+    return null;
+  }
+}
 
 /** Site admins satisfy sensitive access via AAL2 only — never email OTP. */
 export async function adminSensitiveAccessSatisfied(
@@ -65,7 +82,8 @@ export async function isStaffStepUpSatisfied(input: {
   const payload =
     input.cookiePayload ?? (await readStepUpCookieFromStore());
 
-  return isStepUpValidForSession(payload, input.user.id, null);
+  const sessionId = await resolveCurrentSessionId();
+  return isStepUpValidForSession(payload, input.user.id, sessionId);
 }
 
 export async function evaluateStaffStepUp(input: {
@@ -144,10 +162,11 @@ export async function evaluateStaffStepUp(input: {
       ? await readStepUpCookieFromStore()
       : input.stepUpCookie;
 
+  const sessionId = await resolveCurrentSessionId(input.supabase);
   const satisfied = isStepUpValidForSession(
     payload,
     input.user.id,
-    null,
+    sessionId,
   );
 
   return {

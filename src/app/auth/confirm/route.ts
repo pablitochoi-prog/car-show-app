@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseForResponse } from "@/lib/supabase/route-handler";
 import { prisma } from "@/lib/db";
+import { resolveSafeRedirectOrigin } from "@/lib/safe-redirect-origin";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 function safeNextPath(next: string | null): string {
@@ -40,13 +41,7 @@ export async function GET(request: Request) {
       ? "/dashboard/profile?email_updated=1"
       : next;
 
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const isLocal = process.env.NODE_ENV === "development";
-  const successTarget = isLocal
-    ? `${url.origin}${destination}`
-    : forwardedHost
-      ? `https://${forwardedHost}${destination}`
-      : `${url.origin}${destination}`;
+  const successTarget = `${resolveSafeRedirectOrigin(request)}${destination}`;
 
   const response = NextResponse.redirect(successTarget);
   const supabase = await createSupabaseForResponse(response);

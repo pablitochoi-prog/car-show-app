@@ -3,11 +3,12 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 const SCRYPT_KEYLEN = 32;
 
 function stepUpSecret(): string {
-  const secret =
-    process.env.STEP_UP_COOKIE_SECRET?.trim() ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const secret = process.env.STEP_UP_COOKIE_SECRET?.trim();
   if (!secret) {
-    throw new Error("Missing STEP_UP_COOKIE_SECRET or SUPABASE_SERVICE_ROLE_KEY");
+    throw new Error(
+      "Missing STEP_UP_COOKIE_SECRET. Set a dedicated step-up signing secret; " +
+        "the SUPABASE_SERVICE_ROLE_KEY fallback has been removed.",
+    );
   }
   return secret;
 }
