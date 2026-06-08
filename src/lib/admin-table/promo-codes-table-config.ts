@@ -20,7 +20,7 @@ export const promoCodesAdminTableConfig: AdminTableConfig = {
   prefix: "promo",
   defaultSort: "createdAt",
   defaultSortDir: "desc",
-  defaultPageSize: 10,
+  defaultPageSize: 25,
   maxPageSize: 100,
   columns: [
     { id: "code", sortable: true, filterable: true, filterType: "text" },
@@ -52,8 +52,8 @@ export const promoCodesAdminTableConfig: AdminTableConfig = {
       filterable: true,
       filterType: "text",
     },
-    { id: "redeemedAt", sortable: true, filterable: false },
     { id: "redeemedBy", sortable: false, filterable: false },
+    { id: "redeemedAt", sortable: true, filterable: false },
   ],
 };
 

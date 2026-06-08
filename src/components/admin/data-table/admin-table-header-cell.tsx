@@ -53,7 +53,7 @@ export function AdminTableHeaderCell({
 
   return (
     <th
-      className={`relative select-none py-2 ${compact ? "px-1.5" : "px-3"} ${
+      className={`relative select-none ${compact ? "px-1.5 py-1" : "px-3 py-2"} ${
         align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left"
       }`}
       style={width ? { width, minWidth: width, maxWidth: width } : undefined}

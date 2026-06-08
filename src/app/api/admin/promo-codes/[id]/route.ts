@@ -2,7 +2,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdminApiUser } from "@/lib/help/require-admin-api";
 import { promoCodeUpdateSchema } from "@/lib/validation/promo-code";
-import { bulkStatusTransitionError } from "@/lib/promo-codes/promo-code-status";
+import { resolvePromoCodeExpiresAtUpdate } from "@/lib/promo-codes/promo-code-expiration";
+import { adminManualStatusTransitionError } from "@/lib/promo-codes/promo-code-status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   const existing = await prisma.platformFeePromoCode.findUnique({
     where: { id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, expiresAt: true },
   });
 
   if (!existing) {
@@ -67,7 +68,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   }
 
   if (parsed.data.status && parsed.data.status !== existing.status) {
-    const transitionError = bulkStatusTransitionError(
+    const transitionError = adminManualStatusTransitionError(
       existing.status,
       parsed.data.status,
     );
@@ -76,19 +77,20 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
   }
 
+  const expiresAt = resolvePromoCodeExpiresAtUpdate({
+    previousStatus: existing.status,
+    nextStatus: parsed.data.status,
+    explicitExpiresAt: parsed.data.expiresAt,
+    currentExpiresAt: existing.expiresAt,
+  });
+
   const promoCode = await prisma.platformFeePromoCode.update({
     where: { id },
     data: {
       ...(parsed.data.status !== undefined
         ? { status: parsed.data.status }
         : {}),
-      ...(parsed.data.expiresAt !== undefined
-        ? {
-            expiresAt: parsed.data.expiresAt
-              ? new Date(parsed.data.expiresAt)
-              : null,
-          }
-        : {}),
+      ...(expiresAt !== undefined ? { expiresAt } : {}),
       ...(parsed.data.internalNotes !== undefined
         ? { internalNotes: parsed.data.internalNotes }
         : {}),

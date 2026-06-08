@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminManualStatusTransitionError,
   bulkStatusTransitionError,
   isBulkStatusTransitionAllowed,
   isPromoCodeExpired,
@@ -12,7 +13,12 @@ describe("bulk status transitions", () => {
     expect(isBulkStatusTransitionAllowed("ACTIVE", "ARCHIVED")).toBe(true);
     expect(isBulkStatusTransitionAllowed("REVOKED", "ACTIVE")).toBe(true);
     expect(isBulkStatusTransitionAllowed("DRAFT", "ARCHIVED")).toBe(true);
+    expect(isBulkStatusTransitionAllowed("ACTIVE", "EXPIRED")).toBe(true);
+    expect(isBulkStatusTransitionAllowed("DRAFT", "EXPIRED")).toBe(true);
+    expect(isBulkStatusTransitionAllowed("REVOKED", "EXPIRED")).toBe(true);
+    expect(isBulkStatusTransitionAllowed("RESERVED", "EXPIRED")).toBe(true);
     expect(isBulkStatusTransitionAllowed("EXPIRED", "ARCHIVED")).toBe(true);
+    expect(isBulkStatusTransitionAllowed("EXPIRED", "ACTIVE")).toBe(true);
   });
 
   it("rejects REDEEMED → ACTIVE", () => {
@@ -29,6 +35,26 @@ describe("bulk status transitions", () => {
 
   it("allows REDEEMED → ARCHIVED", () => {
     expect(isBulkStatusTransitionAllowed("REDEEMED", "ARCHIVED")).toBe(true);
+  });
+});
+
+describe("admin manual status transitions", () => {
+  it("allows ACTIVE → EXPIRED", () => {
+    expect(adminManualStatusTransitionError("ACTIVE", "EXPIRED")).toBeNull();
+  });
+
+  it("allows EXPIRED → ACTIVE", () => {
+    expect(adminManualStatusTransitionError("EXPIRED", "ACTIVE")).toBeNull();
+  });
+
+  it("allows DRAFT → EXPIRED", () => {
+    expect(adminManualStatusTransitionError("DRAFT", "EXPIRED")).toBeNull();
+  });
+
+  it("blocks REDEEMED → EXPIRED", () => {
+    expect(adminManualStatusTransitionError("REDEEMED", "EXPIRED")).toMatch(
+      /only be archived/i,
+    );
   });
 });
 

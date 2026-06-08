@@ -11,6 +11,7 @@ import {
   adminTableSkip,
 } from "@/lib/admin-table/admin-table-response";
 import { requireAdminApiUser } from "@/lib/help/require-admin-api";
+import { activePromoCodeExpiresAt } from "@/lib/promo-codes/promo-code-expiration";
 import { generateUniquePromoCodes } from "@/lib/promo-codes/promo-code-generator";
 import { promoCodeCreateSchema } from "@/lib/validation/promo-code";
 
@@ -71,6 +72,14 @@ export async function POST(req: NextRequest) {
 
   const { count, status: createStatus } = parsed.data;
   const status = createStatus ?? "DRAFT";
+  const expiresAt =
+    parsed.data.expiresAt !== undefined
+      ? parsed.data.expiresAt
+        ? new Date(parsed.data.expiresAt)
+        : null
+      : status === "ACTIVE"
+        ? activePromoCodeExpiresAt()
+        : null;
 
   try {
     const codes = await generateUniquePromoCodes(prisma, count);
@@ -81,9 +90,7 @@ export async function POST(req: NextRequest) {
           data: {
             code,
             status,
-            expiresAt: parsed.data.expiresAt
-              ? new Date(parsed.data.expiresAt)
-              : null,
+            expiresAt,
             internalNotes: parsed.data.internalNotes ?? null,
             reservedOrganizationName:
               parsed.data.reservedOrganizationName ?? null,
