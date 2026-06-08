@@ -20,6 +20,7 @@ export function AdminTableToolbar({
   onClearAllFilters,
   pageSize,
   onPageSizeChange,
+  pageSizeOptions = [25, 50, 100],
   columnOptions,
 }: {
   qInput: string;
@@ -30,6 +31,7 @@ export function AdminTableToolbar({
   onClearAllFilters: () => void;
   pageSize: number;
   onPageSizeChange: (size: number) => void;
+  pageSizeOptions?: number[];
   columnOptions?: { id: string; label: string; visible: boolean; onToggle: (v: boolean) => void }[];
 }) {
   return (
@@ -61,9 +63,11 @@ export function AdminTableToolbar({
         aria-label="Rows per page"
         onChange={(e) => onPageSizeChange(Number(e.target.value))}
       >
-        <option value={25}>25 / page</option>
-        <option value={50}>50 / page</option>
-        <option value={100}>100 / page</option>
+        {pageSizeOptions.map((size) => (
+          <option key={size} value={size}>
+            {size} / page
+          </option>
+        ))}
       </select>
       {columnOptions && columnOptions.length > 0 ? (
         <DropdownMenu>

@@ -113,6 +113,7 @@ export async function cloneEvent(sourceEventId: string, userId: string) {
         paymentEnabled: inheritedPaymentEnabled,
         platformFeeMode: source.platformFeeMode,
         platformSetupFeeCollected: false,
+        platformFeePromoCodeId: null,
         platformFeeType: source.platformFeeType,
         platformFeeAmountCents: source.platformFeeAmountCents,
         platformFeePercent: source.platformFeePercent,

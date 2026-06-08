@@ -78,6 +78,7 @@ export default async function EditEventPage({
           stripeDetailsSubmitted: true,
         },
       },
+      platformFeePromoCode: { select: { code: true } },
     },
   });
 
@@ -433,6 +434,13 @@ export default async function EditEventPage({
                     convenienceFeeLabel={convenienceFeeLabel}
                     flatSetupFeeLabel={flatSetupFeeLabel}
                     setupFeeCollected={event.platformSetupFeeCollected}
+                    platformFeePromoApplied={Boolean(
+                      event.platformFeePromoCodeId &&
+                        event.platformSetupFeeCollected,
+                    )}
+                    promoCodeLast4={
+                      event.platformFeePromoCode?.code?.slice(-4) ?? null
+                    }
                   />
                 </div>
               ) : (
