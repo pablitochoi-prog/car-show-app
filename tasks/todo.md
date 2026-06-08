@@ -4129,3 +4129,491 @@ After approval, implementation starts at **Phase 1** and proceeds in order; upda
 
 **Note:** Run seed API (`POST /api/admin/knowledge-articles/seed`) once in each environment to backfill keywords on articles that were created before keywords were populated.
 
+---
+
+# Admin Promo Codes — Platform Fee Waiver (Plan)
+
+## Summary
+
+Site admins create single-use promo codes that waive the **Flat Platform Fee** for one event. Promo codes do **not** apply to **Convenience Fee per vehicle** billing. Organizers redeem codes from **Payment Settings** on the event edit page when `FLAT_EVENT` is selected and saved.
+
+**STOP — no implementation code until you approve this plan.**
+
+---
+
+## 1. Codebase inspection findings
+
+### 1.1 Current platform fee model (Prisma + libs)
+
+| Field / concept | Location | Behavior today |
+|-----------------|----------|----------------|
+| `Event.platformFeeMode` | `prisma/schema.prisma` | `CONVENIENCE` (default) or `FLAT_EVENT` |
+| `Event.platformSetupFeeCollected` | same | `true` = flat fee satisfied; locks billing mode |
+| `Event.paymentEnabled` | same | Set `true` when fee mode saved |
+| `isEventPlatformFeePaid()` | `src/lib/event-platform-fee.ts` | FLAT path: paid when `platformSetupFeeCollected` |
+| `requiresFlatPlatformFeePaymentBeforeListing()` | same | Blocks publish/schedule when FLAT + unpaid |
+| `isPlatformFeeModeLocked()` | `src/lib/event-platform-fee-mode-lock.ts` | Locks after flat fee paid or event live |
+| Stripe direct checkout | `POST /api/events/[id]/platform-setup-fee/checkout` | Creates platform Checkout session |
+| Stripe fulfillment | `src/lib/stripe-fulfill-platform-setup-fee.ts` | Sets `platformSetupFeeCollected: true` |
+| Publish guard | `PATCH /api/events/[id]` | Uses `requiresFlatPlatformFeePaymentBeforeListing` |
+| Clone event | `src/lib/clone-event.ts` | Resets `platformSetupFeeCollected: false` |
+
+**Key decision:** Reuse `platformSetupFeeCollected: true` for promo redemption (same unlock semantics as Stripe). Add `Event.platformFeePromoCodeId` FK for audit linkage — avoid parallel `platformFeeWaived*` booleans unless reporting needs them later.
+
+### 1.2 Current organizer Payment Settings UI
+
+| Item | File | Current state |
+|------|------|---------------|
+| Component | `src/components/stripe/event-payment-settings.tsx` | Client component |
+| Page host | `src/app/organizer/events/[id]/edit/page.tsx` | Collapsible “Payment Settings” card |
+| Fee choices | Radio: Convenience / Flat | ✓ exists |
+| Save button | “Save platform fee” | **Currently below** pay card + messages — **must reorder** |
+| Pay flat card | Shown when `FLAT_EVENT` && !`setupFeeCollected` | Single Stripe CTA only |
+| Pay Later | — | **Not implemented** (implicit: organizer can defer until publish) |
+| Enter Promo Code | — | **Not implemented** |
+
+**Desired UI order (per spec):**
+
+1. Two fee radio options
+2. **Save Platform Fee Preference** button (directly below radios)
+3. **Pay Flat Platform Fee** card (only when Flat selected + not yet covered)
+4. Promo success confirmation (replaces pay card when covered by promo)
+
+### 1.3 Admin patterns to reuse
+
+| Pattern | Reference files |
+|---------|-----------------|
+| Admin-only API guard | `src/lib/help/require-admin-api.ts` → `requireAdminApiUser()` + `isSiteAdmin()` |
+| Admin table list API | `GET /api/admin/knowledge-articles` + `parseAdminTableParams` |
+| Table config / filters | `src/lib/admin-table/knowledge-articles-table-config.ts`, `text-filter.ts` |
+| Admin table UI | `src/components/admin/admin-knowledge-repository-section.tsx`, `data-table/*` |
+| Bulk actions | `POST /api/admin/knowledge-articles/bulk` |
+| Global Settings link | `src/app/admin/page.tsx` → Knowledge Repository link pattern |
+| Admin layout / MFA | `src/app/admin/layout.tsx` — site admin + MFA gate |
+
+### 1.4 Organizer permission pattern
+
+Redemption and payment routes use `getCurrentUser()` + `canManageEvent(user.id, eventId, …, user.platformRole)` — same as `payment-settings` and `platform-setup-fee/checkout`.
+
+### 1.5 Promo code format — codebase style decision
+
+No existing promo-code generator in repo. **Recommendation:**
+
+- **Generate:** uppercase `A–Z` + `0–9` only, 16 characters, grouped visually as `XXXX-XXXX-XXXXXXXX` in admin UI (stored **without** hyphens = 16 chars)
+- **Validate on redeem / manual admin entry:** full allowed charset `A–Z a–z 0–9 _ - ! # $ %`, exactly 16 chars after trim
+- **Lookup:** case-sensitive exact match after trim (document in code + admin help text). Avoids ambiguous collisions; generated codes are uppercase-only so typical codes are case-insensitive in practice
+- **Normalize input:** trim whitespace only; do not uppercase on redeem (preserves intentional mixed-case codes if admin creates them)
+
+---
+
+## 2. Proposed Prisma schema
+
+### 2.1 New enum
+
+```prisma
+enum PlatformFeePromoCodeStatus {
+  DRAFT
+  ACTIVE
+  RESERVED
+  REDEEMED
+  EXPIRED
+  REVOKED
+  ARCHIVED
+}
+```
+
+### 2.2 New model `PlatformFeePromoCode`
+
+```prisma
+model PlatformFeePromoCode {
+  id                       String                     @id @default(uuid())
+  /// Canonical 16-char code (unique). Stored without display hyphens.
+  code                     String                     @unique @db.VarChar(16)
+  status                   PlatformFeePromoCodeStatus @default(DRAFT)
+  expiresAt                DateTime?
+  internalNotes            String?                    @db.Text
+
+  reservedOrganizationName String?
+  reservedEventName        String?
+  reservedEventState       String?
+
+  redeemedAt               DateTime?
+  redeemedByUserId         String?
+  redeemedEventId          String?                    @unique
+  redeemedOrganizationName String?
+  redeemedEventName        String?
+  redeemedEventState       String?
+
+  createdByUserId          String?
+  updatedByUserId          String?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  redeemedBy    User?  @relation("PlatformFeePromoRedeemedBy", fields: [redeemedByUserId], references: [id], onDelete: SetNull)
+  redeemedEvent Event? @relation("EventPlatformFeePromo", fields: [redeemedEventId], references: [id], onDelete: SetNull)
+  createdBy     User?  @relation("PlatformFeePromoCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy     User?  @relation("PlatformFeePromoUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([redeemedAt])
+  @@map("platform_fee_promo_codes")
+}
+```
+
+### 2.3 Event linkage (minimal)
+
+```prisma
+// On Event model — add:
+platformFeePromoCodeId String? @unique
+platformFeePromoCode   PlatformFeePromoCode? @relation("EventPlatformFeePromo")
+```
+
+### 2.4 User relations (add to `User` model)
+
+- `platformFeePromoCodesCreated`
+- `platformFeePromoCodesUpdated`
+- `platformFeePromoCodesRedeemed`
+
+### 2.5 Migration name
+
+`20260609120000_platform_fee_promo_codes`
+
+Run: `npx prisma migrate dev` locally; deploy migration before enabling admin UI in production.
+
+---
+
+## 3. Business rules (implementation contract)
+
+### 3.1 Redemption eligibility (organizer)
+
+All must pass; otherwise return generic error: *“This promo code is not valid or is no longer available.”*
+
+| Check | Rule |
+|-------|------|
+| Event mode | `platformFeeMode === FLAT_EVENT` (saved, not just UI selection) |
+| Not already covered | `platformSetupFeeCollected === false` and no `platformFeePromoCodeId` |
+| Code exists | Exact match after trim |
+| Code status | `ACTIVE` (or `RESERVED` with reservation match — see below) |
+| Not redeemed | `redeemedAt == null`, `redeemedEventId == null` |
+| Not expired | `expiresAt == null` OR `expiresAt > now()` |
+| Not revoked/archived | status not in `REVOKED`, `ARCHIVED`, `EXPIRED`, `REDEEMED`, `DRAFT` |
+| RESERVED match | If `RESERVED`: event org name / event name / event state must match reserved fields (case-insensitive trim); mismatch → generic error (no leak) |
+| Permission | `canManageEvent` for redeeming user |
+| Stripe org ready | Same as save payment settings — org `stripeChargesEnabled` |
+
+**Convenience fee:** redemption endpoint rejects when `platformFeeMode !== FLAT_EVENT` (same generic error).
+
+### 3.2 Redemption side effects (transaction)
+
+1. `PlatformFeePromoCode` → `REDEEMED`, set redemption metadata
+2. `Event` → `platformSetupFeeCollected: true`, `paymentEnabled: true`, `platformFeePromoCodeId: <id>`
+3. Billing mode lock engages via existing `isPlatformFeeModeLocked` (same as Stripe pay)
+
+### 3.3 Concurrency (single-use)
+
+Use `prisma.$transaction` with conditional update:
+
+```ts
+updateMany({
+  where: { id, code, status: { in: ['ACTIVE', 'RESERVED'] }, redeemedAt: null },
+  data: { status: 'REDEEMED', redeemedAt, … }
+})
+// count must === 1
+```
+
+Prevents double redemption under concurrent requests.
+
+### 3.4 Admin status transitions
+
+**Allowed bulk / row actions:**
+
+| From | To |
+|------|-----|
+| DRAFT | ACTIVE |
+| DRAFT | ARCHIVED |
+| ACTIVE | REVOKED |
+| ACTIVE | ARCHIVED |
+| REVOKED | ACTIVE (single-code edit with confirm; bulk optional) |
+| EXPIRED | ARCHIVED |
+
+**Blocked (require confirmation or disallow):**
+
+- `REDEEMED` → `ACTIVE` (never)
+- `ARCHIVED` → `ACTIVE` via bulk (single-code restore only with explicit confirm dialog)
+- Any change on `REDEEMED` except view/archive display
+
+**EXPIRED determination:** On redeem + admin list, treat `ACTIVE`/`RESERVED` with `expiresAt < now()` as expired (optionally auto-set status to `EXPIRED` on read or via Phase 2 cron).
+
+---
+
+## 4. API routes
+
+### 4.1 Admin (all use `requireAdminApiUser`)
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `GET` | `/api/admin/promo-codes` | List/filter/sort/paginate |
+| `POST` | `/api/admin/promo-codes` | Create (auto-generate code) |
+| `GET` | `/api/admin/promo-codes/[id]` | Single record (edit form / view redemption) |
+| `PATCH` | `/api/admin/promo-codes/[id]` | Edit status, expiration, notes, reservation fields |
+| `POST` | `/api/admin/promo-codes/bulk` | Bulk status change with action validation |
+
+### 4.2 Organizer
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `POST` | `/api/events/[id]/platform-fee/promo-code/redeem` | Redeem code for event |
+
+**Extend existing (no new route):**
+
+| Method | Route | Change |
+|--------|-------|--------|
+| `GET` | `/api/events/[id]/payment-settings` | Return `platformFeePromoApplied: boolean`, masked code hint e.g. last 4 chars |
+| `POST` | `/api/events/[id]/platform-setup-fee/checkout` | Reject if `platformSetupFeeCollected` (already paid or promo) |
+
+---
+
+## 5. Files to add
+
+### 5.1 Lib / validation
+
+| File | Purpose |
+|------|---------|
+| `src/lib/promo-codes/promo-code-charset.ts` | Allowed charset regex, 16-char validation |
+| `src/lib/promo-codes/promo-code-generator.ts` | Generate unique uppercase code + collision retry |
+| `src/lib/promo-codes/promo-code-status.ts` | Status labels, allowed transitions, bulk rules |
+| `src/lib/promo-codes/promo-code-redeem.ts` | Transactional redemption logic |
+| `src/lib/promo-codes/promo-code-redeem.test.ts` | Redemption unit tests |
+| `src/lib/promo-codes/promo-code-generator.test.ts` | Generator + collision tests |
+| `src/lib/promo-codes/promo-code-status.test.ts` | Bulk transition rules |
+| `src/lib/validation/promo-code.ts` | Zod schemas (create, edit, bulk, redeem) |
+| `src/lib/admin-table/promo-codes-table-config.ts` | Sort/filter/orderBy builders |
+
+### 5.2 API routes
+
+| File |
+|------|
+| `src/app/api/admin/promo-codes/route.ts` |
+| `src/app/api/admin/promo-codes/[id]/route.ts` |
+| `src/app/api/admin/promo-codes/bulk/route.ts` |
+| `src/app/api/events/[id]/platform-fee/promo-code/redeem/route.ts` |
+
+### 5.3 Admin UI
+
+| File |
+|------|
+| `src/app/admin/promo-codes/page.tsx` |
+| `src/app/admin/promo-codes/[id]/edit/page.tsx` (or slide-over drawer — prefer dedicated edit page for notes/reservation fields) |
+| `src/components/admin/admin-promo-codes-section.tsx` |
+| `src/components/admin/admin-promo-code-edit-form.tsx` |
+| `src/components/admin/admin-promo-code-bulk-actions.tsx` |
+
+### 5.4 Organizer UI
+
+| File |
+|------|
+| `src/components/stripe/event-platform-fee-promo.tsx` | Promo link, input, apply, success state (or inline in `event-payment-settings.tsx` if kept small) |
+
+---
+
+## 6. Files to modify
+
+| File | Changes |
+|------|---------|
+| `prisma/schema.prisma` | Enum, model, Event FK, User relations |
+| `src/components/stripe/event-payment-settings.tsx` | Reorder UI; add Pay card with Pay Now / Pay Later / Enter Promo Code; promo success state |
+| `src/app/api/events/[id]/payment-settings/route.ts` | Return promo-applied fields |
+| `src/app/api/events/[id]/platform-setup-fee/checkout/route.ts` | Guard already-paid/promo |
+| `src/app/organizer/events/[id]/edit/page.tsx` | Pass promo props if needed |
+| `src/lib/clone-event.ts` | Reset `platformFeePromoCodeId: null` |
+| `src/lib/event-platform-fee.ts` | Optional helper `isFlatPlatformFeeCoveredByPromo(event)` for UI copy |
+| `src/app/admin/page.tsx` | Global Settings → **Promo Codes** link card → `/admin/promo-codes` |
+| `src/components/forms/event-form.tsx` | Flat-fee publish dialog: mention promo option in Payment Settings (copy only) |
+
+---
+
+## 7. Admin UI spec
+
+### 7.1 Route structure
+
+- `/admin/promo-codes` — main table
+- `/admin/promo-codes/[id]/edit` — edit single code (status, expiration, notes, reservation)
+- Link from `/admin` → Global Settings → **Promo Codes** (same pattern as Knowledge Repository)
+
+### 7.2 Table columns
+
+| Column | Sort | Filter |
+|--------|------|--------|
+| Checkbox | — | — |
+| Promo code | ✓ | exact / contains (text filter modes) |
+| Status | ✓ | enum multi |
+| Created date | ✓ (default desc) | optional Phase 2 date range |
+| Modified date | ✓ | — |
+| Expiration date | ✓ | — |
+| Organization | — | contains (redeemed or reserved org name) |
+| Event name | — | contains |
+| Event state | — | contains |
+| Redeemed date | ✓ | optional Phase 2 |
+| Redeemed by | ✓ | — |
+| Actions | — | Edit, Activate, Revoke, Archive, View redemption |
+
+**Page sizes:** 10, 25, 50, 100 (reuse `AdminTableToolbar`).
+
+### 7.3 Create Promo Code
+
+- Button: **Create Promo Code**
+- Auto-generate unique 16-char uppercase code
+- Default status: `DRAFT` (admin can choose `ACTIVE` in create dialog)
+- Collision: retry up to N times (e.g. 10), then error
+
+### 7.4 Bulk actions
+
+- Select rows → bulk status dropdown → confirm dialog for destructive transitions
+- Validate transitions server-side in `promo-code-status.ts`
+
+---
+
+## 8. Organizer UI spec
+
+### 8.1 Payment Settings layout (`event-payment-settings.tsx`)
+
+```
+[Convenience fee radio]
+[Flat platform fee radio]
+[Save Platform Fee Preference]   ← moved up
+
+— if FLAT_EVENT selected in UI —
+
+[Pay Flat Platform Fee card]     ← only when saved mode is FLAT_EVENT (initialMode)
+  Primary:   Pay Platform Fee Now  → existing Stripe checkout
+  Secondary: Pay Later             → dismiss card / informational (no API)
+  Link:      Enter Promo Code      → toggles text input
+
+[Promo input when expanded]
+  Label: Promo code
+  Button: Apply Promo Code
+  Success: Flat platform fee covered by promo code
+  Error: This promo code is not valid or is no longer available.
+```
+
+**Gating:**
+
+- Pay card + promo: require `initialMode === 'FLAT_EVENT'` (saved preference), same as today’s pay button
+- If UI shows Flat but not saved: amber hint “Save your flat platform fee selection first”
+- After promo applied (`setupFeeCollected && promoApplied`): show confirmation, hide pay card
+- `Pay Later`: closes/collapses pay card; organizer can continue editing; publish still blocked until paid or promo applied
+
+### 8.2 Copy (exact)
+
+| Element | Text |
+|---------|------|
+| Link | Enter Promo Code |
+| Input label | Promo code |
+| Submit | Apply Promo Code |
+| Success | Promo code applied. Your flat platform fee is covered for this event. |
+| Error | This promo code is not valid or is no longer available. |
+| Covered state | Flat platform fee covered by promo code |
+
+---
+
+## 9. Test plan
+
+| Test file | Cases |
+|-----------|-------|
+| `promo-code-generator.test.ts` | 16 chars; allowed charset; uppercase default; collision retry |
+| `promo-code-charset.test.ts` | Valid/invalid codes per spec examples |
+| `promo-code-status.test.ts` | Allowed/blocked bulk transitions |
+| `promo-code-redeem.test.ts` | ACTIVE redeem once; REDEEMED/DRAFT/REVOKED/ARCHIVED/EXPIRED fail; RESERVED match/mismatch; concurrent double-redeem |
+| `promo-code-redeem.test.ts` | Rejects CONVENIENCE mode; requires `canManageEvent` |
+| API route tests (if pattern exists) | Admin routes 403 non-admin; list filter/sort |
+| `event-platform-fee.test.ts` | Extend: promo sets `platformSetupFeeCollected` → `isEventPlatformFeePaid` true |
+| Manual QA | Admin create → activate → organizer redeem → publish event without Stripe |
+
+**Build:** `npm run build` + `npm test` before merge.
+
+---
+
+## 10. Phased implementation
+
+### Phase 1 (this approval)
+
+- [x] **1.1** Prisma schema + migration `20260609120000_platform_fee_promo_codes`
+- [x] **1.2** Promo code lib (generator, charset, status rules, redeem transaction)
+- [x] **1.3** Admin API routes (list, create, edit, bulk)
+- [x] **1.4** Admin page `/admin/promo-codes` + Global Settings link on `/admin`
+- [x] **1.5** Organizer redeem API route
+- [x] **1.6** Payment Settings UI reorder + Pay card + promo entry + success state
+- [x] **1.7** Extend `GET payment-settings`; guard Stripe checkout (checkout already guarded via `platformSetupFeeCollected`)
+- [x] **1.8** Clone event reset `platformFeePromoCodeId`
+- [x] **1.9** Tests + build verification
+
+### Phase 2 (deferred)
+
+- [ ] CSV export/import for promo codes
+- [ ] RESERVED workflow polish (org picker vs free-text)
+- [ ] Redemption history detail page / audit log
+- [ ] Scheduled expiration job (`ACTIVE` → `EXPIRED`)
+- [ ] Date-range filters on created/redeemed columns
+
+---
+
+## 11. Risks and rollback
+
+| Risk | Mitigation |
+|------|------------|
+| Double redemption race | Transactional `updateMany` with `redeemedAt: null` guard |
+| Promo + Stripe double pay | `platformSetupFeeCollected` check on checkout; idempotent fulfill |
+| Leaking reserved-code info | Generic error for all invalid states |
+| Wrong fee mode | Require saved `FLAT_EVENT` before redeem |
+| Clone inherits promo | Reset `platformFeePromoCodeId` on clone (fee already reset) |
+| Admin typo on manual code | Charset + length validation; DB unique constraint |
+
+**Rollback:**
+
+1. Revert app deploy
+2. Migration is additive — old app ignores new columns/tables
+3. If needed: disable admin link; redemption endpoint returns 503 via feature flag (optional env `PROMO_CODES_ENABLED=false` — only if we add flag in Phase 1)
+
+---
+
+## 12. Review gate
+
+**STOP — awaiting your approval before any implementation.**
+
+Reply with: **approved as-is**, or note changes to:
+
+- Case sensitivity (exact vs normalize-uppercase on redeem)
+- RESERVED matching rules (exact vs contains on org/event names)
+- UI layout (separate promo component vs all in `event-payment-settings.tsx`)
+- Whether `Pay Later` should persist collapsed state in localStorage
+- Phase 1 scope (e.g. skip bulk actions initially)
+
+After approval, implementation starts at **Phase 1.1** and proceeds in order; checkboxes above will be updated as work completes.
+
+### Review (planning phase)
+
+| Item | Notes |
+|------|-------|
+| Date | 2026-05-31 |
+| Existing fee flag | Reuse `platformSetupFeeCollected`; add `platformFeePromoCodeId` FK only |
+| UI host | `event-payment-settings.tsx` inside edit page Payment Settings |
+| Admin pattern | Mirror Knowledge Repository table + `requireAdminApiUser` |
+| Code generation | Uppercase `A–Z0–9` default; validate full charset on redeem |
+| Case sensitivity | **Exact match after trim** (documented) |
+| Migration | `20260609120000_platform_fee_promo_codes` |
+
+### Review (Phase 1 — implemented 2026-05-31)
+
+| Area | Change |
+|------|--------|
+| Migration | `20260609120000_platform_fee_promo_codes` — `PlatformFeePromoCode` model + `Event.platformFeePromoCodeId` |
+| Redemption | Case-insensitive lookup (trim + uppercase letters); only `ACTIVE` codes redeemable |
+| Event state | `platformSetupFeeCollected = true` + `platformFeePromoCodeId` on success |
+| Organizer UI | Payment Settings reordered; Pay Now / Pay Later / Enter Promo Code |
+| Admin UI | `/admin/promo-codes` table with create, edit, bulk status, row actions |
+| Tests | 25 promo unit tests passing; help tests passing; `npm run build` passed |
+| Deferred | RESERVED matching, CSV export, expiration cron, redemption detail page (Phase 2) |
+
+**Manual QA:** Run migration → Admin create ACTIVE code → Organizer event edit → save Flat Platform Fee → Apply promo → confirm publish no longer blocked by flat fee → confirm code shows REDEEMED in admin.
+

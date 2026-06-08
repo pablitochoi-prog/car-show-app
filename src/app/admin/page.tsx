@@ -208,6 +208,20 @@ export default async function AdminDashboardPage() {
               />
             </CollapsibleCard>
 
+            <CollapsibleCard title="Promo Codes" defaultOpen={false}>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Create single-use promo codes that waive the CarShowScout flat
+                platform fee for one event. Promo codes apply only when an
+                organizer chooses Flat Platform Fee billing.
+              </p>
+              <Link
+                href="/admin/promo-codes"
+                className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                Open Promo Codes →
+              </Link>
+            </CollapsibleCard>
+
             <CollapsibleCard title="Knowledge Repository" defaultOpen={false}>
               <p className="mb-3 text-xs text-muted-foreground">
                 Manage Help Center articles, categories, publish status, and CSV

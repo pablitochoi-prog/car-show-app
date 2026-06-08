@@ -45,6 +45,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
         status: true,
         platformFeeMode: true,
         platformSetupFeeCollected: true,
+        platformFeePromoCodeId: true,
+        platformFeePromoCode: { select: { code: true } },
       },
     }),
     getPlatformFee(),
@@ -61,9 +63,18 @@ export async function GET(_request: Request, { params }: RouteParams) {
     platformSetupFeeCollected: event.platformSetupFeeCollected,
   });
 
+  const platformFeePromoApplied = Boolean(
+    event.platformFeePromoCodeId && event.platformSetupFeeCollected,
+  );
+  const promoCodeLast4 = event.platformFeePromoCode?.code
+    ? event.platformFeePromoCode.code.slice(-4)
+    : null;
+
   return NextResponse.json({
     platformFeeMode: event.platformFeeMode,
     platformSetupFeeCollected: event.platformSetupFeeCollected,
+    platformFeePromoApplied,
+    promoCodeLast4,
     platformFeeModeLocked: modeLocked,
     platformFeeModeLockReason: platformFeeModeLockReason({
       status: event.status,
