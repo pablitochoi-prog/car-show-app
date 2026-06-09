@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { logObservabilityError } from "@/lib/structured-logging";
 
 export async function middleware(request: NextRequest) {
   try {
     return await updateSession(request);
   } catch (err) {
-    console.error("[middleware]", err);
+    logObservabilityError({ source: "middleware", error: err });
     // API routes must never receive Next.js HTML error pages (breaks fetch().json()).
     if (request.nextUrl.pathname.startsWith("/api/")) {
       const msg =
