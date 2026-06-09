@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import type { User } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
+import { logObservabilityError } from "@/lib/structured-logging";
 import {
   checkSessionIdle,
   idleExcludedPath,
@@ -75,7 +76,7 @@ export async function updateSession(request: NextRequest) {
     const res = await supabase.auth.getUser();
     user = res.data.user;
   } catch (e) {
-    console.error("[middleware] supabase.auth.getUser()", e);
+    logObservabilityError({ source: "middleware.getUser", error: e });
     throw e;
   }
 
@@ -206,7 +207,7 @@ export async function updateSession(request: NextRequest) {
         }
       }
     } catch (e) {
-      console.error("[middleware] session-guards check failed", e);
+      logObservabilityError({ source: "middleware.sessionGuards", error: e });
     }
   }
 

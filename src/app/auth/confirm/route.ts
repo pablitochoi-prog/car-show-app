@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseForResponse } from "@/lib/supabase/route-handler";
 import { prisma } from "@/lib/db";
 import { resolveSafeRedirectOrigin } from "@/lib/safe-redirect-origin";
+import { logObservabilityError } from "@/lib/structured-logging";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 function safeNextPath(next: string | null): string {
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
   });
 
   if (verifyErr) {
-    console.error("Auth confirm verifyOtp error:", verifyErr.message);
+    logObservabilityError({ source: "auth.confirm.verifyOtp", error: verifyErr });
     const login = new URL("/login", url.origin);
     login.searchParams.set("error", verifyErr.message);
     return NextResponse.redirect(login);
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
         });
       }
     } catch (syncErr) {
-      console.error("Auth confirm email sync error:", syncErr);
+      logObservabilityError({ source: "auth.confirm.emailSync", error: syncErr });
     }
   }
 

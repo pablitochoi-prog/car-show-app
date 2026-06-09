@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseForResponse } from "@/lib/supabase/route-handler";
 import { prisma } from "@/lib/db";
 import { resolveSafeRedirectOrigin } from "@/lib/safe-redirect-origin";
+import { logObservabilityError } from "@/lib/structured-logging";
 
 function safeNextPath(next: string | null): string {
   if (!next || !next.startsWith("/") || next.startsWith("//")) {
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
       type: otpType as "email_change" | "recovery" | "email",
     });
     if (verifyErr) {
-      console.error("Auth callback verifyOtp error:", verifyErr.message);
+      logObservabilityError({ source: "auth.callback.verifyOtp", error: verifyErr });
       const login = new URL("/login", url.origin);
       login.searchParams.set("error", verifyErr.message);
       return NextResponse.redirect(login);
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
     /* PKCE code-exchange flow: standard login / signup callbacks. */
     const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
     if (exchangeErr) {
-      console.error("Auth callback exchange error:", exchangeErr.message);
+      logObservabilityError({ source: "auth.callback.exchange", error: exchangeErr });
       const login = new URL("/login", url.origin);
       login.searchParams.set("error", exchangeErr.message);
       return NextResponse.redirect(login);
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
       });
     }
   } catch (syncErr) {
-    console.error("Auth callback email sync error:", syncErr);
+    logObservabilityError({ source: "auth.callback.emailSync", error: syncErr });
   }
 
   return response;

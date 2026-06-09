@@ -3,6 +3,7 @@ import { getCurrentUser, requireOrgOwner } from "@/lib/auth";
 import { createAccountLink, resolveStripeAppOrigin } from "@/lib/stripe-connect";
 import { createAccountLinkSchema } from "@/lib/validation/stripe";
 import { prisma } from "@/lib/db";
+import { logObservabilityError } from "@/lib/structured-logging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,7 +65,11 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ url });
   } catch (err) {
-    console.error("[POST /api/stripe/connect/create-account-link]", err);
+    logObservabilityError({
+      source: "stripe.connect.createAccountLink.POST",
+      error: err,
+      meta: { orgId },
+    });
     return NextResponse.json(
       { error: "Failed to create onboarding link. Please try again." },
       { status: 500 },
@@ -113,7 +118,11 @@ export async function GET(request: Request) {
     });
     return NextResponse.redirect(url);
   } catch (err) {
-    console.error("[GET /api/stripe/connect/create-account-link]", err);
+    logObservabilityError({
+      source: "stripe.connect.createAccountLink.GET",
+      error: err,
+      meta: { orgId },
+    });
     return NextResponse.redirect(`${origin}/dashboard/clubs`);
   }
 }

@@ -24,6 +24,28 @@ describe("sanitizeErrorMessage", () => {
     expect(msg).toContain("[checkout_session]");
     expect(msg).not.toContain("pi_abc123");
   });
+
+  it("redacts stripe secret keys", () => {
+    const msg = sanitizeErrorMessage("key=sk_live_abcdefghijklmnop used");
+    expect(msg).toContain("[stripe_secret]");
+    expect(msg).not.toContain("sk_live_");
+  });
+
+  it("redacts JWT-shaped strings (Supabase access tokens)", () => {
+    // A realistic-looking JWT (three base64url segments, first starts with eyJ).
+    const fakeJwt =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" +
+      ".eyJzdWIiOiJ1c2VyLTEyMyJ9" +
+      ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+    const msg = sanitizeErrorMessage(`Auth failed: ${fakeJwt}`);
+    expect(msg).toContain("[token]");
+    expect(msg).not.toContain("eyJhbGci");
+  });
+
+  it("does not alter normal text that contains no PII", () => {
+    const plain = "Database connection timed out after 30 seconds";
+    expect(sanitizeErrorMessage(plain)).toBe(plain);
+  });
 });
 
 describe("sanitizeErrorForLog", () => {

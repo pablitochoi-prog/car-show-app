@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
+import { buildSecurityHeaders } from "@/lib/security-headers";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@opentelemetry/api"],
@@ -21,23 +22,8 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
-    return [
-      {
-        source: "/(.*)",
-        headers: [
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          {
-            key: "Referrer-Policy",
-            value: "strict-origin-when-cross-origin",
-          },
-          {
-            key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
-          },
-        ],
-      },
-    ];
+    const isProduction = process.env.NODE_ENV === "production";
+    return [{ source: "/(.*)", headers: buildSecurityHeaders(isProduction) }];
   },
 };
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, requireOrgOwner } from "@/lib/auth";
 import { resolveStripeAppOrigin, syncAccountStatus } from "@/lib/stripe-connect";
 import { prisma } from "@/lib/db";
+import { logObservabilityError } from "@/lib/structured-logging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,7 +57,11 @@ export async function GET(request: Request) {
       stripeResult = "incomplete";
     }
   } catch (err) {
-    console.error("[GET /api/stripe/connect/return] sync failed", err);
+    logObservabilityError({
+      source: "stripe.connect.return.sync",
+      error: err,
+      meta: { orgId: orgId ?? undefined },
+    });
   }
 
   const destPath = safeReturnTo ?? "/dashboard/stripe/return";

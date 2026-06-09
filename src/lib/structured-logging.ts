@@ -37,6 +37,12 @@ export function sanitizeErrorMessage(message: string): string {
   s = s.replace(/\bsk_(live|test)_[A-Za-z0-9]+\b/gi, "[stripe_secret]");
   s = s.replace(/\bpi_[A-Za-z0-9]+\b/gi, "[payment_intent]");
   s = s.replace(/\bcs_(live|test)_[A-Za-z0-9]+\b/gi, "[checkout_session]");
+  // Redact JWT-shaped strings (Supabase access tokens, service role keys, etc.)
+  // Pattern: three base64url segments separated by dots, first segment starts with "eyJ".
+  s = s.replace(
+    /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+    "[token]",
+  );
   if (s.length > 240) s = `${s.slice(0, 237)}...`;
   return s;
 }
