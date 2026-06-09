@@ -7,6 +7,7 @@ import {
   getCurrentUser,
   getOrgMembership,
 } from "@/lib/auth";
+import { isSiteAdmin } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import {
   privateAssetsR2,
@@ -73,6 +74,7 @@ type PresignBody = {
   clubId?: unknown;
   organizerId?: unknown;
   sponsorId?: unknown;
+  listingId?: unknown;
   importJobId?: unknown;
 };
 
@@ -83,6 +85,7 @@ type KeyPrefixArgs = {
   clubId?: string;
   organizerId?: string;
   sponsorId?: string;
+  listingId?: string;
   importJobId?: string;
 };
 
@@ -194,6 +197,7 @@ async function resolveKeyArgs(
     clubId: parseStringField(body.clubId),
     organizerId: parseStringField(body.organizerId),
     sponsorId: parseStringField(body.sponsorId),
+    listingId: parseStringField(body.listingId),
     importJobId: parseStringField(body.importJobId),
   };
 
@@ -215,59 +219,81 @@ async function authorizeUpload(
   currentUserId: string,
   platformRole: string | undefined,
 ): Promise<string | null> {
+  // --- Per-purpose explicit authorization (deny-by-default at end) ---
+
   if (purpose === "privateVehiclePhoto") {
+    // Ownership checked in resolveKeyArgs via canAccessVehicle.
     return null;
   }
 
-  const destination = uploadDestinations[purpose];
-
-  if (destination.requiredFields.includes("userId")) {
-    if (!args.userId || args.userId !== currentUserId) {
-      return "Forbidden";
-    }
-  } else if (args.userId && args.userId !== currentUserId) {
-    return "Forbidden";
+  if (purpose === "privateProfilePhoto" || purpose === "privateDocument") {
+    // Must be uploading for yourself.
+    if (!args.userId || args.userId !== currentUserId) return "Forbidden";
+    return null;
   }
 
-  if (destination.requiredFields.includes("organizerId")) {
-    if (!args.organizerId || args.organizerId !== currentUserId) {
-      return "Forbidden";
-    }
+  if (purpose === "organizerLogo") {
+    if (!args.organizerId || args.organizerId !== currentUserId) return "Forbidden";
+    return null;
   }
 
-  if (destination.requiredFields.includes("clubId")) {
+  if (purpose === "clubLogo") {
     if (!args.clubId) return "Missing clubId";
     const membership = await getOrgMembership(currentUserId, args.clubId);
     if (!membership) return "Forbidden";
+    return null;
+  }
+
+  if (purpose === "platformSponsorLogo") {
+    // Platform-wide asset: restricted to site admins only.
+    if (!isSiteAdmin({ platformRole: (platformRole ?? "USER") as never })) {
+      return "Forbidden";
+    }
+    return null;
   }
 
   if (ORGANIZER_EVENT_PURPOSES.has(purpose)) {
     const eventId = args.eventId ?? args.sponsorId;
     if (!eventId) return "Missing eventId";
-    const allowed = await canManageEvent(
-      currentUserId,
-      eventId,
-      undefined,
-      platformRole,
-    );
+    const allowed = await canManageEvent(currentUserId, eventId, undefined, platformRole);
     if (!allowed) return "Forbidden";
+    return null;
   }
 
   if (VEHICLE_EVENT_PURPOSES.has(purpose)) {
-    if (!args.eventId || !args.vehicleId) {
-      return "Missing eventId or vehicleId";
-    }
-    const managesEvent = await canManageEvent(
-      currentUserId,
-      args.eventId,
-      undefined,
-      platformRole,
-    );
+    if (!args.eventId || !args.vehicleId) return "Missing eventId or vehicleId";
+    const managesEvent = await canManageEvent(currentUserId, args.eventId, undefined, platformRole);
     const ownsVehicle = await userOwnsVehicle(currentUserId, args.vehicleId);
     if (!managesEvent && !ownsVehicle) return "Forbidden";
+    return null;
   }
 
-  return null;
+  if (purpose === "vehicleSalePhoto") {
+    // Must be event manager OR owner of the listing/registration.
+    if (!args.eventId || !args.listingId) return "Missing eventId or listingId";
+    const managesEvent = await canManageEvent(currentUserId, args.eventId, undefined, platformRole);
+    if (managesEvent) return null;
+
+    const listing = await prisma.vehicleSaleListing.findFirst({
+      where: { id: args.listingId, eventId: args.eventId },
+      select: { sellerUserId: true, registration: { select: { userId: true } } },
+    });
+    if (!listing) return "Listing not found";
+    const ownsListing =
+      listing.sellerUserId === currentUserId ||
+      listing.registration?.userId === currentUserId;
+    if (!ownsListing) return "Forbidden";
+    return null;
+  }
+
+  if (purpose === "importRawFile") {
+    // Server-generated importJobId; any authenticated user may upload.
+    // The importJobId is validated as present by validateRequiredUploadFields.
+    return null;
+  }
+
+  // Deny-by-default: any purpose not explicitly handled above is forbidden.
+  return "Forbidden";
 }
 
 export async function POST(request: Request) {

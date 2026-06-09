@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { uploadEventAsset } from "@/lib/storage/event-assets";
+import {
+  enforcePublicRateLimit,
+  hashRateLimitKey,
+  resolveClientIp,
+  resolvePublicRateLimitConfig,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -18,6 +24,17 @@ type RouteParams = { params: Promise<{ id: string }> };
 /** Public vehicle photo upload during guest registration (before account exists). */
 export async function POST(request: Request, { params }: RouteParams) {
   const { id: eventId } = await params;
+
+  // Rate-limit by IP: reuses guestRegister limits (10 per 10 min per IP).
+  const ip = resolveClientIp(request);
+  const rateLimitKey = `guest-upload:${eventId}:${ip ? hashRateLimitKey(ip) : "no-ip"}`;
+  const rateLimitBlocked = enforcePublicRateLimit({
+    route: "events.[id].register-guest.upload",
+    scope: "guest-upload",
+    key: rateLimitKey,
+    config: resolvePublicRateLimitConfig("guestRegister"),
+  });
+  if (rateLimitBlocked) return rateLimitBlocked;
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
