@@ -4,6 +4,18 @@ import { getCurrentUser, canManageEvent } from "@/lib/auth";
 import { getEventStaffList } from "@/lib/event-staff";
 import { updateEventAwardBallotSpecialJudge } from "@/lib/judging/event-award-ballot-link";
 
+/** Return the set of userIds that hold the special_judge role on this event. */
+async function getSpecialJudgeUserIds(eventId: string): Promise<Set<string>> {
+  const links = await prisma.eventStaffRoleLink.findMany({
+    where: {
+      staffMember: { eventId },
+      role: { slug: "special_judge" },
+    },
+    include: { staffMember: { select: { userId: true } } },
+  });
+  return new Set(links.map((l) => l.staffMember.userId));
+}
+
 type RouteParams = { params: Promise<{ id: string; eventAwardId: string }> };
 
 export async function PATCH(request: Request, { params }: RouteParams) {
@@ -78,6 +90,22 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       },
       { status: 400 },
     );
+  }
+
+  if (requiresSpecialJudge && judgeIds.length > 0) {
+    // Validate that every supplied id actually holds the special_judge role on
+    // this event. Rejects arbitrary user ids that are not event staff.
+    const validIds = await getSpecialJudgeUserIds(eventId);
+    const invalid = judgeIds.filter((id) => !validIds.has(id));
+    if (invalid.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "One or more selected users do not have the Special Judge role for this event.",
+        },
+        { status: 400 },
+      );
+    }
   }
 
   try {

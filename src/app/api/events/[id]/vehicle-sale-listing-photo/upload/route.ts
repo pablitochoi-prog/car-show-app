@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { uploadEventAsset } from "@/lib/storage/event-assets";
+import {
+  enforcePublicRateLimit,
+  hashRateLimitKey,
+  resolveClientIp,
+  resolvePublicRateLimitConfig,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -13,11 +19,25 @@ const ALLOWED_IMAGE = new Set([
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 /** Public sale-listing photo upload during registration (logged-in or guest). */
 export async function POST(request: Request, { params }: RouteParams) {
   const { id: eventId } = await params;
+
+  // Rate-limit by IP: 20 uploads per 10 min per IP.
+  const ip = resolveClientIp(request);
+  const rateLimitKey = `sale-photo-upload:${eventId}:${ip ? hashRateLimitKey(ip) : "no-ip"}`;
+  const rateLimitBlocked = enforcePublicRateLimit({
+    route: "events.[id].vehicle-sale-listing-photo.upload",
+    scope: "sale-photo-upload",
+    key: rateLimitKey,
+    config: resolvePublicRateLimitConfig("guestRegister"),
+  });
+  if (rateLimitBlocked) return rateLimitBlocked;
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -45,12 +65,17 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const listingId = String(formData.get("listingId") ?? "").trim();
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      listingId,
-    )
-  ) {
+  if (!UUID_RE.test(listingId)) {
     return NextResponse.json({ error: "Invalid listing id." }, { status: 400 });
+  }
+
+  // Cross-event IDOR: verify the listing actually belongs to this event.
+  const listing = await prisma.vehicleSaleListing.findUnique({
+    where: { id: listingId },
+    select: { eventId: true },
+  });
+  if (!listing || listing.eventId !== eventId) {
+    return NextResponse.json({ error: "Listing not found." }, { status: 404 });
   }
 
   const file = formData.get("file");

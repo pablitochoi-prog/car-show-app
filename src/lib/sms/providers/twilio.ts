@@ -38,9 +38,15 @@ export function formDataToParamRecord(form: FormData): Record<string, string> {
 
 /**
  * Public URL Twilio signed against (Vercel/proxies terminate SSL and set x-forwarded-*).
- * Must match the webhook URL configured in the Twilio console exactly.
+ *
+ * If TWILIO_WEBHOOK_URL is set it is used directly, preventing spoofed
+ * x-forwarded-host from changing the URL used for signature reconstruction.
+ * Otherwise falls back to reconstructing from request headers (legacy).
  */
 export function buildTwilioWebhookUrl(request: Request): string {
+  const pinned = process.env.TWILIO_WEBHOOK_URL?.trim();
+  if (pinned) return pinned;
+
   const parsed = new URL(request.url);
   const proto =
     request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ??
@@ -50,6 +56,24 @@ export function buildTwilioWebhookUrl(request: Request): string {
     request.headers.get("host")?.trim() ??
     parsed.host;
   return `${proto}://${host}${parsed.pathname}${parsed.search}`;
+}
+
+/**
+ * Return the configured Twilio auth token, or null if not set.
+ * Throws when the token is absent in a production environment to prevent
+ * unauthenticated requests from being processed (fail-closed).
+ *
+ * @param nodeEnv - overridable for testing; defaults to process.env.NODE_ENV
+ */
+export function getTwilioAuthToken(nodeEnv?: string): string | null {
+  const token = process.env.TWILIO_AUTH_TOKEN?.trim() || null;
+  const env = nodeEnv ?? process.env.NODE_ENV;
+  if (!token && env === "production") {
+    throw new Error(
+      "TWILIO_AUTH_TOKEN is not configured. Set it to enable Twilio webhook signature validation.",
+    );
+  }
+  return token;
 }
 
 /** Validate Twilio webhook signature (X-Twilio-Signature). */

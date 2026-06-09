@@ -5,6 +5,7 @@ import {
   buildTwilioTwimlResponse,
   buildTwilioWebhookUrl,
   formDataToParamRecord,
+  getTwilioAuthToken,
   parseTwilioFormData,
   validateTwilioSignature,
 } from "@/lib/sms/providers/twilio";
@@ -42,7 +43,17 @@ export async function POST(request: Request) {
     });
   }
 
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  let authToken: string | null;
+  try {
+    authToken = getTwilioAuthToken();
+  } catch {
+    // getTwilioAuthToken throws in production when the token is absent.
+    return new NextResponse(buildTwilioTwimlResponse("Service unavailable."), {
+      status: 503,
+      headers: { "Content-Type": "text/xml" },
+    });
+  }
+
   if (authToken) {
     const headerList = await headers();
     const signature = headerList.get("x-twilio-signature");
