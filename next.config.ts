@@ -3,6 +3,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 import { buildSecurityHeaders } from "@/lib/security-headers";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   serverExternalPackages: ["@opentelemetry/api"],
   experimental: {
     middlewareClientMaxBodySize: "12mb",
