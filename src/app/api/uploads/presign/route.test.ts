@@ -189,3 +189,58 @@ describe("uploads/presign authorization", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("uploads/presign — importRawFile authorization gap", () => {
+  // TODO(security): importRawFile presign allows ANY authenticated user to upload
+  // to any importJobId path. The importJobId should be validated against a DB record
+  // owned by the requesting user before presigning. Tracked for follow-up in PR5.
+  //
+  // Current behavior (documented below): a regular user with a valid importJobId
+  // receives a presigned URL, regardless of whether they created the import job.
+
+  it("grants any authenticated user a presigned URL for importRawFile (known gap)", async () => {
+    h.getCurrentUser.mockResolvedValue(userWith("USER"));
+    const res = await POST(
+      makeRequest({
+        uploadPurpose: "importRawFile",
+        filename: "data.csv",
+        contentType: "text/csv",
+        sizeBytes: 1024,
+        importJobId: "00000000-0000-1000-8000-000000000001",
+      }),
+    );
+    // Passes today — documents that no ownership check is performed.
+    expect(res.status).toBe(200);
+    const json = await res.json() as { uploadUrl: string; visibility: string };
+    expect(json.uploadUrl).toBeTruthy();
+    expect(json.visibility).toBe("private");
+  });
+
+  it("rejects unauthenticated requests for importRawFile", async () => {
+    h.getCurrentUser.mockResolvedValue(null);
+    const res = await POST(
+      makeRequest({
+        uploadPurpose: "importRawFile",
+        filename: "data.csv",
+        contentType: "text/csv",
+        sizeBytes: 1024,
+        importJobId: "00000000-0000-1000-8000-000000000001",
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects importRawFile when importJobId is missing", async () => {
+    h.getCurrentUser.mockResolvedValue(userWith("USER"));
+    const res = await POST(
+      makeRequest({
+        uploadPurpose: "importRawFile",
+        filename: "data.csv",
+        contentType: "text/csv",
+        sizeBytes: 1024,
+        // importJobId intentionally omitted
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+});

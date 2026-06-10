@@ -3,6 +3,7 @@ import { getCurrentUser, requireOrgOwner } from "@/lib/auth";
 import { syncAccountStatus } from "@/lib/stripe-connect";
 import { refreshStatusSchema } from "@/lib/validation/stripe";
 import { prisma } from "@/lib/db";
+import { logObservabilityError } from "@/lib/structured-logging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,7 +64,11 @@ export async function POST(request: Request) {
       requirementErrors: sync.requirementErrors,
     });
   } catch (err) {
-    console.error("[POST /api/stripe/connect/refresh-status]", err);
+    logObservabilityError({
+      source: "stripe.connect.refreshStatus",
+      error: err,
+      meta: { orgId },
+    });
     return NextResponse.json(
       { error: "Failed to refresh status from Stripe" },
       { status: 500 }
